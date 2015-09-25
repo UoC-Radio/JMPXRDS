@@ -1,0 +1,5 @@
+#!/bin/bash
+
+mkdir -p build
+gcc -O2 -DUSE_WAVE_TABLE -DUSE_CUBIC_INTERPOLATION filters.c oscilator.c resampler.c rds_encoder.c rds_config.c fmmod.c main.c -ljack -lm -lsamplerate -lrt -o build/jmpxrds
+gcc -O2 rds_config.c rds_tool.c -lrt -o build/rds_tool
