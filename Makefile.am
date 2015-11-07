@@ -14,3 +14,7 @@ distclean-local:
 	-rm configure
 	-rm *.in
 	-rm *~
+
+# Do nothing
+test:
+
