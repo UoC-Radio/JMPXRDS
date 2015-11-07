@@ -8,6 +8,8 @@ compiler:
  - gcc
  - g++
 
+sudo: required
+
 addons:
   apt:
     packages:
