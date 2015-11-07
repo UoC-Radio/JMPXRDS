@@ -8,12 +8,10 @@ compiler:
  - gcc
  - g++
 
-sudo: false
-
 addons:
   apt:
     packages:
-    - libjack-dev
+    - libjack-jackd2-dev
     - libsamplerate0-dev
 
 before_script:
