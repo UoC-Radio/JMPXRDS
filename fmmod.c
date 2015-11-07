@@ -20,6 +20,7 @@
 
 #include <jack/transport.h>
 #include <stdlib.h> /* For malloc() */
+#include <unistd.h> /* For ftruncate(), close() */
 #include <string.h> /* For memset() */
 #include <stdio.h> /* For printf */
 #include <sys/mman.h>	/* For shm_open */
@@ -205,9 +206,9 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
 	struct audio_filter *aflt = &fmmod->aflt;
 
-	left_in = jack_port_get_buffer(fmmod->inL, nframes);
-	right_in = jack_port_get_buffer(fmmod->inR, nframes);
-	mpx_out = jack_port_get_buffer(fmmod->outMPX, nframes);
+	left_in = (float*) jack_port_get_buffer(fmmod->inL, nframes);
+	right_in = (float*) jack_port_get_buffer(fmmod->inR, nframes);
+	mpx_out = (float*) jack_port_get_buffer(fmmod->outMPX, nframes);
 	mpxbuf = fmmod->mpxbuf;
 
 	/* Apply audio filter on input and merge the two
@@ -401,9 +402,10 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	}
 
 
-	fmmod->enc = mmap(0, sizeof(struct rds_encoder),
-				PROT_READ | PROT_WRITE, MAP_SHARED,
-				rds_enc_fd, 0);
+	fmmod->enc = (struct rds_encoder*)
+				mmap(0, sizeof(struct rds_encoder),
+				     PROT_READ | PROT_WRITE, MAP_SHARED,
+				     rds_enc_fd, 0);
 	if(fmmod->enc == MAP_FAILED) {
 		ret = FMMOD_ERR_SHM_ERR;
 		goto cleanup;

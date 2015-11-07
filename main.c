@@ -19,6 +19,7 @@
  */
 
 #include <stdlib.h> /* For NULL */
+#include <unistd.h> /* For sleep() */
 #include <stdio.h> /* For printf */
 #include <sched.h> /* For sched_setscheduler etc */
 #include <signal.h> /* For signal handling */

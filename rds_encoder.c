@@ -681,13 +681,15 @@ rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 
 	memset(enc, 0, sizeof(struct rds_encoder));
 
-	enc->current_group = malloc(sizeof(struct rds_group));
+	enc->current_group = (struct rds_group*)
+				malloc(sizeof(struct rds_group));
 	if(enc->current_group == NULL) {
 		ret = -1;
 		goto cleanup;
 	}
 
-	enc->upsampler = malloc(sizeof(struct rds_upsampler));
+	enc->upsampler = (struct rds_upsampler*)
+				malloc(sizeof(struct rds_upsampler));
 	if(enc->upsampler == NULL) {
 		ret = -1;
 		goto cleanup;
