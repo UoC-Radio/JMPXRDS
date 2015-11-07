@@ -162,6 +162,10 @@ float rds_get_next_sample(struct rds_encoder *enc);
 /* Getters/Setters */
 uint16_t rds_get_pi(struct rds_encoder *enc);
 int rds_set_pi(struct rds_encoder *enc, uint16_t pi);
+uint8_t rds_get_ecc(struct rds_encoder *enc);
+int rds_set_ecc(struct rds_encoder *enc, uint8_t ecc);
+uint16_t rds_get_lic(struct rds_encoder *enc);
+int rds_set_lic(struct rds_encoder *enc, uint16_t lic);
 uint8_t rds_get_pty(struct rds_encoder *enc);
 int rds_set_pty(struct rds_encoder *enc, uint8_t pty);
 uint8_t rds_get_ta(struct rds_encoder *enc);

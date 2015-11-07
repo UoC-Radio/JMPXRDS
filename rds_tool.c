@@ -18,12 +18,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <sys/mman.h>	/* For shm_open */
-#include <sys/stat.h>	/* For mode constants */
-#include <fcntl.h>	/* For O_* constants */
-#include <string.h>	/* For strnlen / strncmp */
-#include <stdio.h>	/* For printf / snprintf */
 #include <stdlib.h>	/* For atoi */
+#include <stdio.h>	/* For printf / snprintf */
+#include <unistd.h>
+#include <string.h>	/* For strnlen / strncmp */
+#include <sys/mman.h>	/* For shm_open */
+#include <fcntl.h>	/* For O_* constants */
+#include <sys/stat.h>	/* For mode constants */
 #include "rds_encoder.h"
 
 #define TEMP_BUF_LEN	RDS_RT_LENGTH + 1
@@ -71,9 +72,10 @@ main(int argc, char *argv[])
 	}
 
 
-	enc = mmap(0, sizeof(struct rds_encoder),
-				PROT_READ | PROT_WRITE, MAP_SHARED,
-				rds_enc_fd, 0);
+	enc = (struct rds_encoder*)
+				mmap(0, sizeof(struct rds_encoder),
+				     PROT_READ | PROT_WRITE, MAP_SHARED,
+				     rds_enc_fd, 0);
 	if(enc == MAP_FAILED) {
 		ret = -5;
 		goto cleanup;
