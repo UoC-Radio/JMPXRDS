@@ -8,7 +8,7 @@ compiler:
  - gcc
  - g++
 
-sudo: required
+sudo: false
 
 addons:
   apt:
