@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "config.h"
 
 /* We want a clean 38KHz tone because we 'll use that for A.M.
  * After experimenting with different sample rates I ended up
