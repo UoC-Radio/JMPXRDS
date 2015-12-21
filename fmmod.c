@@ -17,16 +17,18 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
+#define _GNU_SOURCE	/* F_SETPIPE_Z is Linux specific */
+#include "fmmod.h"
 #include <jack/transport.h>
-#include <stdlib.h> /* For malloc() */
-#include <unistd.h> /* For ftruncate(), close() */
-#include <string.h> /* For memset() */
-#include <stdio.h> /* For printf */
+#include <stdlib.h>	/* For malloc() */
+#include <unistd.h>	/* For ftruncate(), close() */
+#include <string.h>	/* For memset() */
+#include <stdio.h>	/* For printf */
 #include <sys/mman.h>	/* For shm_open */
 #include <sys/stat.h>	/* For mode constants */
-#include <fcntl.h>	/* For O_* constants */
-#include "fmmod.h"
+#include <fcntl.h>	/* For O_* and F_* constants */
+#include <errno.h>	/* For errno and EEXIST */
+
 
 /*********\
 * HELPERS *
@@ -36,6 +38,55 @@ static inline float
 get_am_sample(struct osc_state *sin_osc, float sample)
 {
 	return sample * osc_get_38Khz_sample(sin_osc);
+}
+
+static int
+write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
+{
+	char sock_path[32] = {0};
+	int uid = 0;
+	int ret = 0;
+
+	/* Socket not open yet */
+	if(fmmod->out_sock_fd == 0) {
+		uid = getuid();
+		snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
+
+		fmmod->out_sock_fd = open(sock_path, O_WRONLY|O_NONBLOCK);
+		if(fmmod->out_sock_fd < 0) {
+			fmmod->out_sock_fd = 0;
+			return 0;
+		}
+
+		printf("Socket opened\n");
+
+		/* Set the pipe size to be big enough to hold
+		 * max_process_frames. By default it's 64KB which
+		 * is too much (and would add some unwanted delay) */
+		ret = fcntl(fmmod->out_sock_fd, F_SETPIPE_SZ,
+					fmmod->ioaudiobuf_len /2);
+		if(ret < 0) {
+			/* Error is not fatal */
+			ret = 0;
+		}
+	}
+
+	ret = write(fmmod->out_sock_fd, samples, num_samples * sizeof(float));
+	if(ret < 0) {
+		/* Pipe has broken -the other side closed the socket-
+		 * close the descriptor and leave open fail until
+		 * someone else opens up the socket again */
+		if(errno == EPIPE) {
+			close(fmmod->out_sock_fd);
+			fmmod->out_sock_fd = 0;
+			printf("Socket closed\n");
+			return 0;
+		}
+		perror("write()");
+		printf("errno: %i",errno);
+	}
+
+	return 0;
 }
 
 /*
@@ -206,10 +257,19 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
 	struct audio_filter *aflt = &fmmod->aflt;
 
+	/* Temporary buffer */
+	mpxbuf = fmmod->mpxbuf;
+
+	/* Input */
 	left_in = (float*) jack_port_get_buffer(fmmod->inL, nframes);
 	right_in = (float*) jack_port_get_buffer(fmmod->inR, nframes);
-	mpx_out = (float*) jack_port_get_buffer(fmmod->outMPX, nframes);
-	mpxbuf = fmmod->mpxbuf;
+
+	/* Output */
+	if(fmmod->output_type == FMMOD_OUT_JACK)
+		mpx_out = (float*) jack_port_get_buffer(fmmod->outMPX, nframes);
+	else
+		mpx_out = fmmod->sock_outbuf;
+
 
 	/* Apply audio filter on input and merge the two
 	 * channels to prepare the buffer for upsampling */
@@ -262,6 +322,11 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 					frames_generated, &ret);
 	if(mpx_out == NULL)
 		return FMMOD_ERR_RESAMPLER_ERR;
+	frames_generated = ret;
+
+	/* Write to socket if needed */
+	if(fmmod->output_type == FMMOD_OUT_SOCK)
+		write_to_sock(fmmod, mpx_out, frames_generated);
 
 	return 0;
 }
@@ -287,9 +352,12 @@ int
 fmmod_initialize(struct fmmod_instance *fmmod, int region)
 {
 	int ret = 0;
-	int jack_samplerate = 0;
-	int max_process_frames = 0;
-	int preemph_usecs = 0;
+	uint32_t jack_samplerate = 0;
+	uint32_t output_samplerate = 0;
+	uint32_t max_process_frames = 0;
+	uint8_t preemph_usecs = 0;
+	uint32_t uid = 0;
+	char sock_path[32] = {0}; /* /run/user/<userid>/jmpxrds.sock */
 	int rds_enc_fd = 0;
 	char *client_name = NULL;
 	jack_options_t options = JackNoStartServer;
@@ -316,8 +384,15 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		fprintf(stderr, "unique name `%s' assigned\n", client_name);
 	}
 
-	/* Get JACK's sample rate */
+	/* Get JACK's sample rate and set output_samplerate */
 	jack_samplerate = jack_get_sample_rate(fmmod->client);
+	if (jack_samplerate >= FMMOD_OUTPUT_SAMPLERATE_MIN) {
+		output_samplerate = jack_samplerate;
+		fmmod->output_type = FMMOD_OUT_JACK;
+	} else {
+		output_samplerate = FMMOD_OUTPUT_SAMPLERATE_MIN;
+		fmmod->output_type = FMMOD_OUT_SOCK;
+	}
 
 	/* Get maximum number of frames JACK will send to process() */
 	max_process_frames = jack_get_buffer_size(fmmod->client);
@@ -365,6 +440,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	/* Initialize resampler */
 	ret = resampler_init(&fmmod->rsmpl, jack_samplerate,
 					fmmod->sin_osc.sample_rate,
+					output_samplerate,
 					max_process_frames);
 	if(ret < 0) {
 		ret = FMMOD_ERR_RESAMPLER_ERR;
@@ -374,11 +450,11 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 
 	/* Initialize audio filter */
 	switch(region) {
-	case REGION_US:
+	case FMMOD_REGION_US:
 		preemph_usecs = 75;
 		break;
-	case REGION_EU:
-	case REGION_WORLD:
+	case FMMOD_REGION_EU:
+	case FMMOD_REGION_WORLD:
 		preemph_usecs = 50;
 		break;
 	default:
@@ -440,12 +516,32 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		goto cleanup;
 	}
 
-	fmmod->outMPX = jack_port_register(fmmod->client, "MPX",
-					JACK_DEFAULT_AUDIO_TYPE,
-					JackPortIsOutput, 0);
-	if(fmmod->outMPX == NULL) {
-		ret = FMMOD_ERR_JACKD_ERR;
-		goto cleanup;
+	if(fmmod->output_type == FMMOD_OUT_JACK) {
+		fmmod->outMPX = jack_port_register(fmmod->client, "MPX",
+						JACK_DEFAULT_AUDIO_TYPE,
+						JackPortIsOutput, 0);
+		if(fmmod->outMPX == NULL) {
+			ret = FMMOD_ERR_JACKD_ERR;
+			goto cleanup;
+		}
+	} else {
+		/* Create a named pipe (fifo socket) for sending
+		 * out the raw mpx signal (float32) */
+		uid = getuid();
+		snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
+		ret = mkfifo(sock_path, 0600);
+		if((ret < 0) && (errno != EEXIST)) {
+			ret = FMMOD_ERR_SOCK_ERR;
+			perror("mkfifo()");
+			goto cleanup;
+		}
+
+		fmmod->sock_outbuf = (float*) malloc(fmmod->ioaudiobuf_len /2);
+		if(fmmod->sock_outbuf == NULL) {
+			ret = FMMOD_ERR_NOMEM;
+			goto cleanup;
+		}
+		memset(fmmod->sock_outbuf, 0, fmmod->ioaudiobuf_len /2);
 	}
 
 	/* Tell the JACK server that we are ready to roll.  Our
@@ -465,6 +561,8 @@ cleanup:
 void
 fmmod_destroy(struct fmmod_instance *fmmod)
 {
+	int uid = 0;
+	char sock_path[32] = {0};
 	if(fmmod->ioaudiobuf != NULL)
 		free(fmmod->ioaudiobuf);
 	if(fmmod->mpxbuf != NULL)
@@ -473,4 +571,11 @@ fmmod_destroy(struct fmmod_instance *fmmod)
 	rds_encoder_destroy(fmmod->enc);
 	munmap(fmmod->enc, sizeof(struct rds_encoder));
 	jack_client_close(fmmod->client);
+	if(fmmod->output_type == FMMOD_OUT_SOCK) {
+		close(fmmod->out_sock_fd);
+		uid = getuid();
+		snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
+		unlink(sock_path);
+	}
+	shm_unlink(RDS_ENC_SHM_NAME);		
 }

@@ -17,19 +17,20 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <stdlib.h> /* For NULL */
-#include <unistd.h> /* For sleep() */
-#include <stdio.h> /* For printf */
-#include <sched.h> /* For sched_setscheduler etc */
-#include <signal.h> /* For signal handling */
 #include "fmmod.h"
+#include <stdlib.h>	/* For NULL */
+#include <unistd.h>	/* For sleep() */
+#include <stdio.h>	/* For printf */
+#include <sched.h>	/* For sched_setscheduler etc */
+#include <signal.h>	/* For signal handling */
 
 volatile sig_atomic_t active;
 
 static void
 signal_handler(int sig)
 {
+	if(sig == SIGPIPE)
+		return;
 	active = 0;
 	fprintf (stderr, "signal received, exiting ...\n");
 	exit (0);
@@ -48,7 +49,7 @@ main(int argc,char *argv[])
 	if (sched_setscheduler(0, SCHED_FIFO, &sched) != 0)
 		perror("Unable to set real time scheduling:");
 	
-	ret = fmmod_initialize(&fmmod_instance, REGION_EU);
+	ret = fmmod_initialize(&fmmod_instance, FMMOD_REGION_EU);
 	if(ret < 0)
 		exit(ret);
 
@@ -61,6 +62,7 @@ main(int argc,char *argv[])
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGHUP, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGPIPE, &sa, NULL);
 
 	printf("JMPXRDS Started\n");
 

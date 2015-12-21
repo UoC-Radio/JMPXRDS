@@ -13,7 +13,6 @@ distclean-local:
 	-rm aclocal.m4
 	-rm configure
 	-rm *.in
-	-rm *~
 
 # Do nothing
 test:

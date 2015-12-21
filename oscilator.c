@@ -17,11 +17,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
+#include "oscilator.h"
 #include <stdlib.h>	/* For NULL */
 #include <math.h>	/* For sin, cos, M_PI, fmod and signbit */
 #include <string.h>	/* For memset */
-#include "oscilator.h"
+
 
 /***********\
 * OSCILATOR *
@@ -39,7 +39,7 @@
  *
  */
 int
-osc_initialize(struct osc_state* osc, int sample_rate, int type)
+osc_initialize(struct osc_state* osc, uint32_t sample_rate, int type)
 {
 	int i;
 	double phase;

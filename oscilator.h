@@ -18,6 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "config.h"
+#include <stdint.h>	/* For typed integers */
 
 /* We want a clean 38KHz tone because we 'll use that for A.M.
  * After experimenting with different sample rates I ended up
@@ -41,6 +42,11 @@
 	#define ONE_PERIOD		2 * M_PI
 #endif
 
+enum osc_type {
+	OSC_TYPE_SINE	= 0,
+	OSC_TYPE_COSINE	= 1,
+};
+
 struct osc_state {
 #ifdef	USE_WAVE_TABLE
 	double	wave_table[WAVE_TABLE_SIZE];
@@ -57,14 +63,11 @@ struct osc_state {
 #endif
 	double phase_step;
 	double current_phase;
-	int sample_rate;
+	uint32_t sample_rate;
 	int type;
 };
 
-#define OSC_TYPE_SINE	0
-#define OSC_TYPE_COSINE	1
-
-int osc_initialize(struct osc_state*, int, int);
+int osc_initialize(struct osc_state*, uint32_t, int);
 void osc_increase_phase(struct osc_state*);
 void osc_shift_90deg(struct osc_state* sinwg);
 double osc_get_sample_for_freq(struct osc_state* osc, double freq);

@@ -17,13 +17,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <samplerate.h> /* src_* functions and macros */
-#include "filters.h"
+#include "filters.h"	/* Also brings in stdint.h */
+#include <samplerate.h>	/* src_* functions and macros */
 
 struct resampler_data {
 	float *upsampled_audio;
-	int upsampled_audio_len;
+	uint32_t upsampled_audio_len;
 	SRC_STATE* upsampler_state;
 	SRC_DATA upsampler_data;
 	double upsampler_ratio;
@@ -33,10 +32,11 @@ struct resampler_data {
 	struct fir_filter_data mpx_lpf;
 };
 
-int resampler_init(struct resampler_data *rsmpl, int jack_samplerate,
-			int osc_sample_rate, int max_process_frames);
+int resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
+			uint32_t osc_sample_rate, uint32_t output_samplerate,
+			uint32_t max_process_frames);
 float* resampler_upsample_audio(struct resampler_data *rsmpl, float *in,
-						int inframes, int *ret);
+						uint32_t inframes, int *ret);
 float* resampler_downsample_mpx(struct resampler_data *rsmpl, float *in,
-					float *out, int inframes, int *ret);
+					float *out, uint32_t inframes, int *ret);
 void resampler_destroy(struct resampler_data *rsmpl);

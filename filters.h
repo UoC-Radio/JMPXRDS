@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <stdint.h>	/* For typed integers */
 
 /* A generic sinc FIR Low pass filter, multiplied by
  * a Blackman - Harris window */
@@ -27,11 +28,11 @@ struct fir_filter_data {
 	float fir_coeffs[FIR_FILTER_HALF_SIZE];
 	float fir_buff_l[FIR_FILTER_SIZE];
 	float fir_buff_r[FIR_FILTER_SIZE];
-	int fir_index;
+	uint16_t fir_index;
 };
 
-int fir_filter_init(struct fir_filter_data *, int cutoff_freq, int sample_rate);
-float fir_filter_apply(struct fir_filter_data *, float sample, int chan_idx);
+int fir_filter_init(struct fir_filter_data *, uint32_t, uint32_t);
+float fir_filter_apply(struct fir_filter_data *, float, uint8_t);
 void fir_filter_update(struct fir_filter_data *);
 
 /* FM Preemphasis IIR filter */
@@ -52,11 +53,9 @@ struct audio_filter {
 	struct fmpreemph_filter_data fm_preemph;
 };
 
-void audio_filter_init(struct audio_filter *, int cutoff_freq, int sample_rate,
-							int preemph_tau_usecs);
+void audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint8_t);
 void audio_filter_update(struct audio_filter *);
-
-float audio_filter_apply(struct audio_filter *, float sample, int chan_idx);
+float audio_filter_apply(struct audio_filter *, float, uint8_t);
 
 /* IIR filter for the Weaver modulator (SSB) */
 #define SSB_FILTER_TAPS 10
@@ -75,9 +74,8 @@ struct ssb_filter_data {
 	float iir_btaps[SSB_FILTER_TAPS];
 };
 
-int iir_ssb_filter_init(struct ssb_filter_data *iir);
-float iir_ssb_filter_apply(struct ssb_filter_data *iir, float sample,
-							int chan_idx);
+int iir_ssb_filter_init(struct ssb_filter_data *);
+float iir_ssb_filter_apply(struct ssb_filter_data *, float, uint8_t);
 
 /* Hilbert transformer for the Hartley modulator (SSB) */
 #define HT_FIR_FILTER_SIZE		65

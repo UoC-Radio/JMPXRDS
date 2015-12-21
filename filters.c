@@ -17,11 +17,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <stdlib.h> /* For NULL */
-#include <string.h> /* For memset */
-#include <math.h> /* For sin, cos and M_PI */
 #include "filters.h"
+#include <stdlib.h>	/* For NULL */
+#include <string.h>	/* For memset */
+#include <math.h>	/* For sin, cos and M_PI */
 
 /*****************************\
 * GENERIC FIR LOW-PASS FILTER *
@@ -38,14 +37,14 @@ sinc(double phase)
  * 	h[n] = sinc(2*fc * (n - (N-1/2))
  */
 static double inline
-sinc_filter(double fc_doubled, int bin)
+sinc_filter(double fc_doubled, uint16_t bin)
 {
 	return sinc(fc_doubled * (double)(bin - FIR_FILTER_HALF_SIZE));
 }
 
 /* Blackman - Harris window */
 static double inline
-blackman_window(int bin)
+blackman_window(uint16_t bin)
 {
 	double a0, a1, a2, a3;
 
@@ -60,7 +59,8 @@ blackman_window(int bin)
 }
 
 int
-fir_filter_init(struct fir_filter_data *fir, int cutoff_freq, int sample_rate)
+fir_filter_init(struct fir_filter_data *fir, uint32_t cutoff_freq,
+					     uint32_t sample_rate)
 {
 	int i = 0;
 	double fc_doubled = 0;
@@ -82,12 +82,12 @@ fir_filter_init(struct fir_filter_data *fir, int cutoff_freq, int sample_rate)
 }
 
 float
-fir_filter_apply(struct fir_filter_data *fir, float sample, int chan_idx)
+fir_filter_apply(struct fir_filter_data *fir, float sample, uint8_t chan_idx)
 {
 	int i;
 	float out = 0;
 	float *fir_buf = NULL;
-	int previous, later;
+	int16_t previous, later;
 
 	if(chan_idx == 0)
 		fir_buf = fir->fir_buff_l;
@@ -131,8 +131,9 @@ fir_filter_update(struct fir_filter_data *fir)
 \**********************************/
 
 static int
-fmpreemph_filter_init(struct fmpreemph_filter_data *iir, int cutoff_freq,
-		int sample_rate, int preemph_tau_usecs)
+fmpreemph_filter_init(struct fmpreemph_filter_data *iir, uint32_t cutoff_freq,
+						uint32_t sample_rate,
+						uint8_t preemph_tau_usecs)
 {
 	double tau[2] = {0};
 	double edge[2] = {0};
@@ -154,7 +155,7 @@ fmpreemph_filter_init(struct fmpreemph_filter_data *iir, int cutoff_freq,
 
 static float
 fmpreemph_filter_apply(struct fmpreemph_filter_data *iir, float sample,
-	int chan_idx)
+							uint8_t chan_idx)
 {
 	float out = 0;
 	float *iir_inbuf = NULL;
@@ -190,8 +191,9 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *iir, float sample,
 \***********************************************/
 
 void
-audio_filter_init(struct audio_filter *aflt, int cutoff_freq, int sample_rate,
-	int preemph_tau_usecs)
+audio_filter_init(struct audio_filter *aflt, uint32_t cutoff_freq,
+						uint32_t sample_rate,
+						uint8_t preemph_tau_usecs)
 {
 	fir_filter_init(&aflt->audio_lpf, cutoff_freq, sample_rate);
 	fmpreemph_filter_init(&aflt->fm_preemph, cutoff_freq, sample_rate,
@@ -205,7 +207,7 @@ audio_filter_update(struct audio_filter *aflt)
 }
 
 float
-audio_filter_apply(struct audio_filter *aflt, float sample, int chan_idx)
+audio_filter_apply(struct audio_filter *aflt, float sample, uint8_t chan_idx)
 {
 	float out = 0;
 
@@ -254,7 +256,7 @@ iir_ssb_filter_init(struct ssb_filter_data *iir)
 
 float
 iir_ssb_filter_apply(struct ssb_filter_data *iir, float sample,
-						int chan_idx)
+						uint8_t chan_idx)
 {
 	float *iir_inbuf = NULL;
 	float *iir_outbuf = NULL;

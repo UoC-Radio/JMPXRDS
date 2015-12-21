@@ -17,11 +17,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <stdlib.h> /* For NULL */
-#include <stdio.h> /* For printf */
-#include <string.h> /* For memset/memcpy */
 #include "resampler.h"
+#include <stdlib.h>	/* For NULL */
+#include <stdio.h>	/* For printf */
+#include <string.h>	/* For memset/memcpy */
 
 /**************\
 * ENTRY POINTS *
@@ -40,9 +39,9 @@
 /* Upsample audio to the oscilator's sample rate */
 float*
 resampler_upsample_audio(struct resampler_data *rsmpl, float *in,
-						int inframes, int *ret)
+					uint32_t inframes, int *ret)
 {
-	int frames_generated = 0;
+	uint32_t frames_generated = 0;
 
 	/* No need to upsample anything, just copy the buffers.
 	 * Note: This is here for debugging mostly */
@@ -79,10 +78,10 @@ resampler_upsample_audio(struct resampler_data *rsmpl, float *in,
 /* Downsample MPX signal to JACK's sample rate */
 float*
 resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
-							int inframes, int *ret)
+						uint32_t inframes, int *ret)
 {
 	int i = 0;
-	int frames_generated = 0;
+	uint32_t frames_generated = 0;
 
 	if(rsmpl->downsampler_ratio == 1.0) {
 		memcpy(out, in, inframes * sizeof(float));
@@ -121,11 +120,13 @@ resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
 \****************/
 
 int
-resampler_init(struct resampler_data *rsmpl, int jack_samplerate,
-				int osc_sample_rate, int max_process_frames)
+resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
+				uint32_t osc_sample_rate,
+				uint32_t output_samplerate,
+				uint32_t max_process_frames)
 {
 	int ret = 0;
-	int mpx_cutoff_freq = 0;
+	uint32_t mpx_cutoff_freq = 0;
 
 	/* We need to cut off everything above the Niquist frequency
 	 * (half the sample rate) when upsampling or we'll introduce distortion
@@ -138,7 +139,7 @@ resampler_init(struct resampler_data *rsmpl, int jack_samplerate,
 					(double) jack_samplerate;
 	if(rsmpl->upsampler_ratio < 1)
 		return -1;
-	rsmpl->downsampler_ratio = (double) jack_samplerate /
+	rsmpl->downsampler_ratio = (double) output_samplerate /
 					(double) osc_sample_rate;
 
 	/* Allocate buffers, note that for src frames mean
