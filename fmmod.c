@@ -59,16 +59,6 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
 		}
 
 		printf("Socket opened\n");
-
-		/* Set the pipe size to be big enough to hold
-		 * max_process_frames. By default it's 64KB which
-		 * is too much (and would add some unwanted delay) */
-		ret = fcntl(fmmod->out_sock_fd, F_SETPIPE_SZ,
-					fmmod->ioaudiobuf_len /2);
-		if(ret < 0) {
-			/* Error is not fatal */
-			ret = 0;
-		}
 	}
 
 	ret = write(fmmod->out_sock_fd, samples, num_samples * sizeof(float));
