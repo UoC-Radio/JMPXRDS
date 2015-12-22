@@ -22,10 +22,16 @@
 
 /* We want a clean 38KHz tone because we 'll use that for A.M.
  * After experimenting with different sample rates I ended up
- * using 4x oversampling. I tried higher values but this got
- * me the cleanest FFT and nice waveforms, even for 57KHz.
- * Don't change this unless you know what you are doing ! */
-#define	OSC_SAMPLE_RATE		304000
+ * using 4x oversampling (304KHz). I tried higher values but
+ * this got me the cleanest FFT and nice waveforms, even for
+ * 57KHz. However it was too hard on the CPU so I went for the
+ * closest Greatest Common Factor between 38KHz and 57Khz which
+ * is 228KHz (= 38 * 6 = 57 * 4). So it's 3x oversampling on
+ * 38KHz and 2x on 57KHz. 57KHz waveform seems ok but the
+ * 38KHz never gets to 1. During testing stereo separation was
+ * OK though and FFT is fine too so I'm leaving it to 228KHz
+ * for now. Don't change this unless you know what you are doing ! */
+#define	OSC_SAMPLE_RATE		228000
 
 /* That's the RDS carrier, we won't get any further than this */
 #define MAX_FREQUENCY		57000
