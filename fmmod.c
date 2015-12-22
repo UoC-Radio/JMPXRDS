@@ -283,7 +283,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	/* Create the multiplex signal */
 	for(i = 0, c = 0; i < frames_generated; i++) {
 		/* L + R */
-		mpxbuf[i] = 0.45 * (upsampled_audio[c] +
+		mpxbuf[i] = 0.40 * (upsampled_audio[c] +
 				upsampled_audio[c + 1]);
 
 		/* 19KHz FM Stereo Pilot */
@@ -291,11 +291,11 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 
 		/* L - R, AM modulated with 38KHz carrier (2 x Pilot) */
 		if(fmmod->enable_ssb)
-			mpxbuf[i] += 0.45 * get_ssb_hartley_sample(fmmod,
+			mpxbuf[i] += 0.40 * get_ssb_hartley_sample(fmmod,
 						upsampled_audio[c] -
 						upsampled_audio[c + 1]);
 		else
-			mpxbuf[i] += 0.45 * get_am_sample(sin_osc,
+			mpxbuf[i] += 0.40 * get_am_sample(sin_osc,
 						upsampled_audio[c] -
 						upsampled_audio[c + 1]);
 
