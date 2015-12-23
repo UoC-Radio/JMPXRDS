@@ -31,7 +31,9 @@
 void
 usage(char *name)
 {
-	printf("\nUsage:\n"
+	printf("RDS Configuration tool for JMPXRDS\n");
+	printf("\nUsage: %s -g or [<parameter> <value>] pairs\n", name);
+	printf("\nParameters:\n"
 		"\t-g\t\tGet current config\n"
 		"\t-rt   <text>\tSet radiotext\n"
 		"\t-ps   <text>\tSet Programme Service Name (PSN)\n"
@@ -39,7 +41,7 @@ usage(char *name)
 		"\t-pty  <int>\tSet Programme Type (PTY)\n"
 		"\t-ptyn <text>\tSet Programme Type Name (PTYN)\n"
 		"\t-ecc  <hex>\tSet Extended Country Code (ECC)\n"
-		"\t-lic  <hex>\tSet Language Identifier Code\n",name);
+		"\t-lic  <hex>\tSet Language Identifier Code\n");
 }
 
 /* Yes it's ugly... */

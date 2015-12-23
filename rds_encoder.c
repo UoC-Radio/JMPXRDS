@@ -33,7 +33,7 @@
  * filtered symbols. For more infos on this visit
  * http://www.langmeier.ch/docs/rds-biphase.pdf
  * 
- * Think of it as a moving 3bit window, for each new bit that comes in
+ * Think of it as a moving 3bit window, for each new bit that comes in,
  * the window's value is used as an index to this table and the matching
  * waveform is appended to the previous one, creating a continuous waveform.
  *
@@ -729,6 +729,8 @@ rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 	enc->ms = RDS_MS_DEFAULT;
 	enc->di = RDS_DI_STEREO | RDS_DI_DYNPTY;
 
+	/* Make Valgrind happy */
+	upsampler->upsampled_waveform_samples = 0;
 cleanup:
 	if(ret < 0)
 		rds_encoder_destroy(enc);

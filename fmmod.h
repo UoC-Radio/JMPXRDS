@@ -59,12 +59,14 @@ enum fmmod_region {
 };
 
 struct fmmod_instance {
+	int active;
 	float *ioaudiobuf;
 	uint32_t ioaudiobuf_len;
 	float *mpxbuf;
 	uint32_t mpxbuf_len;
 	int output_type;
 	float *sock_outbuf;
+	uint32_t sock_outbuf_len;
 	int out_sock_fd;
 	struct resampler_data rsmpl;
 	struct audio_filter aflt;

@@ -57,8 +57,6 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
 			fmmod->out_sock_fd = 0;
 			return 0;
 		}
-
-		printf("Socket opened\n");
 	}
 
 	ret = write(fmmod->out_sock_fd, samples, num_samples * sizeof(float));
@@ -69,15 +67,14 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
 		if(errno == EPIPE) {
 			close(fmmod->out_sock_fd);
 			fmmod->out_sock_fd = 0;
-			printf("Socket closed\n");
 			return 0;
 		}
 		perror("write()");
-		printf("errno: %i",errno);
 	}
 
 	return 0;
 }
+
 
 /*
  * Some notes on SSB modulation for the stereo subcarrier
@@ -94,7 +91,6 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
  * will misbehave so don't use SSB because it's "fancy". It's better
  * than mono but the standard subcarrier performs better.
  */
-
 
 /************************\
 * WEAVER MODULATOR (SSB) *
@@ -260,6 +256,9 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	else
 		mpx_out = fmmod->sock_outbuf;
 
+	/* No frames received */
+	if(!nframes)
+		return 0;
 
 	/* Apply audio filter on input and merge the two
 	 * channels to prepare the buffer for upsampling */
@@ -330,7 +329,7 @@ fmmod_shutdown(void *arg)
 {
 	struct fmmod_instance *fmmod = (struct fmmod_instance *) arg;
 	fmmod_destroy(fmmod);
-	exit(0);
+	return;
 }
 
 
@@ -371,7 +370,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 
 	if(status & JackNameNotUnique) {
 		client_name = jack_get_client_name(fmmod->client);
-		fprintf(stderr, "unique name `%s' assigned\n", client_name);
+		fprintf(stderr, "Unique name `%s' assigned\n", client_name);
 	}
 
 	/* Get JACK's sample rate and set output_samplerate */
@@ -379,9 +378,12 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	if (jack_samplerate >= FMMOD_OUTPUT_SAMPLERATE_MIN) {
 		output_samplerate = jack_samplerate;
 		fmmod->output_type = FMMOD_OUT_JACK;
-	} else {
+	} else if (jack_samplerate > 0) {
 		output_samplerate = FMMOD_OUTPUT_SAMPLERATE_MIN;
 		fmmod->output_type = FMMOD_OUT_SOCK;
+	} else {
+		fprintf(stderr, "got invalid samplerate from jackd\n");
+		return FMMOD_ERR_JACKD_ERR;
 	}
 
 	/* Get maximum number of frames JACK will send to process() */
@@ -397,7 +399,11 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	}
 	memset(fmmod->ioaudiobuf, 0, fmmod->ioaudiobuf_len);
 
-	fmmod->mpxbuf_len = fmmod->ioaudiobuf_len;
+	fmmod->mpxbuf_len = (uint32_t)
+				((((float) OSC_SAMPLE_RATE /
+				(float) jack_samplerate) + 1.0) *
+				(float) max_process_frames *
+				(float) sizeof(jack_default_audio_sample_t));
 	fmmod->mpxbuf = (float*) malloc(fmmod->mpxbuf_len);
 	if(fmmod->mpxbuf == NULL) {
 		ret = FMMOD_ERR_NOMEM;
@@ -526,12 +532,17 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 			goto cleanup;
 		}
 
-		fmmod->sock_outbuf = (float*) malloc(fmmod->ioaudiobuf_len /2);
+		fmmod->sock_outbuf_len =
+				(uint32_t)
+				(((float) output_samplerate /
+				(float) OSC_SAMPLE_RATE) *
+				(float) fmmod->mpxbuf_len);
+		fmmod->sock_outbuf = (float*) malloc(fmmod->sock_outbuf_len);
 		if(fmmod->sock_outbuf == NULL) {
 			ret = FMMOD_ERR_NOMEM;
 			goto cleanup;
 		}
-		memset(fmmod->sock_outbuf, 0, fmmod->ioaudiobuf_len /2);
+		memset(fmmod->sock_outbuf, 0, fmmod->sock_outbuf_len);
 	}
 
 	/* Tell the JACK server that we are ready to roll.  Our
@@ -539,6 +550,8 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	ret = jack_activate(fmmod->client);
 	if(ret != 0)
 		ret = FMMOD_ERR_JACKD_ERR;
+	else
+		fmmod->active = 1;
 
 cleanup:
 	if(ret < 0) {
@@ -553,19 +566,27 @@ fmmod_destroy(struct fmmod_instance *fmmod)
 {
 	int uid = 0;
 	char sock_path[32] = {0};
+
+	jack_deactivate(fmmod->client);
+
+	rds_encoder_destroy(fmmod->enc);
+	munmap(fmmod->enc, sizeof(struct rds_encoder));
+
+	resampler_destroy(&fmmod->rsmpl);
+
 	if(fmmod->ioaudiobuf != NULL)
 		free(fmmod->ioaudiobuf);
 	if(fmmod->mpxbuf != NULL)
 		free(fmmod->mpxbuf);
-	resampler_destroy(&fmmod->rsmpl);
-	rds_encoder_destroy(fmmod->enc);
-	munmap(fmmod->enc, sizeof(struct rds_encoder));
-	jack_client_close(fmmod->client);
+
 	if(fmmod->output_type == FMMOD_OUT_SOCK) {
 		close(fmmod->out_sock_fd);
 		uid = getuid();
 		snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
 		unlink(sock_path);
 	}
-	shm_unlink(RDS_ENC_SHM_NAME);		
+	shm_unlink(RDS_ENC_SHM_NAME);
+	fmmod->active = 0;
+
+	return;
 }

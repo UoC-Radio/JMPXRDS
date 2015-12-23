@@ -23,6 +23,7 @@
 #include <stdio.h>	/* For printf */
 #include <sched.h>	/* For sched_setscheduler etc */
 #include <signal.h>	/* For signal handling */
+#include <string.h>	/* For memset() */
 
 volatile sig_atomic_t active;
 
@@ -32,8 +33,6 @@ signal_handler(int sig)
 	if(sig == SIGPIPE)
 		return;
 	active = 0;
-	fprintf (stderr, "signal received, exiting ...\n");
-	exit (0);
 }
 
 int
@@ -43,6 +42,9 @@ main(int argc,char *argv[])
 	struct sched_param sched;
 	struct fmmod_instance fmmod_instance;
 	struct sigaction sa;
+
+	memset(&sched, 0, sizeof(struct sched_param));
+	memset(&sa, 0, sizeof(struct sigaction));
 
 	sched_getparam(0, &sched);
 	sched.sched_priority = 99;
@@ -55,7 +57,8 @@ main(int argc,char *argv[])
 
 	active = 1;
 
-	/* Install a signal handler for graceful exit */
+	/* Install a signal handler for graceful exit 
+	 * and for handling SIGPIPE */
 	sigemptyset(&sa.sa_mask);
 	sa.sa_handler = signal_handler;
 	sigaction(SIGQUIT, &sa, NULL);
@@ -68,9 +71,10 @@ main(int argc,char *argv[])
 
 	/* Keep running until the transport stops
 	 * or in case we are interrupted */
-	while (active)
+	while (active && (fmmod_instance.active == 1))
 		sleep(1);
 
-	fmmod_destroy(&fmmod_instance);
+	if(fmmod_instance.active)
+		fmmod_destroy(&fmmod_instance);
 	exit ( 0 );
 }

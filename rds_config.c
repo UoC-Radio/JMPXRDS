@@ -200,7 +200,7 @@ rds_set_ptyn(struct rds_encoder *enc, const char* ptyn)
 	/* Flip A/B flag to flush PTYN buffer
 	 * on receiver */
 	if(enc->ptyn_set)
-		enc->ptyn_flush ? 0 : 1;
+		enc->ptyn_flush = enc->ptyn_flush ? 0 : 1;
 
 	memset(enc->ptyn, 0, RDS_PTYN_LENGTH);
 	for(i = 0; i < ptynlen; i++) {
@@ -252,11 +252,11 @@ rds_set_rt(struct rds_encoder *enc, const char* rt, int flush)
 	/* Flip A/B flag to flush RT buffer
 	 * on receiver */
 	if(flush && enc->rt_set)
-		enc->rt_flush ? 0 : 1;
+		enc->rt_flush = enc->rt_flush ? 0 : 1;
 
 	memset(enc->rt, 0, RDS_RT_LENGTH);
 	for(i = 0; i < rtlen; i++) {
-		if(rt[i] < 0x20 &&
+		if((rt[i] < 0x20) &&
 		((rt[i] != RDS_RT_CR) ||
 		(rt[i] != RDS_RT_LF) ||
 		(rt[i] != RDS_RT_END_OF_HEADLINE) ||
