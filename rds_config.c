@@ -256,11 +256,11 @@ rds_set_rt(struct rds_encoder *enc, const char* rt, int flush)
 
 	memset(enc->rt, 0, RDS_RT_LENGTH);
 	for(i = 0; i < rtlen; i++) {
-		if((rt[i] < 0x20) &&
+		if(((rt[i] < 0x20) &&
 		((rt[i] != RDS_RT_CR) ||
 		(rt[i] != RDS_RT_LF) ||
 		(rt[i] != RDS_RT_END_OF_HEADLINE) ||
-		(rt[i] != RDS_RT_SOFT_HYPHEN)) ||
+		(rt[i] != RDS_RT_SOFT_HYPHEN))) ||
 		(rt[i] == 0x7F))
 			enc->rt[i] = 0;
 		else

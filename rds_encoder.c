@@ -23,6 +23,7 @@
 #include <string.h> /* For memset/memcpy/strnlen */
 #include <stdlib.h> /* For malloc/free */
 #include <stdio.h> /* For printf */
+#include <math.h> /* For fabs */
 #include "rds_encoder.h"
 
 /************\
@@ -385,7 +386,7 @@ rds_generate_group_4(struct rds_encoder *enc, struct rds_group *group,
 	group->blocks[3].infoword = ((hour & 0xf) << 12) |
 					((min  & 0x1f) << 6) |
 					((tz_offset > 0 ? 0 : 1) << 5) |
-					(abs(2 * tz_offset) & 0x1f);
+					((int) fabs(2 * tz_offset) & 0x1f);
 
 	return 0;
 }
