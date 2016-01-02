@@ -18,7 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdint.h>
+#include <stdint.h> /* For typed ints */
 #include <samplerate.h> /* src_* functions and macros */
 
 /* RDS encoding takes a data stream of specialy formated data,

@@ -58,35 +58,68 @@ enum fmmod_region {
 	FMMOD_REGION_WORLD = 2
 };
 
+/* Stereo signal (L-R) encoding:
+ * DSB -> Double side band (default)
+ * SSB HARTLEY -> Single Side Band Hartley modulator
+ * SSB WEAVER -> Single Side Band Weaver modulator
+ * For more infos check out fmmod.c */
+enum fmmod_stereo_modulation {
+	FMMOD_DSB = 0,
+	FMMOD_SSB_HARTLEY = 1,
+	FMMOD_SSB_WEAVER = 2
+};
+
+/* Control I/O channel */
+struct fmmod_control {
+	float	audio_gain;
+	float	pilot_gain;
+	float	rds_gain;
+	float	mpx_gain;
+	int	stereo_modulation;
+	float	avg_mpx_out;
+	float	avg_audio_in_l;
+	float	avg_audio_in_r;
+};
+
+#define FMMOD_CTL_SHM_NAME "FMMOD_CTL_SHM"
+
 struct fmmod_instance {
+	/* State */
 	int active;
+	/* Audio input buffer */
 	float *ioaudiobuf;
 	uint32_t ioaudiobuf_len;
+	/* MPX Output buffer */
 	float *mpxbuf;
 	uint32_t mpxbuf_len;
 	int output_type;
+	/* For socket output */
 	float *sock_outbuf;
 	uint32_t sock_outbuf_len;
 	int out_sock_fd;
-	struct resampler_data rsmpl;
-	struct audio_filter aflt;
+	/* The Oscilator */
 	struct osc_state sin_osc;
+	/* The audio filter */
+	struct audio_filter aflt;
+	/* The resampler */
+	struct resampler_data rsmpl;
+	/* The RDS Encoder */
+	struct rds_encoder *enc;
+	/* Jack-related */
 	jack_port_t *inL;
 	jack_port_t *inR;
 	jack_port_t *outMPX;
 	jack_client_t *client;
 	jack_nframes_t added_latency;
-	/* SSB */
+	/* SSB modulators */
 	struct osc_state cos_osc;
 	struct ssb_filter_data ssb_lpf;
 	struct hilbert_transformer_data ht;
-	/* Parameters */
-	int gain_audio;
-	int gain_pilot;
-	int enable_ssb;
-	/* RDS Encoder */
-	struct rds_encoder *enc;
+	/* Control */
+	struct fmmod_control *ctl;
 };
+
+typedef float (*stereo_modulator)(struct fmmod_instance *, float);
 
 int fmmod_initialize(struct fmmod_instance *fmmod, int region);
 void fmmod_destroy(struct fmmod_instance *fmmod);

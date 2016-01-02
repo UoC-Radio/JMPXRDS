@@ -36,12 +36,6 @@
 * HELPERS *
 \*********/
 
-static inline float
-get_am_sample(struct osc_state *sin_osc, float sample)
-{
-	return sample * osc_get_38Khz_sample(sin_osc);
-}
-
 static int
 write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
 {
@@ -78,7 +72,25 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
 }
 
 
+/************************\
+* FM MPX STEREO ENCODING *
+\************************/
+
 /*
+ * Standard Double Sideband with Suppressed Carrier (DSBSC)
+ * The input sample is AM modulated with a sine wave
+ * at 38KHz (twice the pilot's frequency)
+ */
+static float
+get_dsb_sample(struct fmmod_instance *fmmod, float sample)
+{
+	struct osc_state *sin_osc = &fmmod->sin_osc;
+	return sample * osc_get_38Khz_sample(sin_osc);
+}
+
+/*
+ * Single Side Band modulation
+ *
  * Some notes on SSB modulation for the stereo subcarrier
  * http://ham-radio.com/k6sti/ssb.htm
  * http://wheatstone.com/index.php/corporate-support/all-downloads/
@@ -223,6 +235,7 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 	return out;
 }
 
+
 /****************\
 * JACK CALLBACKS *
 \****************/
@@ -239,11 +252,16 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	jack_default_audio_sample_t *left_out, *right_out;
 	float *mpxbuf = NULL;
 	float *upsampled_audio = NULL;
+	double audio_l_sum = 0;
+	double audio_r_sum = 0;
+	double mpx_sum = 0;
 	int frames_generated;
 	struct fmmod_instance *fmmod = (struct fmmod_instance *) arg;
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
 	struct audio_filter *aflt = &fmmod->aflt;
+	struct fmmod_control *ctl = fmmod->ctl;
+	stereo_modulator get_stereo_sample;
 
 	/* Temporary buffer */
 	mpxbuf = fmmod->mpxbuf;
@@ -265,13 +283,23 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	/* Apply audio filter on input and merge the two
 	 * channels to prepare the buffer for upsampling */
 	for(i = 0, c = 0; i < nframes; i++) {
-		fmmod->ioaudiobuf[c] = audio_filter_apply(aflt,
-						left_in[i], 0);
-		fmmod->ioaudiobuf[c + 1] = audio_filter_apply(aflt,
-						right_in[i], 1);
+		fmmod->ioaudiobuf[c] = ctl->audio_gain *
+						audio_filter_apply(aflt,
+							left_in[i], 0);
+		audio_l_sum += fmmod->ioaudiobuf[c];
+
+		fmmod->ioaudiobuf[c + 1] = ctl->audio_gain *
+						audio_filter_apply(aflt,
+							right_in[i], 1);
+		audio_r_sum += fmmod->ioaudiobuf[c + 1];
+
 		audio_filter_update(aflt);
 		c += 2;
 	}
+
+	/* Update average audio in gains */
+	ctl->avg_audio_in_l = (float) (audio_l_sum / (double) nframes);
+	ctl->avg_audio_in_r = (float) (audio_r_sum / (double) nframes);
 
 	/* Upsample to the sample rate of the main oscilator */
 	upsampled_audio = resampler_upsample_audio(rsmpl, fmmod->ioaudiobuf,
@@ -281,28 +309,36 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 
 	frames_generated = ret;
 
+	/* Choose stereo modulation method */
+	switch(ctl->stereo_modulation) {
+	case FMMOD_SSB_HARTLEY:
+		get_stereo_sample = get_ssb_hartley_sample;
+		break;
+	case FMMOD_SSB_WEAVER:
+		get_stereo_sample = get_ssb_weaver_sample;
+		break;
+	case FMMOD_DSB:
+	default:
+		get_stereo_sample = get_dsb_sample;
+		break;
+	}
+
 	/* Create the multiplex signal */
 	for(i = 0, c = 0; i < frames_generated; i++) {
-		/* L + R */
-		mpxbuf[i] = 0.40 * (upsampled_audio[c] +
-				upsampled_audio[c + 1]);
+		/* L + R (Mono) */
+		mpxbuf[i] = upsampled_audio[c] + upsampled_audio[c + 1];
 
 		/* 19KHz FM Stereo Pilot */
-		mpxbuf[i] += 0.08 * osc_get_19Khz_sample(sin_osc);
+		mpxbuf[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
 
-		/* L - R, AM modulated with 38KHz carrier (2 x Pilot) */
-		if(fmmod->enable_ssb)
-			mpxbuf[i] += 0.40 * get_ssb_hartley_sample(fmmod,
-						upsampled_audio[c] -
-						upsampled_audio[c + 1]);
-		else
-			mpxbuf[i] += 0.40 * get_am_sample(sin_osc,
+		/* L - R (Stereo) modulated by the 38KHz carrier (2 x Pilot) */
+		mpxbuf[i] += (*get_stereo_sample)(fmmod,
 						upsampled_audio[c] -
 						upsampled_audio[c + 1]);
 
-		/* RDS symbols multiplied by the RDS Carrier (3 x Pilot) */
-		mpxbuf[i] += 0.02 * osc_get_57Khz_sample(sin_osc) *
-				rds_get_next_sample(fmmod->enc);
+		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
+		mpxbuf[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
+					rds_get_next_sample(fmmod->enc);
 		c += 2;
 		osc_increase_phase(sin_osc);
 	}
@@ -314,6 +350,12 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	if(mpx_out == NULL)
 		return FMMOD_ERR_RESAMPLER_ERR;
 	frames_generated = ret;
+
+	/* Update mpx output average gain */
+	for(i = 0; i < frames_generated; i++)
+		mpx_sum += mpx_out[i];
+
+	ctl->avg_mpx_out = (float) (mpx_sum / (double) frames_generated);
 
 	/* Write to socket if needed */
 	if(fmmod->output_type == FMMOD_OUT_SOCK)
@@ -343,6 +385,7 @@ int
 fmmod_initialize(struct fmmod_instance *fmmod, int region)
 {
 	int ret = 0;
+	struct fmmod_control *ctl = NULL;
 	uint32_t jack_samplerate = 0;
 	uint32_t output_samplerate = 0;
 	uint32_t max_process_frames = 0;
@@ -350,6 +393,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	uint32_t uid = 0;
 	char sock_path[32] = {0}; /* /run/user/<userid>/jmpxrds.sock */
 	int rds_enc_fd = 0;
+	int ctl_fd = 0;
 	char *client_name = NULL;
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
@@ -433,7 +477,6 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	iir_ssb_filter_init(&fmmod->ssb_lpf);
 	/* Initialize the Hilbert transformer for the Hartley modulator */
 	hilbert_transformer_init(&fmmod->ht);
-	fmmod->enable_ssb = 0;
 
 	/* Initialize resampler */
 	ret = resampler_init(&fmmod->rsmpl, jack_samplerate,
@@ -444,7 +487,6 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		ret = FMMOD_ERR_RESAMPLER_ERR;
 		goto cleanup;
 	}
-
 
 	/* Initialize audio filter */
 	switch(region) {
@@ -463,7 +505,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 						preemph_usecs);
 
 	/* Initialize RDS encoder */
-	rds_enc_fd = shm_open(RDS_ENC_SHM_NAME, O_CREAT|O_RDWR, 0600);
+	rds_enc_fd = shm_open(RDS_ENC_SHM_NAME, O_CREAT | O_RDWR, 0600);
 	if(rds_enc_fd < 0) {
 		ret = FMMOD_ERR_SHM_ERR;
 		goto cleanup;
@@ -474,7 +516,6 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		ret = FMMOD_ERR_SHM_ERR;
 		goto cleanup;
 	}
-
 
 	fmmod->enc = (struct rds_encoder*)
 				mmap(0, sizeof(struct rds_encoder),
@@ -547,6 +588,36 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		memset(fmmod->sock_outbuf, 0, fmmod->sock_outbuf_len);
 	}
 
+	/* Initialize the control I/O channel */
+	ctl_fd = shm_open(FMMOD_CTL_SHM_NAME, O_CREAT | O_RDWR, 0600);
+	if(ctl_fd < 0) {
+		ret = FMMOD_ERR_SHM_ERR;
+		goto cleanup;
+	}
+
+	ret = ftruncate(ctl_fd, sizeof(struct fmmod_control));
+	if(ret != 0) {
+		ret = FMMOD_ERR_SHM_ERR;
+		goto cleanup;
+	}
+
+	fmmod->ctl = (struct fmmod_control*)
+				mmap(0, sizeof(struct fmmod_control),
+				     PROT_READ | PROT_WRITE, MAP_SHARED,
+				     ctl_fd, 0);
+	if(fmmod->ctl == MAP_FAILED) {
+		ret = FMMOD_ERR_SHM_ERR;
+		goto cleanup;
+	}
+	close(ctl_fd);
+
+	ctl = fmmod->ctl;
+	ctl->audio_gain = 0.40;
+	ctl->pilot_gain = 0.08;
+	ctl->rds_gain = 0.02;
+	ctl->mpx_gain = 1;
+	ctl->stereo_modulation = FMMOD_DSB;
+
 	/* Tell the JACK server that we are ready to roll.  Our
 	 * process() callback will start running now. */
 	ret = jack_activate(fmmod->client);
@@ -573,6 +644,7 @@ fmmod_destroy(struct fmmod_instance *fmmod)
 
 	rds_encoder_destroy(fmmod->enc);
 	munmap(fmmod->enc, sizeof(struct rds_encoder));
+	shm_unlink(RDS_ENC_SHM_NAME);
 
 	resampler_destroy(&fmmod->rsmpl);
 
@@ -587,7 +659,10 @@ fmmod_destroy(struct fmmod_instance *fmmod)
 		snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
 		unlink(sock_path);
 	}
-	shm_unlink(RDS_ENC_SHM_NAME);
+
+	munmap(fmmod->ctl, sizeof(struct fmmod_control));
+	shm_unlink(FMMOD_CTL_SHM_NAME);
+
 	fmmod->active = 0;
 
 	return;

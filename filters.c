@@ -167,7 +167,8 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *iir, float sample,
 	} else if(chan_idx == 1) {
 		iir_inbuf = iir->iir_inbuff_r;
 		iir_outbuf = iir->iir_outbuff_r;
-	}
+	} else
+		return 0.0;
 
 	/* Apply the IIR FM Pre-emphasis filter to increase the
 	 * gain as the frequency gets higher and compensate for
@@ -269,7 +270,8 @@ iir_ssb_filter_apply(struct ssb_filter_data *iir, float sample,
 	} else if(chan_idx == 1) {
 		iir_inbuf = iir->iir_inbuff_r;
 		iir_outbuf = iir->iir_outbuff_r;
-	}
+	} else
+		return 0.0;
 
 	/* Make room for the new in sample */
 	for(i = 0; i < SSB_FILTER_SIZE - 1; i++)

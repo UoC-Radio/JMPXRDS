@@ -50,7 +50,6 @@ resampler_upsample_audio(struct resampler_data *rsmpl, float *in,
 						sizeof(float));
 		frames_generated = 2 * inframes;
 	} else {
-		memset(&rsmpl->upsampler_data, 0, sizeof(SRC_DATA));
 		rsmpl->upsampler_data.data_in = in;
 		rsmpl->upsampler_data.data_out = rsmpl->upsampled_audio;
 		rsmpl->upsampler_data.input_frames = inframes;
@@ -92,7 +91,6 @@ resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
 		for(i = 0; i < frames_generated; i++)
 			in[i] = fir_filter_apply(&rsmpl->mpx_lpf, in[i], 0);
 
-		memset(&rsmpl->downsampler_data, 0, sizeof(SRC_DATA));
 		rsmpl->downsampler_data.data_in = in;
 		rsmpl->downsampler_data.data_out = out;
 		rsmpl->downsampler_data.input_frames = inframes;

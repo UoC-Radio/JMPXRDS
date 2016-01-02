@@ -27,10 +27,15 @@
  * 57KHz. However it was too hard on the CPU so I went for the
  * closest Greatest Common Factor between 38KHz and 57Khz which
  * is 228KHz (= 38 * 6 = 57 * 4). So it's 3x oversampling on
- * 38KHz and 2x on 57KHz. 57KHz waveform seems ok but the
- * 38KHz never gets to 1. During testing stereo separation was
- * OK though and FFT is fine too so I'm leaving it to 228KHz
- * for now. Don't change this unless you know what you are doing ! */
+ * 38KHz and 2x on 57KHz.
+ *
+ * 57KHz waveform seems ok but the 38KHz never gets to 1 and there
+ * is a spike generated at 57Khz at -60dB from the 19KHz pilot.
+ * However RDS operation was fine during testing (since -60dB is
+ * low enough and it's at the carrier). Stereo separation was
+ * also fine so I'm leaving it to 228KHz for now.
+ *
+ * Don't change this unless you know what you are doing ! */
 #define	OSC_SAMPLE_RATE		228000
 
 /* That's the RDS carrier, we won't get any further than this */

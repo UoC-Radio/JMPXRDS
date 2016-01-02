@@ -18,10 +18,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdlib.h>	/* For atoi */
+#include <stdlib.h>	/* For atoi / strtol */
 #include <stdio.h>	/* For printf / snprintf */
-#include <unistd.h>
-#include <string.h>	/* For strnlen / strncmp */
+#include <unistd.h>	/* For ftruncate */
+#include <string.h>	/* For memset / strnlen / strncmp */
 #include <sys/mman.h>	/* For shm_open */
 #include <fcntl.h>	/* For O_* constants */
 #include <sys/stat.h>	/* For mode constants */
@@ -55,8 +55,8 @@ main(int argc, char *argv[])
 	uint8_t pty = 0;
 	uint8_t ecc = 0;
 	uint16_t lic = 0;
-	char temp[TEMP_BUF_LEN];
-	struct rds_encoder *enc;
+	char temp[TEMP_BUF_LEN] = {0};
+	struct rds_encoder *enc = NULL;
 
 	if(argc < 2)
 		usage(argv[0]);
@@ -217,7 +217,8 @@ main(int argc, char *argv[])
 	}
 
 cleanup:
-	close(rds_enc_fd);
+	if(rds_enc_fd > 0)
+		close(rds_enc_fd);
 	if(enc)
 		munmap(enc, sizeof(struct rds_encoder));
 	return ret;

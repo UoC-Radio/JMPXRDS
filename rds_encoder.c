@@ -616,7 +616,6 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 
 	/* Resample current group's waveform to the
 	 * main oscilators samplerate */
-	memset(&upsampler->data, 0, sizeof(SRC_DATA));
 	upsampler->data.data_in = group->samples_buffer;
 	upsampler->data.data_out = upsampler->upsampled_waveform;
 	upsampler->data.input_frames = RDS_GROUP_SAMPLES;
@@ -718,7 +717,7 @@ rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 		upsampler->upsampled_waveform_len);
 
 	/* Initialize upsampler state */
-	upsampler->state = src_new(SRC_SINC_FASTEST, 1, &ret);
+	upsampler->state = src_new(SRC_LINEAR, 1, &ret);
 	if(ret != 0) {
 		printf("RDS UPSAMPLER: %s\n",src_strerror(ret));
 		ret = -1;
