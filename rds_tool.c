@@ -48,7 +48,7 @@ usage(char *name)
 int
 main(int argc, char *argv[])
 {
-	int rds_enc_fd = 0;
+	int rds_state_fd = 0;
 	int ret = 0;
 	int i = 0;
 	uint16_t pi = 0;
@@ -56,29 +56,29 @@ main(int argc, char *argv[])
 	uint8_t ecc = 0;
 	uint16_t lic = 0;
 	char temp[TEMP_BUF_LEN] = {0};
-	struct rds_encoder *enc = NULL;
+	struct rds_encoder_state *st = NULL;
 
 	if(argc < 2)
 		usage(argv[0]);
 
-	rds_enc_fd = shm_open(RDS_ENC_SHM_NAME, O_RDWR, 0600);
-	if(rds_enc_fd < 0) {
+	rds_state_fd = shm_open(RDS_ENC_SHM_NAME, O_RDWR, 0600);
+	if(rds_state_fd < 0) {
 		ret = -5;
 		goto cleanup;
 	}
 
-	ret = ftruncate(rds_enc_fd, sizeof(struct rds_encoder));
+	ret = ftruncate(rds_state_fd, sizeof(struct rds_encoder));
 	if(ret != 0) {
 		ret = -5;
 		goto cleanup;
 	}
 
 
-	enc = (struct rds_encoder*)
-				mmap(0, sizeof(struct rds_encoder),
+	st = (struct rds_encoder_state*)
+				mmap(0, sizeof(struct rds_encoder_state),
 				     PROT_READ | PROT_WRITE, MAP_SHARED,
-				     rds_enc_fd, 0);
-	if(enc == MAP_FAILED) {
+				     rds_state_fd, 0);
+	if(st == MAP_FAILED) {
 		ret = -5;
 		goto cleanup;
 	}
@@ -93,20 +93,20 @@ main(int argc, char *argv[])
 			"\tPS:   %s\n"
 			"\tRT:   %s\n"
 			"\tPTYN: %s\n",
-			rds_get_pi(enc),
-			rds_get_ecc(enc),
-			rds_get_lic(enc),
-			rds_get_pty(enc),
-			rds_get_ps(enc),
-			enc->rt_set ? rds_get_rt(enc) : "<Not set>",
-			enc->ptyn_set ? rds_get_ptyn(enc) : "<Not set>");
+			rds_get_pi(st),
+			rds_get_ecc(st),
+			rds_get_lic(st),
+			rds_get_pty(st),
+			rds_get_ps(st),
+			st->rt_set ? rds_get_rt(st) : "<Not set>",
+			st->ptyn_set ? rds_get_ptyn(st) : "<Not set>");
 		}
 		if(!strncmp(argv[i], "-p", 3)) {
 			if(i < argc - 1) {
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, 7, "%s", argv[++i]);
 				pi = (uint16_t) strtol(temp, NULL, 16);
-				ret = rds_set_pi(enc, pi);
+				ret = rds_set_pi(st, pi);
 				if(ret < 0) {
 					printf("Failed to set PI !\n");
 					goto cleanup;
@@ -122,7 +122,7 @@ main(int argc, char *argv[])
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, 4, "%s", argv[++i]);
 				pty = (uint8_t) atoi(temp);
-				ret = rds_set_pty(enc, pty);
+				ret = rds_set_pty(st, pty);
 				if(ret < 0) {
 					printf("Failed to set PTY !\n");
 					goto cleanup;
@@ -138,7 +138,7 @@ main(int argc, char *argv[])
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, RDS_PS_LENGTH + 1, "%s",
 							argv[++i]);
-				ret = rds_set_ps(enc, temp);
+				ret = rds_set_ps(st, temp);
 				if(ret < 0) {
 					printf("Failed to set PS !\n");
 					goto cleanup;
@@ -154,7 +154,7 @@ main(int argc, char *argv[])
 				memset(temp, 0, 64);
 				snprintf(temp, RDS_RT_LENGTH + 1, "%s",
 							argv[++i]);
-				ret = rds_set_rt(enc, temp, 1);
+				ret = rds_set_rt(st, temp, 1);
 				if(ret < 0) {
 					printf("Failed to set RT !\n");
 					goto cleanup;
@@ -170,7 +170,7 @@ main(int argc, char *argv[])
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, RDS_PTYN_LENGTH + 1, "%s",
 							argv[++i]);
-				ret = rds_set_ptyn(enc, temp);
+				ret = rds_set_ptyn(st, temp);
 				if(ret < 0) {
 					printf("Failed to set PTYN !\n");
 					goto cleanup;
@@ -186,7 +186,7 @@ main(int argc, char *argv[])
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, 5, "%s", argv[++i]);
 				ecc = (uint8_t) strtol(temp, NULL, 16);
-				ret = rds_set_ecc(enc, ecc);
+				ret = rds_set_ecc(st, ecc);
 				if(ret < 0) {
 					printf("Failed to set ECC !\n");
 					goto cleanup;
@@ -203,7 +203,7 @@ main(int argc, char *argv[])
 				snprintf(temp, 6, "%s", argv[++i]);
 				lic = (uint16_t) strtol(temp, NULL, 16);
 				lic &= 0xFFF;
-				ret = rds_set_lic(enc, lic);
+				ret = rds_set_lic(st, lic);
 				if(ret < 0) {
 					printf("Failed to set LIC !\n");
 					goto cleanup;
@@ -217,9 +217,9 @@ main(int argc, char *argv[])
 	}
 
 cleanup:
-	if(rds_enc_fd > 0)
-		close(rds_enc_fd);
-	if(enc)
-		munmap(enc, sizeof(struct rds_encoder));
+	if(rds_state_fd > 0)
+		close(rds_state_fd);
+	if(st)
+		munmap(st, sizeof(struct rds_encoder_state));
 	return ret;
 }

@@ -22,7 +22,7 @@
 #include <unistd.h>	/* For sleep() */
 #include <stdio.h>	/* For printf */
 #include <sched.h>	/* For sched_setscheduler etc */
-#include <signal.h>	/* For signal handling */
+#include <signal.h>	/* For signal handling / sig_atomic_t */
 #include <string.h>	/* For memset() */
 
 volatile sig_atomic_t active;
@@ -75,6 +75,6 @@ main(int argc,char *argv[])
 		sleep(1);
 
 	if(fmmod_instance.active)
-		fmmod_destroy(&fmmod_instance);
+		fmmod_destroy(&fmmod_instance, 0);
 	exit ( 0 );
 }

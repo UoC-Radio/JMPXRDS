@@ -38,7 +38,7 @@ enum fmmod_errors {
 	FMMOD_ERR_OSC_ERR = -5,
 	FMMOD_ERR_RDS_ERR = -6,
 	FMMOD_ERR_SHM_ERR = -7,
-	FMMOD_ERR_SOCK_ERR = -8
+	FMMOD_ERR_SOCK_ERR = -8,
 };
 
 /* If JACK's samplerate is not enough (e.g. soundcard
@@ -104,7 +104,7 @@ struct fmmod_instance {
 	/* The resampler */
 	struct resampler_data rsmpl;
 	/* The RDS Encoder */
-	struct rds_encoder *enc;
+	struct rds_encoder rds_enc;
 	/* Jack-related */
 	jack_port_t *inL;
 	jack_port_t *inR;
@@ -122,5 +122,5 @@ struct fmmod_instance {
 typedef float (*stereo_modulator)(struct fmmod_instance *, float);
 
 int fmmod_initialize(struct fmmod_instance *fmmod, int region);
-void fmmod_destroy(struct fmmod_instance *fmmod);
+void fmmod_destroy(struct fmmod_instance *fmmod, int shutdown);
 

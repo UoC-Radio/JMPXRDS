@@ -86,7 +86,7 @@ main(int argc, char *argv[])
 			"\tPilot:   %i%%\n"
 			"\tRDS:     %i%%\n"
 			"\tStereo:  %s\n"
-			"Current gains:"
+			"Current gains:\n"
 			"\tAudio Left:  %f\n"
 			"\tAudio Right: %f\n"
 			"\tMPX:         %f\n",

@@ -338,7 +338,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 
 		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
 		mpxbuf[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
-					rds_get_next_sample(fmmod->enc);
+					rds_get_next_sample(&fmmod->rds_enc);
 		c += 2;
 		osc_increase_phase(sin_osc);
 	}
@@ -372,7 +372,7 @@ static void
 fmmod_shutdown(void *arg)
 {
 	struct fmmod_instance *fmmod = (struct fmmod_instance *) arg;
-	fmmod_destroy(fmmod);
+	fmmod_destroy(fmmod, 1);
 	return;
 }
 
@@ -392,7 +392,6 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	uint8_t preemph_usecs = 0;
 	uint32_t uid = 0;
 	char sock_path[32] = {0}; /* /run/user/<userid>/jmpxrds.sock */
-	int rds_enc_fd = 0;
 	int ctl_fd = 0;
 	char *client_name = NULL;
 	jack_options_t options = JackNoStartServer;
@@ -505,33 +504,12 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 						preemph_usecs);
 
 	/* Initialize RDS encoder */
-	rds_enc_fd = shm_open(RDS_ENC_SHM_NAME, O_CREAT | O_RDWR, 0600);
-	if(rds_enc_fd < 0) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
-	}
-
-	ret = ftruncate(rds_enc_fd, sizeof(struct rds_encoder));
-	if(ret != 0) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
-	}
-
-	fmmod->enc = (struct rds_encoder*)
-				mmap(0, sizeof(struct rds_encoder),
-				     PROT_READ | PROT_WRITE, MAP_SHARED,
-				     rds_enc_fd, 0);
-	if(fmmod->enc == MAP_FAILED) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
-	}
-	close(rds_enc_fd);
-
-	ret = rds_encoder_init(fmmod->enc, OSC_SAMPLE_RATE);
+	ret = rds_encoder_init(&fmmod->rds_enc, OSC_SAMPLE_RATE);
 	if(ret < 0) {
 		ret = FMMOD_ERR_RDS_ERR;
 		goto cleanup;
 	}
+	fmmod->rds_enc.fmmod_client = fmmod->client;
 
 	/* Register callbacks on JACK */
 	jack_set_process_callback(fmmod->client, fmmod_process, fmmod);
@@ -614,7 +592,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	ctl = fmmod->ctl;
 	ctl->audio_gain = 0.40;
 	ctl->pilot_gain = 0.08;
-	ctl->rds_gain = 0.02;
+	ctl->rds_gain = 0.04;
 	ctl->mpx_gain = 1;
 	ctl->stereo_modulation = FMMOD_DSB;
 
@@ -628,23 +606,22 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 
 cleanup:
 	if(ret < 0) {
-		fmmod_destroy(fmmod);
+		fmmod_destroy(fmmod, 0);
 		return ret;
 	} else
 		return 0;
 }
 
 void
-fmmod_destroy(struct fmmod_instance *fmmod)
+fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 {
 	int uid = 0;
 	char sock_path[32] = {0};
 
-	jack_deactivate(fmmod->client);
+	if (!shutdown)
+		jack_deactivate(fmmod->client);
 
-	rds_encoder_destroy(fmmod->enc);
-	munmap(fmmod->enc, sizeof(struct rds_encoder));
-	shm_unlink(RDS_ENC_SHM_NAME);
+	rds_encoder_destroy(&fmmod->rds_enc);
 
 	resampler_destroy(&fmmod->rsmpl);
 

@@ -22,169 +22,205 @@
 #include <string.h> /* For memset/memcpy/strnlen */
 
 uint16_t
-rds_get_pi(struct rds_encoder *enc)
+rds_get_pi(struct rds_encoder_state *st)
 {
-	return enc->pi;
+	if(st == NULL)
+		return -1;
+	return st->pi;
 }
 
 int
-rds_set_pi(struct rds_encoder *enc, uint16_t pi)
+rds_set_pi(struct rds_encoder_state *st, uint16_t pi)
 {
-	enc->pi = pi;
+	if(st == NULL)
+		return -1;
+	st->pi = pi;
 	return 0;
 }
 
 uint8_t
-rds_get_ecc(struct rds_encoder *enc)
+rds_get_ecc(struct rds_encoder_state *st)
 {
-	return enc->ecc;
+	if(st == NULL)
+		return 0;
+	return st->ecc;
 }
 
 int
-rds_set_ecc(struct rds_encoder *enc, uint8_t ecc)
+rds_set_ecc(struct rds_encoder_state *st, uint8_t ecc)
 {
-	enc->ecc = ecc;
-	if(enc->ecc == 0)
-		enc->ecc_set = 0;
+	if(st == NULL)
+		return -1;
+
+	st->ecc = ecc;
+
+	if(st->ecc == 0)
+		st->ecc_set = 0;
 	else
-		enc->ecc_set = 1;
+		st->ecc_set = 1;
+
 	return 0;
 }
 
 uint16_t
-rds_get_lic(struct rds_encoder *enc)
+rds_get_lic(struct rds_encoder_state *st)
 {
-	return enc->lic;
+	if(st == NULL)
+		return 0;
+	return st->lic;
 }
 
 int
-rds_set_lic(struct rds_encoder *enc, uint16_t lic)
+rds_set_lic(struct rds_encoder_state *st, uint16_t lic)
 {
-	enc->lic = lic & 0xFFF;
-	if(enc->lic == 0)
-		enc->lic_set = 0;
+	if(st == NULL)
+		return -1;
+
+	st->lic = lic & 0xFFF;
+
+	if(st->lic == 0)
+		st->lic_set = 0;
 	else
-		enc->lic_set = 1;
+		st->lic_set = 1;
+
 	return 0;
 }
 
 uint8_t
-rds_get_pty(struct rds_encoder *enc)
+rds_get_pty(struct rds_encoder_state *st)
 {
-	return enc->pty;
+	return st->pty;
 }
 
 int
-rds_set_pty(struct rds_encoder *enc, uint8_t pty)
+rds_set_pty(struct rds_encoder_state *st, uint8_t pty)
 {
+	if(st == NULL)
+		return -1;
+
 	if(pty <= 31)
-		enc->pty = pty;
+		st->pty = pty;
 	else
 		return -1;
 	return 0;
 }
 
 uint8_t
-rds_get_ta(struct rds_encoder *enc)
+rds_get_ta(struct rds_encoder_state *st)
 {
-	return enc->ta;
+	if(st == NULL)
+		return 0;
+	return st->ta;
 }
 
 int
-rds_set_ta(struct rds_encoder *enc, uint8_t ta)
+rds_set_ta(struct rds_encoder_state *st, uint8_t ta)
 {
-	enc->ta = ta & 1;
+	if(st == NULL)
+		return -1;
+	st->ta = ta & 1;
 	return 0;
 }
 
 uint8_t
-rds_get_ms(struct rds_encoder *enc)
+rds_get_ms(struct rds_encoder_state *st)
 {
-	return enc->ms;
+	if(st == NULL)
+		return 0;
+	return st->ms;
 }
 
 int
-rds_set_ms(struct rds_encoder *enc, uint8_t ms)
+rds_set_ms(struct rds_encoder_state *st, uint8_t ms)
 {
-	enc->ms = ms & 1;
+	if(st == NULL)
+		return -1;
+	st->ms = ms & 1;
 	return 0;
 }
 
 uint8_t
-rds_get_di(struct rds_encoder *enc)
+rds_get_di(struct rds_encoder_state *st)
 {
-	return enc->di;
+	if(st == NULL)
+		return 0;
+	return st->di;
 }
 
 int
-rds_set_di(struct rds_encoder *enc, uint8_t di)
+rds_set_di(struct rds_encoder_state *st, uint8_t di)
 {
-	enc->di = di & 0xF;
+	if(st == NULL)
+		return -1;
+
+	st->di = di & 0xF;
 	return 0;
 }
 
 char*
-rds_get_ps(struct rds_encoder *enc)
+rds_get_ps(struct rds_encoder_state *st)
 {
 	static char ps[RDS_PS_LENGTH + 1];
+	if(st == NULL)
+		return NULL;
 	memset(ps, 0, RDS_PS_LENGTH + 1);
-	memcpy(ps, enc->ps, RDS_PS_LENGTH);
+	memcpy(ps, st->ps, RDS_PS_LENGTH);
 	return ps;
 }
 
 int
-rds_set_ps(struct rds_encoder *enc, const char* ps)
+rds_set_ps(struct rds_encoder_state *st, const char* ps)
 {
 	int pslen = 0;
 	int i = 0;
 
-	if(enc == NULL || ps == NULL)
+	if(st == NULL || ps == NULL)
 		return -1;
 
 	pslen = strnlen(ps, RDS_PS_LENGTH);
 	if(pslen > RDS_PS_LENGTH)
 		return -1;
 
-	memset(enc->ps, 0, RDS_PS_LENGTH);
+	memset(st->ps, 0, RDS_PS_LENGTH);
 
 	if(pslen == 0) {
-		enc->ps_set = 0;
+		st->ps_set = 0;
 		return 0;
 	}
 
 	for(i = 0; i < pslen; i++) {
 		if((ps[i] >= 0x20) ||
 		(ps[i] == 0x7F))
-			enc->ps[i] = ps[i];
+			st->ps[i] = ps[i];
 		else
-			enc->ps[i] = 0;
+			st->ps[i] = 0;
 	}
-	enc->ps_set = 1;
-	enc->ps_idx = 0;
+	st->ps_set = 1;
+	st->ps_idx = 0;
 
 	return 0;
 }
 
 char*
-rds_get_ptyn(struct rds_encoder *enc)
+rds_get_ptyn(struct rds_encoder_state *st)
 {
 	static char ptyn[RDS_PTYN_LENGTH + 1];
-	if(!enc->ptyn_set)
+	if(st == NULL || !st->ptyn_set)
 		return NULL;
 
 	memset(ptyn, 0, RDS_PTYN_LENGTH + 1);
-	memcpy(ptyn, enc->ptyn,RDS_PTYN_LENGTH);
+	memcpy(ptyn, st->ptyn,RDS_PTYN_LENGTH);
 
 	return ptyn;
 }
 
 int
-rds_set_ptyn(struct rds_encoder *enc, const char* ptyn)
+rds_set_ptyn(struct rds_encoder_state *st, const char* ptyn)
 {
 	int ptynlen = 0;
 	int i = 0;
 
-	if(enc == NULL || ptyn == NULL)
+	if(st == NULL || ptyn == NULL)
 		return -1;
 
 	ptynlen = strnlen(ptyn, RDS_PTYN_LENGTH);
@@ -192,51 +228,51 @@ rds_set_ptyn(struct rds_encoder *enc, const char* ptyn)
 		return -1;
 
 	if(ptynlen == 0) {
-		enc->ptyn_set = 0;
-		memset(enc->ptyn, 0, RDS_PTYN_LENGTH);
+		st->ptyn_set = 0;
+		memset(st->ptyn, 0, RDS_PTYN_LENGTH);
 		return 0;
 	}
 
 	/* Flip A/B flag to flush PTYN buffer
 	 * on receiver */
-	if(enc->ptyn_set)
-		enc->ptyn_flush = enc->ptyn_flush ? 0 : 1;
+	if(st->ptyn_set)
+		st->ptyn_flush = st->ptyn_flush ? 0 : 1;
 
-	memset(enc->ptyn, 0, RDS_PTYN_LENGTH);
+	memset(st->ptyn, 0, RDS_PTYN_LENGTH);
 	for(i = 0; i < ptynlen; i++) {
 		if((ptyn[i] >= 0x20) ||
 		(ptyn[i] == 0x7F))
-			enc->ptyn[i] = ptyn[i];
+			st->ptyn[i] = ptyn[i];
 		else
-			enc->ptyn[i] = 0;
+			st->ptyn[i] = 0;
 	}
-	enc->ptyn_set = 1;
-	enc->ptyn_idx = 0;
+	st->ptyn_set = 1;
+	st->ptyn_idx = 0;
 
 	return 0;
 }
 
 char*
-rds_get_rt(struct rds_encoder *enc)
+rds_get_rt(struct rds_encoder_state *st)
 {
 	static char rt[RDS_RT_LENGTH + 1];
 
-	if(!enc->rt_set)
+	if(!st->rt_set)
 		return NULL;
 
 	memset(rt, 0, RDS_RT_LENGTH + 1);
-	memcpy(rt, enc->rt, RDS_RT_LENGTH);
+	memcpy(rt, st->rt, RDS_RT_LENGTH);
 
 	return rt;
 }
 
 int
-rds_set_rt(struct rds_encoder *enc, const char* rt, int flush)
+rds_set_rt(struct rds_encoder_state *st, const char* rt, int flush)
 {
 	int rtlen = 0;
 	int i = 0;
 
-	if(enc == NULL || rt == NULL)
+	if(st == NULL || rt == NULL)
 		return -1;
 
 	rtlen = strnlen(rt, RDS_RT_LENGTH);
@@ -244,17 +280,17 @@ rds_set_rt(struct rds_encoder *enc, const char* rt, int flush)
 		return -1;
 
 	if(rtlen == 0) {
-		enc->rt_set = 0;
-		memset(enc->rt, 0, RDS_RT_LENGTH);
+		st->rt_set = 0;
+		memset(st->rt, 0, RDS_RT_LENGTH);
 		return 0;
 	}
 
 	/* Flip A/B flag to flush RT buffer
 	 * on receiver */
-	if(flush && enc->rt_set)
-		enc->rt_flush = enc->rt_flush ? 0 : 1;
+	if(flush && st->rt_set)
+		st->rt_flush = st->rt_flush ? 0 : 1;
 
-	memset(enc->rt, 0, RDS_RT_LENGTH);
+	memset(st->rt, 0, RDS_RT_LENGTH);
 	for(i = 0; i < rtlen; i++) {
 		if(((rt[i] < 0x20) &&
 		((rt[i] != RDS_RT_CR) ||
@@ -262,26 +298,26 @@ rds_set_rt(struct rds_encoder *enc, const char* rt, int flush)
 		(rt[i] != RDS_RT_END_OF_HEADLINE) ||
 		(rt[i] != RDS_RT_SOFT_HYPHEN))) ||
 		(rt[i] == 0x7F))
-			enc->rt[i] = 0;
+			st->rt[i] = 0;
 		else
-			enc->rt[i] = rt[i];
+			st->rt[i] = rt[i];
 	}
 
 	while(i % 4 && i < RDS_RT_LENGTH - 1) {
-		enc->rt[i] = 0x20;
+		st->rt[i] = 0x20;
 		i++;
 	}
 
 	/* According to the standard the RT message
 	 * should end with a CR character but some
 	 * receivers display a '-' instead
-	enc->rt[i - 1] = RDS_RT_CR;
+	st->rt[i - 1] = RDS_RT_CR;
 	*/
 
-	enc->rt_segments = i / 4;
+	st->rt_segments = i / 4;
 
-	enc->rt_set = 1;
-	enc->rt_idx = 0;
+	st->rt_set = 1;
+	st->rt_idx = 0;
 
 	return 0;
 }

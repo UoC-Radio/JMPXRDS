@@ -20,6 +20,7 @@
 
 #include <stdint.h> /* For typed ints */
 #include <samplerate.h> /* src_* functions and macros */
+#include <jack/jack.h>	/* For jack-related types */
 
 /* RDS encoding takes a data stream of specialy formated data,
  * does a differential encoding on it and passes it through a
@@ -91,19 +92,23 @@ struct rds_group {
 #define RDS_GROUP_VERSION_MAX	RDS_GROUP_VERSION_B
 
 struct rds_upsampler {
-	float *upsampled_waveform;
 	int upsampled_waveform_len;
-	int upsampled_waveform_samples;
 	SRC_STATE* state;
 	SRC_DATA data;
 	double ratio;
+};
+
+struct rds_upsampled_group {
+	float *waveform;
+	int waveform_samples;
+	int result;
 };
 
 #define RDS_PS_LENGTH	8
 #define	RDS_PTYN_LENGTH	8
 #define	RDS_RT_LENGTH	64
 
-struct rds_encoder {
+struct rds_encoder_state {
 	uint16_t pi;
 	uint8_t	ecc;
 	uint8_t ecc_set:1;
@@ -130,8 +135,14 @@ struct rds_encoder {
 	uint8_t	af_set:1;
 	uint8_t	af_len:4;
 	uint8_t	af_idx:4;
-	struct rds_group *current_group;
+};
+
+struct rds_encoder {
 	struct rds_upsampler *upsampler;
+	struct rds_encoder_state *state;
+	struct rds_upsampled_group outbuf[2];
+	int curr_outbuf_idx;
+	jack_client_t *fmmod_client;
 };
 
 #define	RDS_MS_SPEECH	0
@@ -160,23 +171,23 @@ float rds_get_next_sample(struct rds_encoder *enc);
 #define RDS_ENC_SHM_NAME	"RDS_ENC_SHM"
 
 /* Getters/Setters */
-uint16_t rds_get_pi(struct rds_encoder *enc);
-int rds_set_pi(struct rds_encoder *enc, uint16_t pi);
-uint8_t rds_get_ecc(struct rds_encoder *enc);
-int rds_set_ecc(struct rds_encoder *enc, uint8_t ecc);
-uint16_t rds_get_lic(struct rds_encoder *enc);
-int rds_set_lic(struct rds_encoder *enc, uint16_t lic);
-uint8_t rds_get_pty(struct rds_encoder *enc);
-int rds_set_pty(struct rds_encoder *enc, uint8_t pty);
-uint8_t rds_get_ta(struct rds_encoder *enc);
-int rds_set_ta(struct rds_encoder *enc, uint8_t ta);
-uint8_t rds_get_ms(struct rds_encoder *enc);
-int rds_set_ms(struct rds_encoder *enc, uint8_t ms);
-uint8_t rds_get_di(struct rds_encoder *enc);
-int rds_set_di(struct rds_encoder *enc, uint8_t di);
-char* rds_get_ps(struct rds_encoder *enc);
-int rds_set_ps(struct rds_encoder *enc, const char* ps);
-char* rds_get_ptyn(struct rds_encoder *enc);
-int rds_set_ptyn(struct rds_encoder *enc, const char* ptyn);
-char* rds_get_rt(struct rds_encoder *enc);
-int rds_set_rt(struct rds_encoder *enc, const char* rt, int flush);
+uint16_t rds_get_pi(struct rds_encoder_state *st);
+int rds_set_pi(struct rds_encoder_state *st, uint16_t pi);
+uint8_t rds_get_ecc(struct rds_encoder_state *st);
+int rds_set_ecc(struct rds_encoder_state *st, uint8_t ecc);
+uint16_t rds_get_lic(struct rds_encoder_state *st);
+int rds_set_lic(struct rds_encoder_state *st, uint16_t lic);
+uint8_t rds_get_pty(struct rds_encoder_state *st);
+int rds_set_pty(struct rds_encoder_state *st, uint8_t pty);
+uint8_t rds_get_ta(struct rds_encoder_state *st);
+int rds_set_ta(struct rds_encoder_state *st, uint8_t ta);
+uint8_t rds_get_ms(struct rds_encoder_state *st);
+int rds_set_ms(struct rds_encoder_state *st, uint8_t ms);
+uint8_t rds_get_di(struct rds_encoder_state *st);
+int rds_set_di(struct rds_encoder_state *st, uint8_t di);
+char* rds_get_ps(struct rds_encoder_state *st);
+int rds_set_ps(struct rds_encoder_state *st, const char* ps);
+char* rds_get_ptyn(struct rds_encoder_state *st);
+int rds_set_ptyn(struct rds_encoder_state *st, const char* ptyn);
+char* rds_get_rt(struct rds_encoder_state *st);
+int rds_set_rt(struct rds_encoder_state *st, const char* rt, int flush);

@@ -23,8 +23,19 @@
 #include <string.h> /* For memset/memcpy/strnlen */
 #include <stdlib.h> /* For malloc/free */
 #include <stdio.h> /* For printf */
+#include <unistd.h>	/* For ftruncate(), close() */
+#include <sys/mman.h>	/* For shm_open */
+#include <sys/stat.h>	/* For mode constants */
+#include <fcntl.h>	/* For O_* and F_* constants */
 #include <math.h> /* For fabs */
+#include <jack/thread.h> /* For thread handling through jack */
+#include <pthread.h> /* For pthread mutex / conditional */
+#include <signal.h>	/* For sig_atomic_t */
 #include "rds_encoder.h"
+
+pthread_mutex_t rds_process_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t rds_process_trigger = PTHREAD_COND_INITIALIZER;
+volatile sig_atomic_t active;
 
 /************\
 * MODULATION *
@@ -203,6 +214,7 @@ static int
 rds_generate_group_0(struct rds_encoder *enc, struct rds_group *group,
 							uint8_t version)
 {
+	struct rds_encoder_state *st = enc->state;
 	uint16_t temp_infoword = 0;
 
 	/*
@@ -211,20 +223,20 @@ rds_generate_group_0(struct rds_encoder *enc, struct rds_group *group,
 	 *		(bit number maps to the idx so it's 0 - 3), and
 	 *		2 bits for the ps index.
 	 */
-	temp_infoword = enc->ps_idx | ((enc->di >> (3 - enc->ps_idx)) & 1) << 2|
-			(enc->ms & 1) << 3 | (enc->ta & 1) << 4;
+	temp_infoword = st->ps_idx | ((st->di >> (3 - st->ps_idx)) & 1) << 2|
+			(st->ms & 1) << 3 | (st->ta & 1) << 4;
 	group->blocks[1].infoword |= temp_infoword;
 
 	/* On Version A, 3rd block contains the AF information, we assume
 	 * the data on the af array are properly formatted according to
 	 * section 6.2.1.6 We only support method A */
 	if(version == RDS_GROUP_VERSION_A) {
-		group->blocks[2].infoword = (enc->af_data[enc->af_idx] << 8) |
-						enc->af_data[enc->af_idx + 1];
-		if(enc->af_idx >= 10)
-			enc->af_idx = 0;
+		group->blocks[2].infoword = (st->af_data[st->af_idx] << 8) |
+						st->af_data[st->af_idx + 1];
+		if(st->af_idx >= 10)
+			st->af_idx = 0;
 		else
-			enc->af_idx += 2;
+			st->af_idx += 2;
 		group->blocks[2].infoword = temp_infoword;
 	}
 
@@ -233,12 +245,12 @@ rds_generate_group_0(struct rds_encoder *enc, struct rds_group *group,
 	 *		(It takes 4 0A/0B groups to transmit the
 	 *		full DI and PS fields)
 	 */
-	group->blocks[3].infoword = (enc->ps[2 * enc->ps_idx] << 8) |
-					enc->ps[2 * enc->ps_idx + 1];
-	if(enc->ps_idx >= 3)
-		enc->ps_idx = 0;
+	group->blocks[3].infoword = (st->ps[2 * st->ps_idx] << 8) |
+					st->ps[2 * st->ps_idx + 1];
+	if(st->ps_idx >= 3)
+		st->ps_idx = 0;
 	else
-		enc->ps_idx ++;
+		st->ps_idx ++;
 
 	return 0;
 }
@@ -249,6 +261,7 @@ static int
 rds_generate_group_1(struct rds_encoder *enc, struct rds_group *group,
 							uint8_t version)
 {
+	struct rds_encoder_state *st = enc->state;
 	static int vcode = 0;
 
 	/*
@@ -269,8 +282,8 @@ rds_generate_group_1(struct rds_encoder *enc, struct rds_group *group,
 	 * 		and 3 for LIC)
 	 */
 	vcode = (vcode == 0) ? 3 : 0;
-	group->blocks[2].infoword = (vcode == 0 ? enc->ecc & 0xFF :
-						enc->lic & 0xFFF) |
+	group->blocks[2].infoword = (vcode == 0 ? st->ecc & 0xFF :
+						st->lic & 0xFFF) |
 						(vcode << 12);
 
 	return 0;
@@ -282,6 +295,7 @@ static int
 rds_generate_group_2(struct rds_encoder *enc, struct rds_group *group,
 							uint8_t version)
 {
+	struct rds_encoder_state *st = enc->state;
 	uint16_t temp_infoword = 0;
 
 	/*
@@ -289,7 +303,7 @@ rds_generate_group_2(struct rds_encoder *enc, struct rds_group *group,
 	 *		the RT buffer on the receiver) next 4 bits is the
 	 *		index (0 - 14)
 	 */
-	temp_infoword = (enc->rt_idx & 0xF)| (enc->rt_flush & 1) << 4;
+	temp_infoword = (st->rt_idx & 0xF)| (st->rt_flush & 1) << 4;
 	group->blocks[1].infoword |= temp_infoword;
 
 	/*
@@ -312,16 +326,16 @@ rds_generate_group_2(struct rds_encoder *enc, struct rds_group *group,
 	if(version != RDS_GROUP_VERSION_A)
 		return -1;
 
-	group->blocks[2].infoword = enc->rt[4 * enc->rt_idx] << 8 |
-					enc->rt[4 * enc->rt_idx + 1];
+	group->blocks[2].infoword = st->rt[4 * st->rt_idx] << 8 |
+					st->rt[4 * st->rt_idx + 1];
 
-	group->blocks[3].infoword = enc->rt[4 * enc->rt_idx + 2] << 8 |
-					enc->rt[4 * enc->rt_idx + 3];
+	group->blocks[3].infoword = st->rt[4 * st->rt_idx + 2] << 8 |
+					st->rt[4 * st->rt_idx + 3];
 
-	enc->rt_idx++;
+	st->rt_idx++;
 
-	if(enc->rt_idx >= enc->rt_segments)
-		enc->rt_idx = 0;
+	if(st->rt_idx >= st->rt_segments)
+		st->rt_idx = 0;
 
 	return 0;
 }
@@ -344,6 +358,7 @@ rds_generate_group_4(struct rds_encoder *enc, struct rds_group *group,
 	time_t now;
 	struct tm *utc;
 	struct tm *local_time;
+	struct rds_encoder_state *st = enc->state;
 
 	/* Group 4B is Open Data and it's not supported */
 	if(version != RDS_GROUP_VERSION_A)
@@ -397,6 +412,7 @@ static int
 rds_generate_group_10(struct rds_encoder *enc, struct rds_group *group,
 							uint8_t version)
 {
+	struct rds_encoder_state *st = enc->state;
 	int temp_infoword = 0;
 
 	/* Group 10B is Open Data and it's not supported */
@@ -406,20 +422,20 @@ rds_generate_group_10(struct rds_encoder *enc, struct rds_group *group,
 	/*
 	 * Block 2 end -> A/B (flush) flag, 3 zeroes and the 1bit index
 	 */
-	temp_infoword = enc->ptyn_idx | enc->ptyn_flush << 4;
+	temp_infoword = st->ptyn_idx | st->ptyn_flush << 4;
 	group->blocks[1].infoword |= temp_infoword;
 
 	/*
 	 * Block 3/4 -> 2 characters from the PTYN
 	 */
-	group->blocks[2].infoword = enc->ptyn[4 * enc->ptyn_idx] << 8 |
-					enc->ptyn[4 * enc->ptyn_idx + 1];
-	group->blocks[3].infoword = enc->ptyn[4 * enc->ptyn_idx + 2] << 8 |
-					enc->ptyn[4 * enc->ptyn_idx + 3];
-	if(enc->ptyn_idx == 1)
-		enc->ptyn_idx = 0;
+	group->blocks[2].infoword = st->ptyn[4 * st->ptyn_idx] << 8 |
+					st->ptyn[4 * st->ptyn_idx + 1];
+	group->blocks[3].infoword = st->ptyn[4 * st->ptyn_idx + 2] << 8 |
+					st->ptyn[4 * st->ptyn_idx + 3];
+	if(st->ptyn_idx == 1)
+		st->ptyn_idx = 0;
 	else
-		enc->ptyn_idx = 1;
+		st->ptyn_idx = 1;
 
 	return 0;
 }
@@ -430,6 +446,7 @@ static int
 rds_generate_group_15(struct rds_encoder *enc, struct rds_group *group,
 							uint8_t version)
 {
+	struct rds_encoder_state *st = enc->state;
 	uint16_t temp_infoword = 0;
 
 	/*
@@ -438,8 +455,8 @@ rds_generate_group_15(struct rds_encoder *enc, struct rds_group *group,
 	 *		(bit number maps to the idx so it's 0 - 3), and
 	 *		2 bits for the ps index.
 	 */
-	temp_infoword = enc->ps_idx | ((enc->di >> (3 - enc->ps_idx)) & 1) << 2|
-			(enc->ms & 1) << 3 | (enc->ta & 1) << 4;
+	temp_infoword = st->ps_idx | ((st->di >> (3 - st->ps_idx)) & 1) << 2|
+			(st->ms & 1) << 3 | (st->ta & 1) << 4;
 	group->blocks[1].infoword |= temp_infoword;
 
 	/* Group 15A is Open Data and it's not supported */
@@ -453,10 +470,10 @@ rds_generate_group_15(struct rds_encoder *enc, struct rds_group *group,
 
 	/* Use PS index for this one too since we send this only if PS
 	 * is not set (if it is we send a 0B instead) */
-	if(enc->ps_idx >= 3)
-		enc->ps_idx = 0;
+	if(st->ps_idx >= 3)
+		st->ps_idx = 0;
 	else
-		enc->ps_idx ++;
+		st->ps_idx ++;
 
 	return 0;
 }
@@ -467,6 +484,7 @@ static int
 rds_generate_group(struct rds_encoder *enc, struct rds_group *group,
 					uint8_t code, uint8_t version)
 {
+	struct rds_encoder_state *st = enc->state;
 	int i = 0;
 	int ret = 0;
 
@@ -488,14 +506,14 @@ rds_generate_group(struct rds_encoder *enc, struct rds_group *group,
 	 * If version -> B, 3rd block is also PI and the offset
 	 *		word of block 3 changes from C to C';
 	 */
-	group->blocks[0].infoword = enc->pi;
+	group->blocks[0].infoword = st->pi;
 	group->blocks[1].infoword = (code & 0xF) << 12|
 				(version & 1) << 11|
-				(enc->tp & 1) << 10|
-				(enc->pty & 0x1f) << 5;
+				(st->tp & 1) << 10|
+				(st->pty & 0x1f) << 5;
 
 	if(version == RDS_GROUP_VERSION_B) {
-		group->blocks[2].infoword = enc->pi;
+		group->blocks[2].infoword = st->pi;
 		group->blocks[2].offset_word =
 			offset_words[RDS_ALT_OFFSET_WORD_C_IDX];
 	}
@@ -537,6 +555,7 @@ rds_generate_group(struct rds_encoder *enc, struct rds_group *group,
 static int
 rds_get_next_group(struct rds_encoder *enc, struct rds_group* group)
 {
+	struct rds_encoder_state *st = enc->state;
 	static uint16_t	groups_per_min_counter = 0;
 	static int8_t	groups_per_sec_counter = 0;
 	static uint8_t ptyn_cnt = 0;
@@ -556,8 +575,8 @@ rds_get_next_group(struct rds_encoder *enc, struct rds_group* group)
 	 * shows the repetition rates of each group
 	 * and will also update TA, MS and AF */
 	if(groups_per_sec_counter < 4) {
-		if(enc->ps_set) {
-			if(enc->af_set)
+		if(st->ps_set) {
+			if(st->af_set)
 				ret = rds_generate_group(enc, group, 0,
 							RDS_GROUP_VERSION_A);
 			else
@@ -568,19 +587,19 @@ rds_get_next_group(struct rds_encoder *enc, struct rds_group* group)
 							RDS_GROUP_VERSION_B);
 	}
 	/* Send a 1A group to update ECC / LIC on the receiver*/
-	else if(groups_per_sec_counter < 6 && (enc->ecc_set || enc->lic_set)) {
+	else if(groups_per_sec_counter < 6 && (st->ecc_set || st->lic_set)) {
 		ret = rds_generate_group(enc, group, 1,
 					RDS_GROUP_VERSION_A);
 	}
 	/* Send 2 10A groups for PTYN if available */
-	else if(groups_per_sec_counter < 7 && enc->ptyn_set && ptyn_cnt < 2) {
+	else if(groups_per_sec_counter < 7 && st->ptyn_set && ptyn_cnt < 2) {
 		ret = rds_generate_group(enc, group, 10,
 						RDS_GROUP_VERSION_A);
 		ptyn_cnt++;
 	}
 	/* On the remaining slots send 2A groups to set
 	 * the RT buffer on the receiver */
-	else if(groups_per_sec_counter < RDS_GROUPS_PER_SEC && enc->rt_set) {
+	else if(groups_per_sec_counter < RDS_GROUPS_PER_SEC && st->rt_set) {
 		ret = rds_generate_group(enc, group, 2,
 						RDS_GROUP_VERSION_A);
 	} else {
@@ -602,22 +621,33 @@ rds_get_next_group(struct rds_encoder *enc, struct rds_group* group)
 /* Ask a group from the scheduler and upsample its
  * waveform to the oscilator's sample rate so that it
  * can be modulated by the 57KHz subcarrier */
-static int
+static struct rds_upsampled_group *
 rds_get_next_upsampled_group(struct rds_encoder *enc)
 {
 	int ret = 0;
+	int out_idx = 0;
 	struct rds_upsampler *upsampler = enc->upsampler;
-	struct rds_group *group = enc->current_group;
+	struct rds_group next_group;
+	struct rds_upsampled_group *outbuf = NULL;
+
+	pthread_mutex_lock(&rds_process_mutex);
+	while (pthread_cond_wait(&rds_process_trigger, &rds_process_mutex) != 0);
+
+	/* Only mess with the unused output buffer */
+	out_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
+	outbuf = &enc->outbuf[enc->curr_outbuf_idx];
 
 	/* Update current group */
-	ret = rds_get_next_group(enc, enc->current_group);
-	if(ret < 0)
-		return ret;
+	ret = rds_get_next_group(enc, &next_group);
+	if(ret < 0) {
+		outbuf->result = -1;
+		goto cleanup;
+	}
 
 	/* Resample current group's waveform to the
 	 * main oscilators samplerate */
-	upsampler->data.data_in = group->samples_buffer;
-	upsampler->data.data_out = upsampler->upsampled_waveform;
+	upsampler->data.data_in = next_group.samples_buffer;
+	upsampler->data.data_out = outbuf->waveform;
 	upsampler->data.input_frames = RDS_GROUP_SAMPLES;
 	upsampler->data.output_frames = upsampler->upsampled_waveform_len;
 	upsampler->data.end_of_input = 0;
@@ -626,10 +656,57 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 	if(ret != 0) {
 		printf("RDS UPSAMPLER: %s (%i)\n",
 			src_strerror(ret), ret);
-		return ret;
+		outbuf->result = -1;
+		goto cleanup;
 	}
-	upsampler->upsampled_waveform_samples =
-		upsampler->data.output_frames_gen;
+	outbuf->waveform_samples = upsampler->data.output_frames_gen;
+	outbuf->result = 0;
+
+cleanup:
+	pthread_mutex_unlock(&rds_process_mutex);
+	return outbuf;
+}
+
+static void*
+rds_main_loop(void *arg)
+{
+	struct rds_encoder *enc = (struct rds_encoder*) arg;
+	struct rds_upsampled_group *outbuf = NULL;
+	int ret = 0;
+
+	while(active)
+		outbuf = rds_get_next_upsampled_group(enc);
+
+	return (void *) outbuf;
+}
+
+static int
+rds_update_output(struct rds_encoder *enc)
+{
+	int ret = 0;
+	int rtprio = 0;
+	static jack_native_thread_t tid = 0;
+
+	rtprio = jack_client_max_real_time_priority(enc->fmmod_client);
+	if(rtprio < 0)
+		return -1;
+
+	/* Switch output buffer */
+	enc->curr_outbuf_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
+
+	/* Start processing the next buffer */
+	if(tid == 0) {
+		/* If thread doesn't exist create it */
+		ret = jack_client_create_thread(enc->fmmod_client, &tid,
+						rtprio, 1,
+						rds_main_loop,
+						(void*) enc);
+		if(ret < 0)
+			return -1;
+	}
+	pthread_mutex_lock(&rds_process_mutex);
+	pthread_cond_signal(&rds_process_trigger);
+	pthread_mutex_unlock(&rds_process_mutex);
 
 	return 0;
 }
@@ -646,22 +723,23 @@ rds_get_next_sample(struct rds_encoder *enc)
 	static int samples_out = 0;
 	int ret = 0;
 	float out = 0;
-	struct rds_upsampler *upsampler = enc->upsampler;
+	struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
 
 	/* We have remaining samples from the last group */
-	if(samples_out < upsampler->upsampled_waveform_samples) {
-		out = upsampler->upsampled_waveform[samples_out++];
+	if(samples_out < outbuf->waveform_samples) {
+		out = outbuf->waveform[samples_out++];
 		return out;
 	}
 
 	/* Last group was sent, go for the next one */
-	ret = rds_get_next_upsampled_group(enc);
+	ret = rds_update_output(enc);
 	if(ret < 0)
-		return 0;
+		return 0.0;
 
 	/* Reset counter and start over */
 	samples_out = 0;
-	out = upsampler->upsampled_waveform[samples_out];
+	outbuf = &enc->outbuf[enc->curr_outbuf_idx];
+	out = outbuf->waveform[samples_out++];
 	return out;
 }
 
@@ -674,6 +752,7 @@ int
 rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 {
 	struct rds_upsampler *upsampler = NULL;
+	int state_fd = 0;
 	int ret = 0;
 
 	if(enc == NULL || osc_sample_rate < RDS_SAMPLE_RATE)
@@ -681,12 +760,25 @@ rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 
 	memset(enc, 0, sizeof(struct rds_encoder));
 
-	enc->current_group = (struct rds_group*)
-				malloc(sizeof(struct rds_group));
-	if(enc->current_group == NULL) {
+	/* Initialize I/O channel for encoder's state */
+	state_fd = shm_open(RDS_ENC_SHM_NAME, O_CREAT | O_RDWR, 0600);
+	if(state_fd < 0)
+		goto cleanup;
+
+	ret = ftruncate(state_fd, sizeof(struct rds_encoder_state));
+	if(ret < 0)
+		goto cleanup;
+
+	enc->state = (struct rds_encoder_state*)
+				mmap(0, sizeof(struct rds_encoder_state),
+				     PROT_READ | PROT_WRITE, MAP_SHARED,
+				     state_fd, 0);
+	if(enc->state == MAP_FAILED) {
 		ret = -1;
 		goto cleanup;
 	}
+	close(state_fd);
+	memset(enc->state, 0, sizeof(struct rds_encoder_state));
 
 	enc->upsampler = (struct rds_upsampler*)
 				malloc(sizeof(struct rds_upsampler));
@@ -707,14 +799,23 @@ rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 	/* Allocate buffers */
 	upsampler->upsampled_waveform_len = upsampler->ratio *
 					RDS_GROUP_SAMPLES * sizeof(float);
-	upsampler->upsampled_waveform =
-			(float*) malloc(upsampler->upsampled_waveform_len);
-	if(upsampler->upsampled_waveform == NULL) {
+
+	enc->outbuf[0].waveform = (float*)
+				malloc(upsampler->upsampled_waveform_len);
+	if(enc->outbuf[0].waveform == NULL) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(upsampler->upsampled_waveform, 0,
-		upsampler->upsampled_waveform_len);
+	memset(enc->outbuf[0].waveform, 0, upsampler->upsampled_waveform_len);
+
+	enc->outbuf[1].waveform = (float*)
+				malloc(upsampler->upsampled_waveform_len);
+	if(enc->outbuf[1].waveform == NULL) {
+		ret = -1;
+		goto cleanup;
+	}
+	memset(enc->outbuf[1].waveform, 0, upsampler->upsampled_waveform_len);
+
 
 	/* Initialize upsampler state */
 	upsampler->state = src_new(SRC_LINEAR, 1, &ret);
@@ -726,11 +827,11 @@ rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 	memset(&upsampler->data, 0, sizeof(SRC_DATA));
 
 	/* Set default state */
-	enc->ms = RDS_MS_DEFAULT;
-	enc->di = RDS_DI_STEREO | RDS_DI_DYNPTY;
+	enc->state->ms = RDS_MS_DEFAULT;
+	enc->state->di = RDS_DI_STEREO | RDS_DI_DYNPTY;
 
-	/* Make Valgrind happy */
-	upsampler->upsampled_waveform_samples = 0;
+	active = 1;
+
 cleanup:
 	if(ret < 0)
 		rds_encoder_destroy(enc);
@@ -742,13 +843,21 @@ void
 rds_encoder_destroy(struct rds_encoder *enc) {
 	struct rds_upsampler *upsampler = enc->upsampler;
 
-	if(enc->current_group)
-		free(enc->current_group);
-	if(upsampler->upsampled_waveform)
-		free(upsampler->upsampled_waveform);
+	munmap(enc->state, sizeof(struct rds_encoder_state));
+	shm_unlink(RDS_ENC_SHM_NAME);
+
+	active = 0;
+
+	if(enc->outbuf[0].waveform != NULL)
+		free(enc->outbuf[0].waveform);
+	if(enc->outbuf[1].waveform != NULL)
+		free(enc->outbuf[1].waveform);
+
 	if(upsampler->state != NULL)
 		src_delete(upsampler->state);
+
 	if(enc->upsampler)
 		free(enc->upsampler);
+
 	memset(enc, 0, sizeof(struct rds_encoder));
 }
