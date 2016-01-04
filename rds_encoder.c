@@ -34,7 +34,7 @@
 
 pthread_mutex_t rds_process_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t rds_process_trigger = PTHREAD_COND_INITIALIZER;
-volatile sig_atomic_t active;
+static volatile sig_atomic_t active;
 
 /************\
 * MODULATION *

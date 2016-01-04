@@ -25,7 +25,7 @@
 #include <signal.h>	/* For signal handling / sig_atomic_t */
 #include <string.h>	/* For memset() */
 
-volatile sig_atomic_t active;
+static volatile sig_atomic_t active;
 
 static void
 signal_handler(int sig)
