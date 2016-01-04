@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "fmmod.h"
 #include <stdlib.h>	/* For strtol */
 #include <stdio.h>	/* For printf / snprintf */
 #include <string.h>	/* For memset / strncmp */
@@ -24,7 +25,6 @@
 #include <sys/mman.h>	/* For shm_open */
 #include <fcntl.h>	/* For O_* constants */
 #include <sys/stat.h>	/* For mode constants */
-#include "fmmod.h"
 
 
 #define TEMP_BUF_LEN	3 + 1

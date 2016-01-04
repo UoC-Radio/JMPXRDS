@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
+#include "rds_encoder.h"
 #include <time.h> /* For gmtime, localtime etc (group 4A) */
 #include <arpa/inet.h> /* For htons() */
 #include <string.h> /* For memset/memcpy/strnlen */
@@ -31,7 +31,6 @@
 #include <jack/thread.h> /* For thread handling through jack */
 #include <pthread.h> /* For pthread mutex / conditional */
 #include <signal.h>	/* For sig_atomic_t */
-#include "rds_encoder.h"
 
 pthread_mutex_t rds_process_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t rds_process_trigger = PTHREAD_COND_INITIALIZER;

@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
+#include "rds_encoder.h"
 #include <stdlib.h>	/* For atoi / strtol */
 #include <stdio.h>	/* For printf / snprintf */
 #include <unistd.h>	/* For ftruncate */
@@ -25,7 +25,6 @@
 #include <sys/mman.h>	/* For shm_open */
 #include <fcntl.h>	/* For O_* constants */
 #include <sys/stat.h>	/* For mode constants */
-#include "rds_encoder.h"
 
 #define TEMP_BUF_LEN	RDS_RT_LENGTH + 1
 void
