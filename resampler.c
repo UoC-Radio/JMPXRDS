@@ -127,7 +127,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	uint32_t mpx_cutoff_freq = 0;
 
 	/* We need to cut off everything above the Niquist frequency
-	 * (half the sample rate) when upsampling or we might introduce
+	 * (half the sample rate) when downsampling or we might introduce
 	 * distortion */
 	bessel_lp_init(&rsmpl->mpx_lpf);
 
