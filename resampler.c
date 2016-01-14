@@ -89,7 +89,7 @@ resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
 		/* Cut anything above the Niquist frequency to
 		 * reduce noise on downsampler */
 		for(i = 0; i < frames_generated; i++)
-			in[i] = fir_filter_apply(&rsmpl->mpx_lpf, in[i], 0);
+			in[i] = bessel_lp_apply(&rsmpl->mpx_lpf, in[i], 0);
 
 		rsmpl->downsampler_data.data_in = in;
 		rsmpl->downsampler_data.data_out = out;
@@ -127,10 +127,9 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	uint32_t mpx_cutoff_freq = 0;
 
 	/* We need to cut off everything above the Niquist frequency
-	 * (half the sample rate) when upsampling or we'll introduce distortion
-	 * give a 2KHz margin to the filter to be safe */
-	mpx_cutoff_freq = (jack_samplerate / 2) - 2000;
-	fir_filter_init(&rsmpl->mpx_lpf, mpx_cutoff_freq, osc_sample_rate);
+	 * (half the sample rate) when upsampling or we might introduce
+	 * distortion */
+	bessel_lp_init(&rsmpl->mpx_lpf);
 
 	/* Calculate resampling ratios */
 	rsmpl->upsampler_ratio = (double) osc_sample_rate /

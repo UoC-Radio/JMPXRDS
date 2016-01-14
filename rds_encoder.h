@@ -19,7 +19,7 @@
  */
 
 #include <stdint.h> /* For typed ints */
-#include <samplerate.h> /* src_* functions and macros */
+#include <soxr-lsr.h> /* src_* functions and macros */
 #include <jack/jack.h>	/* For jack-related types */
 
 /* RDS encoding takes a data stream of specialy formated data,

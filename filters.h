@@ -21,7 +21,7 @@
 
 /* A generic sinc FIR Low pass filter, multiplied by
  * a Blackman - Harris window */
-#define FIR_FILTER_SIZE		513
+#define FIR_FILTER_SIZE		257
 #define	FIR_FILTER_HALF_SIZE	(FIR_FILTER_SIZE - 1) / 2
 
 struct fir_filter_data {
@@ -41,7 +41,7 @@ struct fmpreemph_filter_data {
 	float iir_outbuff_l[2];
 	float iir_inbuff_r[2];
 	float iir_outbuff_r[2];
-	float iir_ataps[2];
+	float iir_ataps[3];
 	float iir_btaps[2];
 };
 
@@ -56,6 +56,17 @@ struct audio_filter {
 void audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint8_t);
 void audio_filter_update(struct audio_filter *);
 float audio_filter_apply(struct audio_filter *, float, uint8_t);
+
+struct bessel_lp_data {
+	double coefs[11];
+	double buff_l[10];
+	double buff_r[10];
+};
+
+void
+bessel_lp_init(struct bessel_lp_data  *bflt);
+float
+bessel_lp_apply(struct bessel_lp_data  *bflt, float sample, uint8_t chan_idx);
 
 /* IIR filter for the Weaver modulator (SSB) */
 #define SSB_FILTER_TAPS 10

@@ -22,9 +22,17 @@
 #include <string.h>	/* For memset */
 #include <math.h>	/* For sin, cos and M_PI */
 
-/*****************************\
-* GENERIC FIR LOW-PASS FILTER *
-\*****************************/
+
+/***************************************\
+* GENERIC FIR LOW-PASS FILTER FOR AUDIO *
+\***************************************/
+
+/*
+ * That's a typical Sinc filter, multiplied by a
+ * Blackman - Harris window. For more information
+ * Wikipedia is your friend. We use this to protect
+ * the stereo pilot (19KHz) from audio.
+ */
 
 /* Sinc = sin(pi* x)/(pi * x) */
 static double inline
@@ -126,29 +134,72 @@ fir_filter_update(struct fir_filter_data *fir)
 }
 
 
-/**********************************\
-* FM IIR PRE-EMPHASIS AUDIO FILTER *
-\**********************************/
+/******************************\
+* FM PRE-EMPHASIS AUDIO FILTER *
+\******************************/
+
+/*
+ * This is a high-shelf biquad filter that boosts frequencies
+ * above its cutoff frequency by 20db/octave. The cutoff
+ * frequency is calculated from the time constant of the analog
+ * RC filter and is different on US (75us) and EU (50us)
+ * radios.
+ */
 
 static int
-fmpreemph_filter_init(struct fmpreemph_filter_data *iir, uint32_t cutoff_freq,
-						uint32_t sample_rate,
-						uint8_t preemph_tau_usecs)
+fmpreemph_filter_init(struct fmpreemph_filter_data *iir, uint32_t sample_rate,
+						    uint8_t preemph_tau_usecs)
 {
-	double tau[2] = {0};
-	double edge[2] = {0};
+	double tau = 0.0;
+	double fc = 0.0;
+	double cutoff_freq = 0.0;
+	double pre_warped_fc = 0.0;
+	double re = 0.0;
+	double im = 0.0;
+	double gain = 0.0;
+	double slope = 0.0;
+	double A = 0.0;
+	double alpha = 0.0;
+	double a[3] = {0};
+	double b[3] = {0};
+	int i = 0;
 
-	/* Now for the IIR preemphasis filter.
-	 * This comes mostly from GNU Radio's
-	 * fm_emph.py */
-	tau[0] = 0.000001 * (double) preemph_tau_usecs;
-	tau[1] = tau[0] / ((2.0 * M_PI * ((double) cutoff_freq) * tau[0]) - 1);
-	edge[0] = tan(1 / ((2.0 * (double) sample_rate) * tau[0]));
-	edge[1] = tan(1 / ((2.0 * (double) sample_rate) * tau[1]));
-	iir->iir_btaps[0] = (edge[1] + 1) / (1 + edge[0] + edge[1]);
-	iir->iir_btaps[1] = (edge[1] - 1) / (1 + edge[0] + edge[1]);
-	iir->iir_ataps[0] = 1;
-	iir->iir_ataps[1] = (edge[0] + edge[1] - 1) / (edge[0] + edge[1] + 1);
+	tau = 0.000001 * (double) preemph_tau_usecs;
+
+	/* t = R*C = 1 / 2*pi*fc */
+	/* fc = 1 / 2*pi*t */
+	cutoff_freq = 1.0 / (2.0 * M_PI * tau);
+	fc = cutoff_freq / (double) sample_rate;
+
+	pre_warped_fc = 2.0 * M_PI * fc;
+	re = cos(pre_warped_fc);
+	im = sin(pre_warped_fc);
+
+	/* This implementation comes from Audio EQ Coockbook
+	 * from Robert Bristow-Johnson. You can read it online
+	 * at http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
+	 * The gain and slope values come from SoX's CD de emphasis
+	 * filter (the pre empasis is the same as in FM at 50us) */
+	gain = 9.477;
+	slope = 0.4845;
+
+	/* Work in log scale to avoid calculating 10 ^ (gain/40) */
+	A = exp(gain / 40.0 * log(10.0));
+
+	alpha = im/2 * sqrt((A + 1/A) * (1/slope - 1) + 2);
+
+	b[0] =    A*( (A+1) + (A-1)*re + 2*sqrt(A)*alpha );
+	b[1] = -2*A*( (A-1) + (A+1)*re                   );
+	b[2] =    A*( (A+1) + (A-1)*re - 2*sqrt(A)*alpha );
+	a[0] =        (A+1) - (A-1)*re + 2*sqrt(A)*alpha;
+ 	a[1] =    2*( (A-1) - (A+1)*re                   );
+	a[2] =        (A+1) - (A-1)*re - 2*sqrt(A)*alpha;
+
+	iir->iir_ataps[0] = (float) (b[0] / a[0]);
+	iir->iir_ataps[1] = (float) (b[1] / a[0]);
+	iir->iir_ataps[2] = (float) (b[2] / a[0]);
+	iir->iir_btaps[0] = (float) (a[1] / a[0]);
+	iir->iir_btaps[1] = (float) (a[2] / a[0]);
 
 	return 0;
 }
@@ -157,7 +208,7 @@ static float
 fmpreemph_filter_apply(struct fmpreemph_filter_data *iir, float sample,
 							uint8_t chan_idx)
 {
-	float out = 0;
+	float out = 0.0;
 	float *iir_inbuf = NULL;
 	float *iir_outbuf = NULL;
 
@@ -174,14 +225,21 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *iir, float sample,
 	 * gain as the frequency gets higher and compensate for
 	 * the increased noise on higher frequencies. A de-emphasis
 	 * filter is used on the receiver to undo that */
-	iir_inbuf[1] = sample;
-	iir_outbuf[1] = iir->iir_ataps[0] * iir_inbuf[1] +
-			iir->iir_ataps[1] * iir_inbuf[0] +
-			iir->iir_btaps[0] * iir_outbuf[1] +
-			iir->iir_btaps[1] * iir_outbuf[0];
+
+	/* y = a0*in + a1*(in-1) + a2*(in-2) - b0*(out-1) - b1*(out -2) */
+	out = iir->iir_ataps[0] * sample +
+		iir->iir_ataps[1] * iir_inbuf[1] +
+		iir->iir_ataps[2] * iir_inbuf[0] -
+		iir->iir_btaps[0] * iir_outbuf[1] -
+		iir->iir_btaps[1] * iir_outbuf[0];
+
+	/* update in-2 and in-1 */
 	iir_inbuf[0] = iir_inbuf[1];
+	iir_inbuf[1] = sample;
+
+	/* update out-1 and out-2 */
 	iir_outbuf[0] = iir_outbuf[1];
-	out = iir_outbuf[0];
+	iir_outbuf[1] = out;
 
 	return out;
 }
@@ -197,8 +255,7 @@ audio_filter_init(struct audio_filter *aflt, uint32_t cutoff_freq,
 						uint8_t preemph_tau_usecs)
 {
 	fir_filter_init(&aflt->audio_lpf, cutoff_freq, sample_rate);
-	fmpreemph_filter_init(&aflt->fm_preemph, cutoff_freq, sample_rate,
-							preemph_tau_usecs);
+	fmpreemph_filter_init(&aflt->fm_preemph, sample_rate, preemph_tau_usecs);
 }
 
 void
@@ -212,11 +269,104 @@ audio_filter_apply(struct audio_filter *aflt, float sample, uint8_t chan_idx)
 {
 	float out = 0;
 
-	out = fir_filter_apply(&aflt->audio_lpf, sample, chan_idx);
-	out = fmpreemph_filter_apply(&aflt->fm_preemph, out, chan_idx);
+	out = fmpreemph_filter_apply(&aflt->fm_preemph, sample, chan_idx);
+	out = fir_filter_apply(&aflt->audio_lpf, out, chan_idx);
 
 	return out;
 }
+
+
+/*****************************************\
+* LOW PASS 10 ORDER BESSEL NIQUIST FILTER *
+\*****************************************/
+
+void
+bessel_lp_init(struct bessel_lp_data  *bflt)
+{
+	int i = 0;
+
+	/* Pre calculated coefficients from Tony Fisher's
+	 * mkfilter with tweaks from Jim Peters (fiview) */
+	bflt->coefs[0] = 0.9999887186687287;
+	bflt->coefs[1] = 0.9999981884469338;
+	bflt->coefs[2] = 1.99999818844036;
+	bflt->coefs[3] = 0.9999964791839594;
+	bflt->coefs[4] = 1.99999647917583;
+	bflt->coefs[5] = 0.9999950895015136;
+	bflt->coefs[6] = 1.99999508949223;
+	bflt->coefs[7] = 0.9999940983766327;
+	bflt->coefs[8] = 1.999994098366568;
+	bflt->coefs[9] = 0.9999935817523573;
+	bflt->coefs[10] = 1.999993581741897;
+
+	return;
+}
+
+float
+bessel_lp_apply(struct bessel_lp_data  *bflt, float sample, uint8_t chan_idx)
+{
+	register double val, tmp, fir, iir;
+	double *buff = NULL;
+
+	if(chan_idx == 0) {
+		buff = bflt->buff_l;
+	} else if(chan_idx == 1) {
+		buff = bflt->buff_r;
+	} else
+		return 0.0;
+
+	tmp = buff[0];
+	memmove(buff, buff + 1, 9 * sizeof(double));
+
+	val = (double) sample;
+
+	iir = val * bflt->coefs[0];
+	iir -= bflt->coefs[1] * tmp;
+	fir = tmp;
+	iir -= bflt->coefs[2] * buff[0];
+	fir += (2 * buff[0]) + iir;
+	tmp = buff[1];
+	buff[1] = iir;
+
+	val = fir;
+	iir = val;
+	iir -= bflt->coefs[3] * tmp;
+	fir = tmp;
+	iir -= bflt->coefs[4] * buff[2];
+	fir += (2 * buff[2]) + iir;
+	tmp = buff[3];
+	buff[3]= iir;
+
+	val = fir;
+	iir = val;
+	iir -= bflt->coefs[5] * tmp;
+	fir = tmp;
+	iir -= bflt->coefs[6] * buff[4];
+	fir += (2 * buff[4]) + iir;
+	tmp = buff[5];
+	buff[5] = iir;
+
+	val = fir;
+	iir = val;
+	iir -= bflt->coefs[7] * tmp;
+	fir = tmp;
+	iir -= bflt->coefs[8] * buff[6];
+	fir += (2 * buff[6]) + iir;
+	tmp = buff[7];
+	buff[7]= iir;
+
+	val = fir;
+	iir = val;
+	iir -= bflt->coefs[9] * tmp;
+	fir = tmp;
+	iir -= bflt->coefs[10] * buff[8];
+	fir += (2 * buff[8])+ iir;
+	buff[9] = iir;
+	val = fir;
+
+	return (float) val;
+}
+
 
 /****************************************************\
 * BUTTERWORTH IIR LP FILTER FOR THE WEAVER MODULATOR *
@@ -301,6 +451,7 @@ iir_ssb_filter_apply(struct ssb_filter_data *iir, float sample,
 
 	return out_sample;
 }
+
 
 /***********************************************\
 * HILBERT TRANSFORMER FOR THE HARTLEY MODULATOR *

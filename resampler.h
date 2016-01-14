@@ -18,7 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "filters.h"	/* Also brings in stdint.h */
-#include <samplerate.h>	/* src_* functions and macros */
+#include <soxr-lsr.h>	/* src_* functions and macros */
 
 struct resampler_data {
 	float *upsampled_audio;
@@ -29,7 +29,7 @@ struct resampler_data {
 	SRC_STATE* downsampler_state;
 	SRC_DATA downsampler_data;
 	double downsampler_ratio;
-	struct fir_filter_data mpx_lpf;
+	struct bessel_lp_data mpx_lpf;
 };
 
 int resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,

@@ -23,8 +23,8 @@ AC_SUBST([LIBM])
 AC_CHECK_LIB([rt], [shm_open], [LIBRT=-lrt],
 	     AC_MSG_ERROR([Could not find librt]))
 AC_SUBST([LIBRT])
-AC_CHECK_LIB([samplerate], [src_process], [LIBSAMPLERATE=-lsamplerate],
-	     AC_MSG_ERROR([Could not find libsamplerate]))
+AC_CHECK_LIB([samplerate], [src_process], [LIBSAMPLERATE=-lsoxr-lsr],
+	     AC_MSG_ERROR([Could not find libsoxr]))
 AC_SUBST([LIBSAMPLERATE])
 AC_CHECK_LIB([jack], [jack_client_open], [LIBJACK=-ljack],
 	     AC_MSG_ERROR([Could not find jack libraries]))

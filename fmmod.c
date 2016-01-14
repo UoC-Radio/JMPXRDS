@@ -500,7 +500,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		preemph_usecs = 50;
 		break;
 	}
-	audio_filter_init(&fmmod->aflt, 16000, jack_samplerate,
+	audio_filter_init(&fmmod->aflt, 16500, jack_samplerate,
 						preemph_usecs);
 
 	/* Initialize RDS encoder */
@@ -590,9 +590,9 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	close(ctl_fd);
 
 	ctl = fmmod->ctl;
-	ctl->audio_gain = 0.40;
-	ctl->pilot_gain = 0.08;
-	ctl->rds_gain = 0.04;
+	ctl->audio_gain = 0.45;
+	ctl->pilot_gain = 0.083;
+	ctl->rds_gain = 0.026;
 	ctl->mpx_gain = 1;
 	ctl->stereo_modulation = FMMOD_DSB;
 
