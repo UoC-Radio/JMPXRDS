@@ -9,6 +9,7 @@ compiler:
  - g++
 
 sudo: false
+dist: trusty
 
 addons:
   apt:
