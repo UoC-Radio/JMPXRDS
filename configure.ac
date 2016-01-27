@@ -35,8 +35,8 @@ AC_SUBST([LIBJACK])
 AC_CHECK_HEADERS([arpa/inet.h fcntl.h stdint.h stdlib.h string.h])
 AC_CHECK_HEADER([math.h], [],
 		AC_MSG_ERROR([Could not find math.h]))
-AC_CHECK_HEADER([samplerate.h], [],
-		AC_MSG_ERROR([Could not find samplerate.h]))
+AC_CHECK_HEADER([soxr-lsr.h], [],
+		AC_MSG_ERROR([Could not find soxr-lsr.h]))
 AC_CHECK_HEADER([jack/transport.h], [],
 		AC_MSG_ERROR([Could not find jack/transport.h]))
 
