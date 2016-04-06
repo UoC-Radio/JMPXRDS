@@ -6,12 +6,16 @@ AM_INIT_AUTOMAKE([foreign -Wall -Werror dist-bzip2])
 
 
 # Define macros
-AC_DEFINE([USE_WAVE_TABLE], [1],
-	  [Use wave table for oscilator (default)])
+AC_ARG_WITH([wave-table],
+	AS_HELP_STRING([--with-wave-table],
+			[Use a wave table for the oscilators instead of sin()/cos()]),
+	AC_DEFINE([USE_WAVE_TABLE], [1],
+			[Define this to use wave table for the oscilators]),
+	[])
 AC_DEFINE([USE_CUBIC_INTERPOLATION], [1],
-	  [Use cubic interpolation on the wave table (default)])
+	  [Define this to use cubic interpolation on the wave table (default)])
 #AC_DEFINE([USE_LINEAR_INTERPOLATION], [0],
-#	  [Use linear interpolation on the wave table (not good)])
+#	  [Define this to use linear interpolation on the wave table (not good)])
 
 # Check for programs
 AC_PROG_CC
