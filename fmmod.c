@@ -253,7 +253,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	float *mpxbuf = NULL;
 	float *upsampled_audio_l = NULL;
 	float *upsampled_audio_r = NULL;
-	size_t frames_generated;
+	int frames_generated;
 	struct fmmod_instance *fmmod = (struct fmmod_instance *) arg;
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
@@ -474,14 +474,14 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 				(float) max_process_frames *
 				(float) sizeof(jack_default_audio_sample_t));
 
-	fmmod->uaudio_buf_l = malloc(fmmod->uaudio_buf_len);
+	fmmod->uaudio_buf_l = (float*) malloc(fmmod->uaudio_buf_len);
 	if(fmmod->uaudio_buf_l == NULL) {
 		ret = -1;
 		goto cleanup;
 	}
 	memset(fmmod->uaudio_buf_l, 0, fmmod->uaudio_buf_len);
 
-	fmmod->uaudio_buf_r = malloc(fmmod->uaudio_buf_len);
+	fmmod->uaudio_buf_r = (float*) malloc(fmmod->uaudio_buf_len);
 	if(fmmod->uaudio_buf_r == NULL){
 		ret = -1;
 		goto cleanup;
