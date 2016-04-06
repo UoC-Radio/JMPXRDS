@@ -293,11 +293,13 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	for(i = 0; i < nframes; i++) {
 		fmmod->inbuf_l[i] = ctl->audio_gain *
 						audio_filter_apply(aflt,
-							left_in[i], 0);
+							left_in[i], 0,
+							ctl->use_audio_lpf);
 
 		fmmod->inbuf_r[i] = ctl->audio_gain *
 						audio_filter_apply(aflt,
-							right_in[i], 1);
+							right_in[i], 1,
+							ctl->use_audio_lpf);
 
 		/* Update audio peak levels */
 		if(fmmod->inbuf_l[i] > ctl->peak_audio_in_l)
@@ -640,6 +642,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	ctl->rds_gain = 0.026;
 	ctl->mpx_gain = 1;
 	ctl->stereo_modulation = FMMOD_DSB;
+	ctl->use_audio_lpf = 1;
 
 	/* Tell the JACK server that we are ready to roll.  Our
 	 * process() callback will start running now. */

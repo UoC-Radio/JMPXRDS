@@ -128,9 +128,7 @@ fir_filter_apply(struct fir_filter_data *fir, float sample, uint8_t chan_idx)
 void
 fir_filter_update(struct fir_filter_data *fir)
 {
-	fir->fir_index++;
-	if(fir->fir_index >= FIR_FILTER_SIZE)
-		fir->fir_index = 0;
+	fir->fir_index = (fir->fir_index + 1) % FIR_FILTER_SIZE;
 }
 
 
@@ -264,12 +262,13 @@ audio_filter_update(struct audio_filter *aflt)
 }
 
 float
-audio_filter_apply(struct audio_filter *aflt, float sample, uint8_t chan_idx)
+audio_filter_apply(struct audio_filter *aflt, float sample, uint8_t chan_idx, uint8_t use_lp_filter)
 {
 	float out = 0;
 
 	out = fmpreemph_filter_apply(&aflt->fm_preemph, sample, chan_idx);
-	out = fir_filter_apply(&aflt->audio_lpf, out, chan_idx);
+	if(use_lp_filter)
+		out = fir_filter_apply(&aflt->audio_lpf, out, chan_idx);
 
 	return out;
 }

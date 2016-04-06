@@ -21,7 +21,8 @@
 
 /* A generic sinc FIR Low pass filter, multiplied by
  * a Blackman - Harris window */
-#define FIR_FILTER_SIZE		257
+#define FIR_FILTER_SIZE		127	/* Keep it a power of 2 - 1
+					 * so that it also becomes a mask */
 #define	FIR_FILTER_HALF_SIZE	(FIR_FILTER_SIZE - 1) / 2
 
 struct fir_filter_data {
@@ -55,7 +56,7 @@ struct audio_filter {
 
 void audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint8_t);
 void audio_filter_update(struct audio_filter *);
-float audio_filter_apply(struct audio_filter *, float, uint8_t);
+float audio_filter_apply(struct audio_filter *, float, uint8_t, uint8_t);
 
 struct bessel_lp_data {
 	double coefs[11];

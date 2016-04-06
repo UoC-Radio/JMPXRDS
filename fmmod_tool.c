@@ -40,7 +40,8 @@ usage(char *name)
 		"\t-m   <int>\tSet MPX gain percentage (default is 100%%)\n"
 		"\t-p   <int>\tSet pilot gain percentage (default is 8%%)\n"
 		"\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
-		"\t-s   <int>\tSet stereo mode 0 -> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver)\n");
+		"\t-s   <int>\tSet stereo mode 0 -> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver)\n"
+		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
 }
 
 /* Yes it's ugly... */
@@ -81,11 +82,12 @@ main(int argc, char *argv[])
 	for(i = 1; i < argc; i++) {
 		if(!strncmp(argv[i], "-g", 3)) {
 			printf("Current config:\n"
-			"\tAudio:   %i%%\n"
-			"\tMPX:     %i%%\n"
-			"\tPilot:   %i%%\n"
-			"\tRDS:     %i%%\n"
-			"\tStereo:  %s\n"
+			"\tAudio:     %i%%\n"
+			"\tMPX:       %i%%\n"
+			"\tPilot:     %i%%\n"
+			"\tRDS:       %i%%\n"
+			"\tStereo:    %s\n"
+			"\tAudio LPF: %s\n"
 			"Current gains:\n"
 			"\tAudio Left:  %f\n"
 			"\tAudio Right: %f\n"
@@ -97,6 +99,7 @@ main(int argc, char *argv[])
 			ctl->stereo_modulation == FMMOD_DSB ? "DSBSC" :
 			ctl->stereo_modulation == FMMOD_SSB_HARTLEY ? "SSB (Hartley)" :
 			"SSB (Weaver)",
+			ctl->use_audio_lpf ? "Enabled" : "Disabled",
 			ctl->peak_audio_in_l,
 			ctl->peak_audio_in_r,
 			ctl->peak_mpx_out);
@@ -151,6 +154,17 @@ main(int argc, char *argv[])
 				snprintf(temp, 4, "%s", argv[++i]);
 				ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x3;
 				printf("Set stereo modulation:  \t%i\n", ctl->stereo_modulation);
+			} else {
+				usage(argv[0]);
+				goto cleanup;
+			}
+		}
+		if(!strncmp(argv[i], "-f", 3)) {
+			if(i < argc - 1) {
+				memset(temp, 0, TEMP_BUF_LEN);
+				snprintf(temp, 4, "%s", argv[++i]);
+				ctl->use_audio_lpf = strtol(temp, NULL, 10) & 0x1;
+				printf("Set Audio LPF status:  \t%i\n", ctl->use_audio_lpf);
 			} else {
 				usage(argv[0]);
 				goto cleanup;
