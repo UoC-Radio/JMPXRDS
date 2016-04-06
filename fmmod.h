@@ -17,10 +17,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "rds_encoder.h"
 #include <jack/jack.h>	/* For jack-related types */
 #include "oscilator.h"	/* Also brings in stdint.h and config.h */
-#include "resampler.h"	/* Also brings in filters.h */
+#include "rds_encoder.h" /* Also brings in resampler.h */
+#include "filters.h"	/* Also brings in filters.h */
 
 
 /* We need something big enough to output the MPX
@@ -87,8 +87,13 @@ struct fmmod_instance {
 	/* State */
 	int active;
 	/* Audio input buffer */
-	float *ioaudiobuf;
-	uint32_t ioaudiobuf_len;
+	float *inbuf_l;
+	float *inbuf_r;
+	uint32_t inbuf_len;
+	/* Upsampled audio buffer */
+	float *uaudio_buf_l;
+	float *uaudio_buf_r;
+	uint32_t uaudio_buf_len;
 	/* MPX Output buffer */
 	float *mpxbuf;
 	uint32_t mpxbuf_len;

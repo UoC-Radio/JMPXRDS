@@ -162,7 +162,6 @@ fmpreemph_filter_init(struct fmpreemph_filter_data *iir, uint32_t sample_rate,
 	double alpha = 0.0;
 	double a[3] = {0};
 	double b[3] = {0};
-	int i = 0;
 
 	tau = 0.000001 * (double) preemph_tau_usecs;
 
@@ -283,8 +282,6 @@ audio_filter_apply(struct audio_filter *aflt, float sample, uint8_t chan_idx)
 void
 bessel_lp_init(struct bessel_lp_data  *bflt)
 {
-	int i = 0;
-
 	/* Pre calculated coefficients from Tony Fisher's
 	 * mkfilter with tweaks from Jim Peters (fiview) */
 	bflt->coefs[0] = 0.9999887186687287;

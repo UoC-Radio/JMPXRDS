@@ -18,8 +18,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "resampler.h" /* For resampler types and prototypes */
 #include <stdint.h> /* For typed ints */
-#include <soxr-lsr.h> /* src_* functions and macros */
 #include <jack/jack.h>	/* For jack-related types */
 
 /* RDS encoding takes a data stream of specialy formated data,
@@ -91,13 +91,6 @@ struct rds_group {
 #define	RDS_GROUP_VERSION_B	1
 #define RDS_GROUP_VERSION_MAX	RDS_GROUP_VERSION_B
 
-struct rds_upsampler {
-	int upsampled_waveform_len;
-	SRC_STATE* state;
-	SRC_DATA data;
-	double ratio;
-};
-
 struct rds_upsampled_group {
 	float *waveform;
 	int waveform_samples;
@@ -138,10 +131,11 @@ struct rds_encoder_state {
 };
 
 struct rds_encoder {
-	struct rds_upsampler *upsampler;
 	struct rds_encoder_state *state;
+	struct resampler_data *rsmpl;
 	struct rds_upsampled_group outbuf[2];
 	int curr_outbuf_idx;
+	size_t upsampled_waveform_len;
 	jack_client_t *fmmod_client;
 };
 
@@ -162,7 +156,7 @@ struct rds_encoder {
 #define RDS_RT_SOFT_HYPHEN	0x1F	/* Split a word to the next line if needed */
 
 /* Prototypes */
-int rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate);
+int rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl);
 void rds_encoder_destroy(struct rds_encoder *enc);
 float rds_get_next_sample(struct rds_encoder *enc);
 

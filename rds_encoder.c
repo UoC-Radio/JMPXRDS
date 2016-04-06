@@ -357,7 +357,6 @@ rds_generate_group_4(struct rds_encoder *enc, struct rds_group *group,
 	time_t now;
 	struct tm *utc;
 	struct tm *local_time;
-	struct rds_encoder_state *st = enc->state;
 
 	/* Group 4B is Open Data and it's not supported */
 	if(version != RDS_GROUP_VERSION_A)
@@ -625,7 +624,7 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 {
 	int ret = 0;
 	int out_idx = 0;
-	struct rds_upsampler *upsampler = enc->upsampler;
+	struct resampler_data *rsmpl = enc->rsmpl;
 	struct rds_group next_group;
 	struct rds_upsampled_group *outbuf = NULL;
 
@@ -634,7 +633,7 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 
 	/* Only mess with the unused output buffer */
 	out_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
-	outbuf = &enc->outbuf[enc->curr_outbuf_idx];
+	outbuf = &enc->outbuf[out_idx];
 
 	/* Update current group */
 	ret = rds_get_next_group(enc, &next_group);
@@ -644,22 +643,17 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 	}
 
 	/* Resample current group's waveform to the
-	 * main oscilators samplerate */
-	upsampler->data.data_in = next_group.samples_buffer;
-	upsampler->data.data_out = outbuf->waveform;
-	upsampler->data.input_frames = RDS_GROUP_SAMPLES;
-	upsampler->data.output_frames = upsampler->upsampled_waveform_len;
-	upsampler->data.end_of_input = 0;
-	upsampler->data.src_ratio = upsampler->ratio;
-	ret = src_process(upsampler->state, &upsampler->data);
-	if(ret != 0) {
-		printf("RDS UPSAMPLER: %s (%i)\n",
-			src_strerror(ret), ret);
+	 * main oscilators sampling rate */
+	outbuf->waveform_samples = resampler_upsample_rds(rsmpl,
+						next_group.samples_buffer,
+						outbuf->waveform,
+						RDS_GROUP_SAMPLES,
+						enc->upsampled_waveform_len);
+	if(outbuf->waveform_samples < 0) {
+		outbuf->waveform_samples = 0;
 		outbuf->result = -1;
-		goto cleanup;
-	}
-	outbuf->waveform_samples = upsampler->data.output_frames_gen;
-	outbuf->result = 0;
+	} else
+		outbuf->result = 0;
 
 cleanup:
 	pthread_mutex_unlock(&rds_process_mutex);
@@ -671,7 +665,6 @@ rds_main_loop(void *arg)
 {
 	struct rds_encoder *enc = (struct rds_encoder*) arg;
 	struct rds_upsampled_group *outbuf = NULL;
-	int ret = 0;
 
 	while(active)
 		outbuf = rds_get_next_upsampled_group(enc);
@@ -748,16 +741,16 @@ rds_get_next_sample(struct rds_encoder *enc)
 \****************/
 
 int
-rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
+rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 {
-	struct rds_upsampler *upsampler = NULL;
 	int state_fd = 0;
 	int ret = 0;
 
-	if(enc == NULL || osc_sample_rate < RDS_SAMPLE_RATE)
+	if(enc == NULL)
 		return -1;
 
 	memset(enc, 0, sizeof(struct rds_encoder));
+	enc->rsmpl = rsmpl;
 
 	/* Initialize I/O channel for encoder's state */
 	state_fd = shm_open(RDS_ENC_SHM_NAME, O_CREAT | O_RDWR, 0600);
@@ -779,51 +772,28 @@ rds_encoder_init(struct rds_encoder *enc, int osc_sample_rate)
 	close(state_fd);
 	memset(enc->state, 0, sizeof(struct rds_encoder_state));
 
-	enc->upsampler = (struct rds_upsampler*)
-				malloc(sizeof(struct rds_upsampler));
-	if(enc->upsampler == NULL) {
-		ret = -1;
-		goto cleanup;
-	}
-	upsampler = enc->upsampler;
-
-	/* Calculate upsampling ratio */
-	upsampler->ratio = (double) osc_sample_rate /
-					(double) RDS_SAMPLE_RATE;
-	if(upsampler->ratio < 1) {
-		ret = -1;
-		goto cleanup;
-	}
-
 	/* Allocate buffers */
-	upsampler->upsampled_waveform_len = upsampler->ratio *
-					RDS_GROUP_SAMPLES * sizeof(float);
+	enc->upsampled_waveform_len = (size_t)
+				((((float) rsmpl->osc_samplerate /
+				(float) RDS_SAMPLE_RATE) + 1.0) *
+				(float) RDS_GROUP_SAMPLES *
+				(float) sizeof(float));
 
 	enc->outbuf[0].waveform = (float*)
-				malloc(upsampler->upsampled_waveform_len);
+				malloc(enc->upsampled_waveform_len);
 	if(enc->outbuf[0].waveform == NULL) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(enc->outbuf[0].waveform, 0, upsampler->upsampled_waveform_len);
+	memset(enc->outbuf[0].waveform, 0, enc->upsampled_waveform_len);
 
 	enc->outbuf[1].waveform = (float*)
-				malloc(upsampler->upsampled_waveform_len);
+				malloc(enc->upsampled_waveform_len);
 	if(enc->outbuf[1].waveform == NULL) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(enc->outbuf[1].waveform, 0, upsampler->upsampled_waveform_len);
-
-
-	/* Initialize upsampler state */
-	upsampler->state = src_new(SRC_LINEAR, 1, &ret);
-	if(ret != 0) {
-		printf("RDS UPSAMPLER: %s\n",src_strerror(ret));
-		ret = -1;
-		goto cleanup;
-	}
-	memset(&upsampler->data, 0, sizeof(SRC_DATA));
+	memset(enc->outbuf[1].waveform, 0, enc->upsampled_waveform_len);
 
 	/* Set default state */
 	enc->state->ms = RDS_MS_DEFAULT;
@@ -839,9 +809,8 @@ cleanup:
 }
 
 void
-rds_encoder_destroy(struct rds_encoder *enc) {
-	struct rds_upsampler *upsampler = enc->upsampler;
-
+rds_encoder_destroy(struct rds_encoder *enc)
+{
 	munmap(enc->state, sizeof(struct rds_encoder_state));
 	shm_unlink(RDS_ENC_SHM_NAME);
 
@@ -851,12 +820,6 @@ rds_encoder_destroy(struct rds_encoder *enc) {
 		free(enc->outbuf[0].waveform);
 	if(enc->outbuf[1].waveform != NULL)
 		free(enc->outbuf[1].waveform);
-
-	if(upsampler->state != NULL)
-		src_delete(upsampler->state);
-
-	if(enc->upsampler)
-		free(enc->upsampler);
 
 	memset(enc, 0, sizeof(struct rds_encoder));
 }

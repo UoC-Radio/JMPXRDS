@@ -29,87 +29,89 @@
 /*
  * Since we oscilate the sound using high frequency signals from the
  * main oscilator, we need to upsample the sound to the sample rate of
- * the main oscilator and do our processing at that sampling rate.
+ * the main oscilator and do our processing at that sampling rate. Same
+ * goes for RDS which operates at a much smaller sampling rate than audio.
  * After the processing is done we again need to downsample the result
  * (the MPX signal) to the sample rate of the sound card (jack's sample
  * rate), so that it can go out. That's the purpose of the resampler
  * implemented here.
  */
 
-/* Upsample audio to the oscilator's sample rate */
-float*
-resampler_upsample_audio(struct resampler_data *rsmpl, float *in,
-					uint32_t inframes, int *ret)
+/* Upsample audio to the main oscilator's sampling rate */
+int
+resampler_upsample_audio(struct resampler_data *rsmpl, float *in_l, float *in_r,
+						float *out_l, float *out_r,
+						uint32_t inframes, uint32_t outframes)
 {
-	uint32_t frames_generated = 0;
+	soxr_error_t error;
+	size_t frames_used = 0;
+	size_t frames_generated = 0;
+	soxr_cbuf_t in[2];
+	soxr_buf_t out[2];
 
 	/* No need to upsample anything, just copy the buffers.
 	 * Note: This is here for debugging mostly */
-	if(rsmpl->upsampler_ratio == 1.0) {
-		memcpy(rsmpl->upsampled_audio, in, 2 * inframes *
-						sizeof(float));
-		frames_generated = 2 * inframes;
+	if(rsmpl->audio_upsampler_bypass) {
+		memcpy(out_l, in_l, inframes * sizeof(float));
+		memcpy(out_r, in_r, inframes * sizeof(float));
+		frames_generated = inframes;
 	} else {
-		rsmpl->upsampler_data.data_in = in;
-		rsmpl->upsampler_data.data_out = rsmpl->upsampled_audio;
-		rsmpl->upsampler_data.input_frames = inframes;
-		/* Note: by frames src means samples * channels
-		 * so we divide here by num of channels (2) */
-		rsmpl->upsampler_data.output_frames =
-					rsmpl-> upsampled_audio_len / 2;
-		rsmpl->upsampler_data.end_of_input = 0;
-		rsmpl->upsampler_data.src_ratio = rsmpl->upsampler_ratio;
-		*(ret) = src_process(rsmpl->upsampler_state,
-					&rsmpl->upsampler_data);
-		if(*(ret) != 0) {
-			printf("UPSAMPLER: %s (%i)\n",
-				src_strerror(*(ret)),
-				*(ret));
-			return NULL;
-		}
-		frames_generated = rsmpl->upsampler_data.output_frames_gen;
+
+		in[0] = in_l;
+		in[1] = in_r;
+
+		out[0] = out_l;
+		out[1] = out_r;
+		error = soxr_process(rsmpl->audio_upsampler, in, inframes, &frames_used,
+					out, outframes, &frames_generated);
 	}
 
-	*(ret) = frames_generated;
-	return rsmpl->upsampled_audio;
+	if (error)
+		return -1;
+	else
+		return frames_generated;
+}
+
+/* Upsample RDS waveform to the main oscilator's sampling rate */
+int
+resampler_upsample_rds(struct resampler_data *rsmpl, float *in, float *out,
+						uint32_t inframes, uint32_t outframes)
+{
+	soxr_error_t error;
+	size_t frames_used = 0;
+	size_t frames_generated = 0;
+	
+	error = soxr_process(rsmpl->rds_upsampler, in, inframes, &frames_used,
+					out, outframes, &frames_generated);
+	if (error)
+		return -1;
+	else
+		return frames_generated;
 }
 
 /* Downsample MPX signal to JACK's sample rate */
-float*
+int
 resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
-						uint32_t inframes, int *ret)
+						uint32_t inframes, uint32_t outframes)
 {
-	int i = 0;
-	uint32_t frames_generated = 0;
-
-	if(rsmpl->downsampler_ratio == 1.0) {
+	soxr_error_t error;
+	size_t frames_used = 0;
+	size_t frames_generated = 0;
+	
+	/* No need to upsample anything, just copy the buffers.
+	 * Note: This is here for debugging mostly */
+	if(rsmpl->mpx_downsampler_bypass) {
 		memcpy(out, in, inframes * sizeof(float));
 		frames_generated = inframes;
 	} else {
-		/* Cut anything above the Niquist frequency to
-		 * reduce noise on downsampler */
-		for(i = 0; i < frames_generated; i++)
-			in[i] = bessel_lp_apply(&rsmpl->mpx_lpf, in[i], 0);
-
-		rsmpl->downsampler_data.data_in = in;
-		rsmpl->downsampler_data.data_out = out;
-		rsmpl->downsampler_data.input_frames = inframes;
-		rsmpl->downsampler_data.output_frames = inframes;
-		rsmpl->downsampler_data.end_of_input = 0;
-		rsmpl->downsampler_data.src_ratio = rsmpl->downsampler_ratio;
-		*(ret) = src_process(rsmpl->downsampler_state,
-					&rsmpl->downsampler_data);
-		if(*(ret) != 0) {
-			printf("DOWNSAMPLER: %s (%i)\n",
-				src_strerror(*(ret)),
-				*(ret));
-			return NULL;
-		}
-		frames_generated = rsmpl->downsampler_data.output_frames_gen;
+		error = soxr_process(rsmpl->mpx_downsampler, in, inframes, &frames_used,
+					out, outframes, &frames_generated);
 	}
 
-	*(ret) = frames_generated;
-	return out;
+	if (error)
+		return -1;
+	else
+		return frames_generated;
 }
 
 
@@ -119,62 +121,86 @@ resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
 
 int
 resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
-				uint32_t osc_sample_rate,
+				uint32_t osc_samplerate,
+				uint32_t rds_samplerate,
 				uint32_t output_samplerate,
 				uint32_t max_process_frames)
 {
 	int ret = 0;
-	uint32_t mpx_cutoff_freq = 0;
+	soxr_error_t error;
+	soxr_io_spec_t io_spec;
+	soxr_runtime_spec_t runtime_spec;
+	soxr_quality_spec_t q_spec;
 
-	/* We need to cut off everything above the Niquist frequency
-	 * (half the sample rate) when downsampling or we might introduce
-	 * distortion */
-	bessel_lp_init(&rsmpl->mpx_lpf);
-
-	/* Calculate resampling ratios */
-	rsmpl->upsampler_ratio = (double) osc_sample_rate /
-					(double) jack_samplerate;
-	if(rsmpl->upsampler_ratio < 1)
+	if(rsmpl == NULL)
 		return -1;
-	rsmpl->downsampler_ratio = (double) output_samplerate /
-					(double) osc_sample_rate;
 
-	/* Allocate buffers, note that for src frames mean
-	 * number of samples * channels (so one frame has
-	 * two samples in case of stereo audio) */
-	rsmpl->upsampled_audio_len = rsmpl->upsampler_ratio *
-			2 * max_process_frames * sizeof(float);
-	rsmpl->upsampled_audio = (float*) malloc(rsmpl->upsampled_audio_len);
-	memset(rsmpl->upsampled_audio, 0, rsmpl->upsampled_audio_len);
+	memset(rsmpl, 0, sizeof(struct resampler_data));
 
-	/* Initialize upsampler/downsampler states,
-	 * XXX: Maybe use a better -but more CPU hungry- resampler
-	 * for downsampling, in my tests it was ok */
-	rsmpl->upsampler_state = src_new(SRC_SINC_FASTEST, 2, &ret);
-	if(ret != 0) {
-		printf("UPSAMPLER: %s\n",src_strerror(ret));
-		return -1;
+	/* So that RDS encoder can calculate its buffer lengths */
+	rsmpl->osc_samplerate = osc_samplerate;
+
+	/* AUDIO UPSAMPLER */
+
+	if (jack_samplerate == osc_samplerate) {
+		rsmpl->audio_upsampler_bypass = 1;
+		goto audio_upsampler_bypass;
 	}
-	memset(&rsmpl->upsampler_data, 0, sizeof(SRC_DATA));
 
-	rsmpl->downsampler_state = src_new(SRC_SINC_FASTEST, 1, &ret);
-	if(ret != 0) {
-		printf("DOWNSAMPLER: %s\n",src_strerror(ret));
-		return -1;
+	/* Initialize upsampler's parameters */
+	io_spec = soxr_io_spec(SOXR_FLOAT32_S, SOXR_FLOAT32_S);
+	runtime_spec = soxr_runtime_spec(1);	/* TODO: OpenMP support */
+	q_spec = soxr_quality_spec(SOXR_LQ, 0);
+	/* 1 is Nyquist freq (half the sampling rate) so this rate is
+	 * relative to the Nyquist freq */
+	q_spec.passband_end = ((double) 16500 / (double) osc_samplerate) * 2.0L;
+	q_spec.stopband_begin = ((double) 19000 / (double) osc_samplerate) * 2.0L;
+	rsmpl->audio_upsampler = soxr_create(jack_samplerate, osc_samplerate, 2,
+					&error, &io_spec, &q_spec, &runtime_spec);
+	if(error){
+		ret = -1;
+		goto cleanup;
 	}
-	memset(&rsmpl->downsampler_data, 0, sizeof(SRC_DATA));
 
-	return 0;
+ audio_upsampler_bypass:
+
+	/* RDS UPSAMPLER */
+
+	/* Initialize upsampler's parameters */
+	io_spec = soxr_io_spec(SOXR_FLOAT32, SOXR_FLOAT32);
+	q_spec = soxr_quality_spec(SOXR_LQ, 0);
+	q_spec.passband_end = ((double)  16000 / (double) osc_samplerate) * 2.0L;
+	q_spec.stopband_begin = ((double) (rds_samplerate / 2) / (double) osc_samplerate) * 2.0L;
+	rsmpl->rds_upsampler = soxr_create(rds_samplerate, osc_samplerate, 1,
+					&error, &io_spec, &q_spec, &runtime_spec);
+
+	/* DOWNSAMPLER */
+
+	if (osc_samplerate == output_samplerate) {
+		rsmpl->mpx_downsampler_bypass = 1;
+		goto cleanup;
+	}
+
+	/* Initialize downsampler's parameters */
+	io_spec = soxr_io_spec(SOXR_FLOAT32, SOXR_FLOAT32);
+	q_spec = soxr_quality_spec(SOXR_HQ, 0);
+	q_spec.passband_end = ((double)   60000 / (double) output_samplerate) * 2.0L;
+
+	rsmpl->mpx_downsampler = soxr_create(osc_samplerate, output_samplerate, 1,
+					&error, &io_spec, &q_spec, &runtime_spec);
+
+ cleanup:
+	if (ret < 0)
+		resampler_destroy(rsmpl);
+
+	return ret;
 }
 
 void
 resampler_destroy(struct resampler_data *rsmpl)
 {
-	if(rsmpl->upsampled_audio != NULL)
-		free(rsmpl->upsampled_audio);
-	if(rsmpl->upsampler_state != NULL)
-		src_delete(rsmpl->upsampler_state);
-	if(rsmpl->downsampler_state != NULL)
-		src_delete(rsmpl->downsampler_state);
+	soxr_delete(rsmpl->audio_upsampler);
+	soxr_delete(rsmpl->rds_upsampler);
+	soxr_delete(rsmpl->mpx_downsampler);
 }
 

@@ -248,10 +248,7 @@ osc_cubic_interpolate(struct osc_state* osc, double phase)
 double
 osc_get_sample_for_freq(struct osc_state* osc, double freq)
 {
-	double phase;
-	int table_slot;
-
-	phase = osc->current_phase * freq;
+	double phase = osc->current_phase * freq;
 
 	#ifdef USE_WAVE_TABLE
 	#if defined(USE_CUBIC_INTERPOLATION)
@@ -259,6 +256,8 @@ osc_get_sample_for_freq(struct osc_state* osc, double freq)
 	#elif defined(USE_LINEAR_INTERPOLATION)
 		return osc_linear_interpolate(osc, phase);
 	#else
+		int table_slot;
+
 		/* Make sure we don't exceed table size, % here is like
 		 * a mask, if we get <X * ONE_PERIOD + something>, it'll
 		 * keep <something> wich is the same as rewinding but for table
