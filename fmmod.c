@@ -246,16 +246,13 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 static int
 fmmod_process(jack_nframes_t nframes, void *arg)
 {
-	int i, c, ret;
+	int i;
 	jack_default_audio_sample_t *left_in, *right_in;
 	jack_default_audio_sample_t *mpx_out;
 	size_t mpx_out_len = 0;
 	float *mpxbuf = NULL;
 	float *upsampled_audio_l = NULL;
 	float *upsampled_audio_r = NULL;
-	double audio_l_sum = 0;
-	double audio_r_sum = 0;
-	double mpx_sum = 0;
 	size_t frames_generated;
 	struct fmmod_instance *fmmod = (struct fmmod_instance *) arg;
 	struct osc_state *sin_osc = &fmmod->sin_osc;
@@ -283,6 +280,9 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		mpx_out = fmmod->sock_outbuf;
 		mpx_out_len = fmmod->sock_outbuf_len;
 	}
+	ctl->peak_audio_in_l = 0;
+	ctl->peak_audio_in_r = 0;
+	ctl->peak_mpx_out = 0;
 
 	/* No frames received */
 	if(!nframes)
@@ -294,19 +294,21 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		fmmod->inbuf_l[i] = ctl->audio_gain *
 						audio_filter_apply(aflt,
 							left_in[i], 0);
-		audio_l_sum += fmmod->inbuf_l[i];
 
 		fmmod->inbuf_r[i] = ctl->audio_gain *
 						audio_filter_apply(aflt,
 							right_in[i], 1);
-		audio_r_sum += fmmod->inbuf_r[i];
+
+		/* Update audio peak levels */
+		if(fmmod->inbuf_l[i] > ctl->peak_audio_in_l)
+			ctl->peak_audio_in_l = fmmod->inbuf_l[i];
+
+		if(fmmod->inbuf_r[i] > ctl->peak_audio_in_r)
+			ctl->peak_audio_in_r = fmmod->inbuf_r[i];
 
 		audio_filter_update(aflt);
 	}
 
-	/* Update average audio in gains */
-	ctl->avg_audio_in_l = (float) (audio_l_sum / (double) nframes);
-	ctl->avg_audio_in_r = (float) (audio_r_sum / (double) nframes);
 
 	/* Upsample to the sample rate of the main oscilator */
 	frames_generated = resampler_upsample_audio(rsmpl, fmmod->inbuf_l,
@@ -333,6 +335,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		break;
 	}
 
+
 	/* Create the multiplex signal */
 	for(i = 0; i < frames_generated; i++) {
 		/* L + R (Mono) */
@@ -353,6 +356,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		osc_increase_phase(sin_osc);
 	}
 
+
 	/* Now downsample to the output sample rate */
 	frames_generated = resampler_downsample_mpx(rsmpl, mpxbuf, mpx_out,
 					frames_generated, mpx_out_len);
@@ -360,10 +364,10 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		return FMMOD_ERR_RESAMPLER_ERR;
 
 	/* Update mpx output peak gain */
-	for(i = 0; i < frames_generated; i++)
-		mpx_sum += mpx_out[i];
-
-	ctl->avg_mpx_out = (float) (mpx_sum / (double) frames_generated);
+	for(i = 0; i < frames_generated; i++) {
+		if(mpx_out[i] > ctl->peak_mpx_out)
+			ctl->peak_mpx_out = mpx_out[i];
+	}
 
 	/* Write to socket if needed */
 	if(fmmod->output_type == FMMOD_OUT_SOCK)

@@ -97,9 +97,9 @@ main(int argc, char *argv[])
 			ctl->stereo_modulation == FMMOD_DSB ? "DSBSC" :
 			ctl->stereo_modulation == FMMOD_SSB_HARTLEY ? "SSB (Hartley)" :
 			"SSB (Weaver)",
-			ctl->avg_audio_in_l,
-			ctl->avg_audio_in_r,
-			ctl->avg_mpx_out);
+			ctl->peak_audio_in_l,
+			ctl->peak_audio_in_r,
+			ctl->peak_mpx_out);
 		}
 		if(!strncmp(argv[i], "-a", 3)) {
 			if(i < argc - 1) {

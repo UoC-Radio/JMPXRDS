@@ -76,9 +76,9 @@ struct fmmod_control {
 	float	rds_gain;
 	float	mpx_gain;
 	int	stereo_modulation;
-	float	avg_mpx_out;
-	float	avg_audio_in_l;
-	float	avg_audio_in_r;
+	float	peak_mpx_out;
+	float	peak_audio_in_l;
+	float	peak_audio_in_r;
 };
 
 #define FMMOD_CTL_SHM_NAME "FMMOD_CTL_SHM"
