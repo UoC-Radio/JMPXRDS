@@ -55,6 +55,7 @@ resampler_upsample_audio(struct resampler_data *rsmpl, float *in_l, float *in_r,
 		memcpy(out_l, in_l, inframes * sizeof(float));
 		memcpy(out_r, in_r, inframes * sizeof(float));
 		frames_generated = inframes;
+		return frames_generated;
 	} else {
 
 		in[0] = in_l;
@@ -103,6 +104,7 @@ resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
 	if(rsmpl->mpx_downsampler_bypass) {
 		memcpy(out, in, inframes * sizeof(float));
 		frames_generated = inframes;
+		return frames_generated;
 	} else {
 		error = soxr_process(rsmpl->mpx_downsampler, in, inframes, &frames_used,
 					out, outframes, &frames_generated);
@@ -157,7 +159,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	q_spec.stopband_begin = ((double) 19000 / (double) osc_samplerate) * 2.0L;
 	rsmpl->audio_upsampler = soxr_create(jack_samplerate, osc_samplerate, 2,
 					&error, &io_spec, &q_spec, &runtime_spec);
-	if(error){
+	if(error) {
 		ret = -1;
 		goto cleanup;
 	}
@@ -174,6 +176,11 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	rsmpl->rds_upsampler = soxr_create(rds_samplerate, osc_samplerate, 1,
 					&error, &io_spec, &q_spec, &runtime_spec);
 
+	if(error) {
+		ret = -1;
+		goto cleanup;
+	}
+
 	/* DOWNSAMPLER */
 
 	if (osc_samplerate == output_samplerate) {
@@ -189,6 +196,11 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	rsmpl->mpx_downsampler = soxr_create(osc_samplerate, output_samplerate, 1,
 					&error, &io_spec, &q_spec, &runtime_spec);
 
+	if(error) {
+		ret = -1;
+		goto cleanup;
+	}
+
  cleanup:
 	if (ret < 0)
 		resampler_destroy(rsmpl);
@@ -199,6 +211,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 void
 resampler_destroy(struct resampler_data *rsmpl)
 {
+	/* SoXr checks if they are NULL or not */
 	soxr_delete(rsmpl->audio_upsampler);
 	soxr_delete(rsmpl->rds_upsampler);
 	soxr_delete(rsmpl->mpx_downsampler);

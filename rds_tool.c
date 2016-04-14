@@ -34,6 +34,8 @@ usage(char *name)
 	printf("\nUsage: %s -g or [<parameter> <value>] pairs\n", name);
 	printf("\nParameters:\n"
 		"\t-g\t\tGet current config\n"
+		"\t-e          \tEnable RDS encoder\n"
+		"\t-d          \tDisable RDS encoder\n"
 		"\t-rt   <text>\tSet radiotext\n"
 		"\t-ps   <text>\tSet Programme Service Name (PSN)\n"
 		"\t-p    <hex>\tSet Programme Identifier (PI)\n"
@@ -85,6 +87,7 @@ main(int argc, char *argv[])
 	for(i = 1; i < argc; i++) {
 		if(!strncmp(argv[i], "-g", 3)) {
 			printf("Current config:\n"
+			"\tStatus: %s\n"
 			"\tPI:   0x%X\n"
 			"\tECC:  0x%X\n"
 			"\tLIC:  0x%X\n"
@@ -92,6 +95,7 @@ main(int argc, char *argv[])
 			"\tPS:   %s\n"
 			"\tRT:   %s\n"
 			"\tPTYN: %s\n",
+			st->enabled ? "Enabled" : "Disabled",
 			rds_get_pi(st),
 			rds_get_ecc(st),
 			rds_get_lic(st),
@@ -99,6 +103,14 @@ main(int argc, char *argv[])
 			rds_get_ps(st),
 			st->rt_set ? rds_get_rt(st) : "<Not set>",
 			st->ptyn_set ? rds_get_ptyn(st) : "<Not set>");
+		}
+		if(!strncmp(argv[i], "-e", 3)) {
+			st->enabled = 1;
+			printf("RDS encoder enabled\n");
+		}
+		if(!strncmp(argv[i], "-d", 3)) {
+			st->enabled = 0;
+			printf("RDS encoder disabled\n");
 		}
 		if(!strncmp(argv[i], "-p", 3)) {
 			if(i < argc - 1) {

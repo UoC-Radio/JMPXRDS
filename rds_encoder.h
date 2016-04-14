@@ -102,6 +102,7 @@ struct rds_upsampled_group {
 #define	RDS_RT_LENGTH	64
 
 struct rds_encoder_state {
+	uint8_t enabled;
 	uint16_t pi;
 	uint8_t	ecc;
 	uint8_t ecc_set:1;

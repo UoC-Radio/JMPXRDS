@@ -47,7 +47,7 @@
 	 * two so that % ONE_PERIOD changes to an & operator
 	 * -the compiler does that automaticaly- which greatly
 	 * improves performance */
-	#define WAVE_TABLE_SIZE		64
+	#define WAVE_TABLE_SIZE		63
 	#define ONE_PERIOD		WAVE_TABLE_SIZE
 #else
 	#define ONE_PERIOD		2 * M_PI

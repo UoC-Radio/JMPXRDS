@@ -716,6 +716,11 @@ rds_get_next_sample(struct rds_encoder *enc)
 	int ret = 0;
 	float out = 0;
 	struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
+	struct rds_encoder_state *st = enc->state;
+
+	/* Encoder is disabled, don't do any processing */
+	if(st->enabled == 0)
+		return 0;
 
 	/* We have remaining samples from the last group */
 	if(samples_out < outbuf->waveform_samples) {

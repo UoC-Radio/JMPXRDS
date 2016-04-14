@@ -22,7 +22,6 @@
 #include "rds_encoder.h" /* Also brings in resampler.h */
 #include "filters.h"	/* Also brings in filters.h */
 
-
 /* We need something big enough to output the MPX
  * signal. 96KHz should be enough for the audio part
  * with SSB enabled but for proper stereo imaging and
@@ -74,6 +73,7 @@ struct fmmod_control {
 	float	audio_gain;
 	float	pilot_gain;
 	float	rds_gain;
+	float	ssb_carrier_gain;
 	float	mpx_gain;
 	int	stereo_modulation;
 	int	use_audio_lpf;

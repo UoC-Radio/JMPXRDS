@@ -128,6 +128,7 @@ get_ssb_weaver_sample(struct fmmod_instance *fmmod, float sample)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
+	struct fmmod_control *ctl = fmmod->ctl;
 	double saved_sin_phase = 0;
 	float in_phase = 0;
 	float quadrature = 0;
@@ -178,7 +179,7 @@ get_ssb_weaver_sample(struct fmmod_instance *fmmod, float sample)
 	/* Restore master oscilator's phase */
 	sin_osc->current_phase = saved_sin_phase;
 
-	return out;	
+	return out * ctl->ssb_carrier_gain;
 }
 
 
@@ -207,6 +208,7 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 	static float delay_line[HT_FIR_FILTER_TAPS / 2 + 1] = {0};
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
+	struct fmmod_control *ctl = fmmod->ctl;
 	float shifted_sample = 0;
 	float out = 0;
 	int carrier_freq = 38000;
@@ -232,7 +234,7 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 	out = shifted_sample * osc_get_sample_for_freq(sin_osc, carrier_freq);
 	out += delay_line[0] * osc_get_sample_for_freq(cos_osc, carrier_freq);
 
-	return out;
+	return out * ctl->ssb_carrier_gain;
 }
 
 
@@ -260,6 +262,10 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	struct audio_filter *aflt = &fmmod->aflt;
 	struct fmmod_control *ctl = fmmod->ctl;
 	stereo_modulator get_stereo_sample;
+
+	/* FMmod is inactive, don't do any processing */
+	if(!fmmod->active)
+		return 0;
 
 	/* Temporary buffer */
 	mpxbuf = fmmod->mpxbuf;
@@ -640,6 +646,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	ctl->audio_gain = 0.45;
 	ctl->pilot_gain = 0.083;
 	ctl->rds_gain = 0.026;
+	ctl->ssb_carrier_gain = 1;
 	ctl->mpx_gain = 1;
 	ctl->stereo_modulation = FMMOD_DSB;
 	ctl->use_audio_lpf = 1;
@@ -669,6 +676,8 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 	if (!shutdown)
 		jack_deactivate(fmmod->client);
 
+	fmmod->active = 0;
+
 	rds_encoder_destroy(&fmmod->rds_enc);
 
 	resampler_destroy(&fmmod->rsmpl);
@@ -693,8 +702,6 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	munmap(fmmod->ctl, sizeof(struct fmmod_control));
 	shm_unlink(FMMOD_CTL_SHM_NAME);
-
-	fmmod->active = 0;
 
 	return;
 }
