@@ -67,11 +67,11 @@ main(int argc,char *argv[])
 	sigaction(SIGINT, &sa, NULL);
 	sigaction(SIGPIPE, &sa, NULL);
 
-	printf("JMPXRDS Started\n");
+	puts("JMPXRDS Started");
 
 	/* Keep running until the transport stops
 	 * or in case we are interrupted */
-	while (active && (fmmod_instance.active == 1))
+	while (active && fmmod_instance.active)
 		sleep(1);
 
 	if(fmmod_instance.active)
