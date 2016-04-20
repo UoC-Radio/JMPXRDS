@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#if !defined(_GNU_SOURCE)	/* Defined by default when using g++ */
+#ifndef _GNU_SOURCE		/* Defined by default when using g++ */
 	#define _GNU_SOURCE	/* F_SETPIPE_Z is Linux specific */
 #endif
 #include "fmmod.h"
