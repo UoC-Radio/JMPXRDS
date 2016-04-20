@@ -17,9 +17,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "oscilator.h"  /* Also brings in stdint.h and config.h */
-#include "rds_encoder.h" /* Also brings in stdint.h, resampler.h and jack/jack.h */
-#include "filters.h"    /* Also brings in stdint.h */
+-#include <jack/jack.h>	/* For jack-related types */
+-#include "oscilator.h"	/* Also brings in stdint.h and config.h */
+-#include "rds_encoder.h" /* Also brings in resampler.h */
+-#include "filters.h"
 
 /* We need something big enough to output the MPX
  * signal. 96KHz should be enough for the audio part
