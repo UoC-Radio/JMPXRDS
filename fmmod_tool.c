@@ -157,7 +157,7 @@ main(int argc, char *argv[])
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, 4, "%s", argv[++i]);
 				ctl->stereo_carrier_gain = (float) (strtol(temp, NULL, 10)) / 100.0;
-				printf("New SSB carrier gain:  \t%i%%\n",(int) (100 * ctl->stereo_carrier_gain));
+				printf("New stereo carrier gain:  \t%i%%\n",(int) (100 * ctl->stereo_carrier_gain));
 			} else {
 				usage(argv[0]);
 				goto cleanup;
