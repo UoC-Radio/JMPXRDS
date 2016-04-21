@@ -85,7 +85,8 @@ static float
 get_dsb_sample(struct fmmod_instance *fmmod, float sample)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
-	return sample * osc_get_38Khz_sample(sin_osc);
+	struct fmmod_control *ctl = fmmod->ctl;
+	return sample * osc_get_38Khz_sample(sin_osc) * ctl->stereo_carrier_gain;
 }
 
 /*
@@ -111,7 +112,8 @@ get_dsb_sample(struct fmmod_instance *fmmod, float sample)
 
 /*
  * A simple FIR low pass filter that cuts off anything above
- * the carrier (the upper side band).
+ * the carrier (the upper side band). I got almost 8dB of
+ * stereo separation with this one.
  */
 static float
 get_ssb_fir_sample(struct fmmod_instance *fmmod, float sample)
@@ -122,7 +124,7 @@ get_ssb_fir_sample(struct fmmod_instance *fmmod, float sample)
 	out = sample * osc_get_38Khz_sample(sin_osc);
 	out = fir_filter_apply(&fmmod->ssb_fir_lpf, out, 0);
 	fir_filter_update(&fmmod->ssb_fir_lpf);
-	return out * ctl->ssb_carrier_gain;
+	return out * ctl->stereo_carrier_gain * -1;
 }
 
 /************************\
@@ -196,7 +198,7 @@ get_ssb_weaver_sample(struct fmmod_instance *fmmod, float sample)
 	/* Restore master oscilator's phase */
 	sin_osc->current_phase = saved_sin_phase;
 
-	return out * ctl->ssb_carrier_gain;
+	return out * ctl->stereo_carrier_gain;
 }
 
 
@@ -248,7 +250,7 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 	out = shifted_sample * osc_get_sample_for_freq(sin_osc, carrier_freq);
 	out += delay_line[0] * osc_get_sample_for_freq(cos_osc, carrier_freq);
 
-	return out * ctl->ssb_carrier_gain;
+	return out * ctl->stereo_carrier_gain * -1;
 }
 
 
@@ -663,10 +665,10 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	close(ctl_fd);
 
 	ctl = fmmod->ctl;
-	ctl->audio_gain = 1.0;
+	ctl->audio_gain = 0.45;
 	ctl->pilot_gain = 0.083;
 	ctl->rds_gain = 0.026;
-	ctl->ssb_carrier_gain = 1.0;
+	ctl->stereo_carrier_gain = 1.0;
 	ctl->mpx_gain = 1.0;
 	ctl->stereo_modulation = FMMOD_DSB;
 	ctl->use_audio_lpf = 1;

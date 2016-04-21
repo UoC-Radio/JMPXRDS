@@ -40,7 +40,7 @@ usage(char *name)
 		"\t-m   <int>\tSet MPX gain percentage (default is 100%%)\n"
 		"\t-p   <int>\tSet pilot gain percentage (default is 8%%)\n"
 		"\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
-		"\t-c   <int>\tSet SSB carrier gain percentage (default is 100%%)\n"
+		"\t-c   <int>\tSet stereo carrier gain percentage (default is 100%%)\n"
 		"\t-s   <int>\tSet stereo mode 0 -> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver), 3-> SSB (FIR Filter)\n"
 		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
 }
@@ -98,7 +98,7 @@ main(int argc, char *argv[])
 			(int) (100 * ctl->mpx_gain),
 			(int) (100 * ctl->pilot_gain),
 			(int) (100 * ctl->rds_gain),
-			(int) (100 * ctl->ssb_carrier_gain),
+			(int) (100 * ctl->stereo_carrier_gain),
 			ctl->stereo_modulation == FMMOD_DSB ? "DSBSC" :
 			ctl->stereo_modulation == FMMOD_SSB_HARTLEY ? "SSB (Hartley)" :
 			ctl->stereo_modulation == FMMOD_SSB_WEAVER ? "SSB (Weaver)":
@@ -156,8 +156,8 @@ main(int argc, char *argv[])
 			if(i < argc - 1) {
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->ssb_carrier_gain = (float) (strtol(temp, NULL, 10)) / 100.0;
-				printf("New SSB carrier gain:  \t%i%%\n",(int) (100 * ctl->ssb_carrier_gain));
+				ctl->stereo_carrier_gain = (float) (strtol(temp, NULL, 10)) / 100.0;
+				printf("New SSB carrier gain:  \t%i%%\n",(int) (100 * ctl->stereo_carrier_gain));
 			} else {
 				usage(argv[0]);
 				goto cleanup;
@@ -172,9 +172,9 @@ main(int argc, char *argv[])
 				 * doesn't increase the gain of the LSB so do it here when switching. */
 				if(ctl->stereo_modulation == FMMOD_SSB_WEAVER ||
 				ctl->stereo_modulation == FMMOD_SSB_FIR)
-					ctl->ssb_carrier_gain = 2;
+					ctl->stereo_carrier_gain = 2;
 				else
-					ctl->ssb_carrier_gain = 1;
+					ctl->stereo_carrier_gain = 1;
 				printf("Set stereo modulation:  \t%i\n", ctl->stereo_modulation);
 			} else {
 				usage(argv[0]);

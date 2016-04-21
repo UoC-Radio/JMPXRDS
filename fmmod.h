@@ -74,7 +74,7 @@ struct fmmod_control {
 	float	audio_gain;
 	float	pilot_gain;
 	float	rds_gain;
-	float	ssb_carrier_gain;
+	float	stereo_carrier_gain;
 	float	mpx_gain;
 	int	stereo_modulation;
 	int	use_audio_lpf;
