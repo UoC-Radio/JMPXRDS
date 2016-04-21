@@ -31,7 +31,8 @@
  * That's a typical Sinc filter, multiplied by a
  * Blackman - Harris window. For more information
  * Wikipedia is your friend. We use this to protect
- * the stereo pilot (19KHz) from audio.
+ * the stereo pilot (19KHz) from audio and for the
+ * FIR filter-based SSB modulator.
  */
 
 /* Sinc = sin(pi* x)/(pi * x) */
@@ -68,10 +69,11 @@ blackman_window(uint16_t bin)
 
 int
 fir_filter_init(struct fir_filter_data *fir, uint32_t cutoff_freq,
-					     uint32_t sample_rate)
+						 uint32_t sample_rate)
 {
 	int i = 0;
 	double fc_doubled = 0;
+	double sum = 0;
 
 	/* Fc: cutoff frequency as a fraction of sample rate */
 	fc_doubled = 2.0 * ((double) cutoff_freq / (double) sample_rate);
@@ -85,6 +87,15 @@ fir_filter_init(struct fir_filter_data *fir, uint32_t cutoff_freq,
 		fir->fir_coeffs[i] = sinc_filter(fc_doubled, i) *
 		blackman_window(i);
 	}
+
+	/* Normalize */
+	for(i = 0; i < FIR_FILTER_HALF_SIZE; i++)
+		sum += fir->fir_coeffs[i];
+
+	sum *= 2;
+
+	for(i = 0; i < FIR_FILTER_HALF_SIZE; i++)
+		fir->fir_coeffs[i] /= sum;
 
 	return 0;
 }
@@ -115,11 +126,13 @@ fir_filter_apply(struct fir_filter_data *fir, float sample, uint8_t chan_idx)
 		previous--;
 		if(previous < 0)
 			previous = FIR_FILTER_SIZE - 1;
-		out += fir->fir_coeffs[i] * (fir_buf[previous] +
-						fir_buf[later]);
+
 		later++;
 		if(later >= FIR_FILTER_SIZE)
 			later = 0;
+
+		out += fir->fir_coeffs[i] * (fir_buf[previous] +
+						fir_buf[later]);
 	}
 
 	return out;
@@ -146,7 +159,7 @@ fir_filter_update(struct fir_filter_data *fir)
 
 static int
 fmpreemph_filter_init(struct fmpreemph_filter_data *iir, uint32_t sample_rate,
-						    uint8_t preemph_tau_usecs)
+							uint8_t preemph_tau_usecs)
 {
 	double tau = 0.0;
 	double fc = 0.0;
@@ -185,12 +198,12 @@ fmpreemph_filter_init(struct fmpreemph_filter_data *iir, uint32_t sample_rate,
 
 	alpha = im/2 * sqrt((A + 1/A) * (1/slope - 1) + 2);
 
-	b[0] =    A*( (A+1) + (A-1)*re + 2*sqrt(A)*alpha );
-	b[1] = -2*A*( (A-1) + (A+1)*re                   );
-	b[2] =    A*( (A+1) + (A-1)*re - 2*sqrt(A)*alpha );
-	a[0] =        (A+1) - (A-1)*re + 2*sqrt(A)*alpha;
- 	a[1] =    2*( (A-1) - (A+1)*re                   );
-	a[2] =        (A+1) - (A-1)*re - 2*sqrt(A)*alpha;
+	b[0] =	A*( (A+1) + (A-1)*re + 2*sqrt(A)*alpha );
+	b[1] = -2*A*( (A-1) + (A+1)*re				   );
+	b[2] =	A*( (A+1) + (A-1)*re - 2*sqrt(A)*alpha );
+	a[0] =		(A+1) - (A-1)*re + 2*sqrt(A)*alpha;
+ 	a[1] =	2*( (A-1) - (A+1)*re				   );
+	a[2] =		(A+1) - (A-1)*re - 2*sqrt(A)*alpha;
 
 	iir->iir_ataps[0] = (float) (b[0] / a[0]);
 	iir->iir_ataps[1] = (float) (b[1] / a[0]);
@@ -274,96 +287,6 @@ audio_filter_apply(struct audio_filter *aflt, float sample, uint8_t chan_idx, ui
 }
 
 
-/*****************************************\
-* LOW PASS 10 ORDER BESSEL NIQUIST FILTER *
-\*****************************************/
-
-void
-bessel_lp_init(struct bessel_lp_data  *bflt)
-{
-	/* Pre calculated coefficients from Tony Fisher's
-	 * mkfilter with tweaks from Jim Peters (fiview) */
-	bflt->coefs[0] = 0.9999887186687287;
-	bflt->coefs[1] = 0.9999981884469338;
-	bflt->coefs[2] = 1.99999818844036;
-	bflt->coefs[3] = 0.9999964791839594;
-	bflt->coefs[4] = 1.99999647917583;
-	bflt->coefs[5] = 0.9999950895015136;
-	bflt->coefs[6] = 1.99999508949223;
-	bflt->coefs[7] = 0.9999940983766327;
-	bflt->coefs[8] = 1.999994098366568;
-	bflt->coefs[9] = 0.9999935817523573;
-	bflt->coefs[10] = 1.999993581741897;
-
-	return;
-}
-
-float
-bessel_lp_apply(struct bessel_lp_data  *bflt, float sample, uint8_t chan_idx)
-{
-	register double val, tmp, fir, iir;
-	double *buff = NULL;
-
-	if(chan_idx == 0) {
-		buff = bflt->buff_l;
-	} else if(chan_idx == 1) {
-		buff = bflt->buff_r;
-	} else
-		return 0.0;
-
-	tmp = buff[0];
-	memmove(buff, buff + 1, 9 * sizeof(double));
-
-	val = (double) sample;
-
-	iir = val * bflt->coefs[0];
-	iir -= bflt->coefs[1] * tmp;
-	fir = tmp;
-	iir -= bflt->coefs[2] * buff[0];
-	fir += (2 * buff[0]) + iir;
-	tmp = buff[1];
-	buff[1] = iir;
-
-	val = fir;
-	iir = val;
-	iir -= bflt->coefs[3] * tmp;
-	fir = tmp;
-	iir -= bflt->coefs[4] * buff[2];
-	fir += (2 * buff[2]) + iir;
-	tmp = buff[3];
-	buff[3]= iir;
-
-	val = fir;
-	iir = val;
-	iir -= bflt->coefs[5] * tmp;
-	fir = tmp;
-	iir -= bflt->coefs[6] * buff[4];
-	fir += (2 * buff[4]) + iir;
-	tmp = buff[5];
-	buff[5] = iir;
-
-	val = fir;
-	iir = val;
-	iir -= bflt->coefs[7] * tmp;
-	fir = tmp;
-	iir -= bflt->coefs[8] * buff[6];
-	fir += (2 * buff[6]) + iir;
-	tmp = buff[7];
-	buff[7]= iir;
-
-	val = fir;
-	iir = val;
-	iir -= bflt->coefs[9] * tmp;
-	fir = tmp;
-	iir -= bflt->coefs[10] * buff[8];
-	fir += (2 * buff[8])+ iir;
-	buff[9] = iir;
-	val = fir;
-
-	return (float) val;
-}
-
-
 /****************************************************\
 * BUTTERWORTH IIR LP FILTER FOR THE WEAVER MODULATOR *
 \****************************************************/
@@ -374,7 +297,8 @@ bessel_lp_apply(struct bessel_lp_data  *bflt, float sample, uint8_t chan_idx)
  * as the low pass filter for the Weaver SSB modulator.
  */
 
-/* Coefficients and the SSB_FILTER_GAIN macro were calculated using
+/* Coefficients and the WEAVER_FILTER_REVERSE_MAX_GAIN
+ * macro were calculated using
  * http://www-users.cs.york.ac.uk/~fisher/mkfilter/ */
 int
 iir_ssb_filter_init(struct ssb_filter_data *iir)
@@ -420,26 +344,26 @@ iir_ssb_filter_apply(struct ssb_filter_data *iir, float sample,
 		return 0.0;
 
 	/* Make room for the new in sample */
-	for(i = 0; i < SSB_FILTER_SIZE - 1; i++)
+	for(i = 0; i < WEAVER_FILTER_SIZE - 1; i++)
 		iir_inbuf[i] = iir_inbuf[i + 1];
 
 	/* Put it on the filter's ring buffer */
-	iir_inbuf[SSB_FILTER_SIZE - 1] = sample * SSB_FILTER_REVERSE_GAIN;
+	iir_inbuf[WEAVER_FILTER_SIZE - 1] = sample * WEAVER_FILTER_REVERSE_MAX_GAIN;
 
 
 	/* Process input ring buffer */
-	for(i = 0; i < SSB_FILTER_TAPS / 2; i++)
+	for(i = 0; i < WEAVER_FILTER_TAPS / 2; i++)
 		out_sample += iir->iir_ataps[i] * (iir_inbuf[i]
-	+ iir_inbuf[SSB_FILTER_TAPS - i]);
-	out_sample += iir->iir_ataps[SSB_FILTER_TAPS / 2] *
-	iir_inbuf[SSB_FILTER_TAPS / 2];
+	+ iir_inbuf[WEAVER_FILTER_TAPS - i]);
+	out_sample += iir->iir_ataps[WEAVER_FILTER_TAPS / 2] *
+	iir_inbuf[WEAVER_FILTER_TAPS / 2];
 
 	/* Make room for the new out sample */
-	for(i = 0; i < SSB_FILTER_SIZE - 1; i++)
+	for(i = 0; i < WEAVER_FILTER_SIZE - 1; i++)
 		iir_outbuf[i] = iir_outbuf[i + 1];
 
 	/* Process output ring buffer */
-	for(i = 0; i < SSB_FILTER_TAPS; i++)
+	for(i = 0; i < WEAVER_FILTER_TAPS; i++)
 		out_sample += iir->iir_btaps[i] * iir_outbuf[i];
 
 	/* Put output sample on the output ring buffer */

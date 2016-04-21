@@ -41,7 +41,7 @@ usage(char *name)
 		"\t-p   <int>\tSet pilot gain percentage (default is 8%%)\n"
 		"\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
 		"\t-c   <int>\tSet SSB carrier gain percentage (default is 100%%)\n"
-		"\t-s   <int>\tSet stereo mode 0 -> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver)\n"
+		"\t-s   <int>\tSet stereo mode 0 -> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver), 3-> SSB (FIR Filter)\n"
 		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
 }
 
@@ -101,7 +101,8 @@ main(int argc, char *argv[])
 			(int) (100 * ctl->ssb_carrier_gain),
 			ctl->stereo_modulation == FMMOD_DSB ? "DSBSC" :
 			ctl->stereo_modulation == FMMOD_SSB_HARTLEY ? "SSB (Hartley)" :
-			"SSB (Weaver)",
+			ctl->stereo_modulation == FMMOD_SSB_WEAVER ? "SSB (Weaver)":
+			"SSB (FIR Filter)",
 			ctl->use_audio_lpf ? "Enabled" : "Disabled",
 			ctl->peak_audio_in_l,
 			ctl->peak_audio_in_r,
@@ -167,6 +168,13 @@ main(int argc, char *argv[])
 				memset(temp, 0, TEMP_BUF_LEN);
 				snprintf(temp, 4, "%s", argv[++i]);
 				ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x3;
+				/* Weaver and filter-based modulator eliminates USB but
+				 * doesn't increase the gain of the LSB so do it here when switching. */
+				if(ctl->stereo_modulation == FMMOD_SSB_WEAVER ||
+				ctl->stereo_modulation == FMMOD_SSB_FIR)
+					ctl->ssb_carrier_gain = 2;
+				else
+					ctl->ssb_carrier_gain = 1;
 				printf("Set stereo modulation:  \t%i\n", ctl->stereo_modulation);
 			} else {
 				usage(argv[0]);

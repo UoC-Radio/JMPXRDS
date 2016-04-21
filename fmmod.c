@@ -96,15 +96,34 @@ get_dsb_sample(struct fmmod_instance *fmmod, float sample)
  * http://wheatstone.com/index.php/corporate-support/all-downloads/
  * doc_download/502-new-findings-on-fm-stereo-multipath-control
  *
- * In my tests with both SSB modulators I got no stereo
- * separation from my receiver (I also tried using a simple
- * low pass filter so it doesn't have to do with the modulation
- * it's the receiver that couldn't decode stereo -reduced the 
- * stereo separation-). I did get better RDS reception with RDS
- * Spy and better coverage though. It seems that many receivers
- * will misbehave so don't use SSB because it's "fancy". It's better
+ * In my tests with both SSB modulators I got 6 - 8dB stereo
+ * separation from my receiver (it doesn't have to do with the
+ * modulation method it's the receiver that reduced the stereo
+ * separation). I did get better RDS reception with RDS Spy and
+ * better coverage though. It seems that many receivers will
+ * misbehave so don't use SSB because it's "fancy". It's better
  * than mono but the standard subcarrier performs better.
  */
+
+/********************************\
+* FIR FILTER BASED SSB MODULATOR *
+\********************************/
+
+/*
+ * A simple FIR low pass filter that cuts off anything above
+ * the carrier (the upper side band).
+ */
+static float
+get_ssb_fir_sample(struct fmmod_instance *fmmod, float sample)
+{
+	float out = 0.0;
+	struct osc_state *sin_osc = &fmmod->sin_osc;
+	struct fmmod_control *ctl = fmmod->ctl;
+	out = sample * osc_get_38Khz_sample(sin_osc);
+	out = fir_filter_apply(&fmmod->ssb_fir_lpf, out, 0);
+	fir_filter_update(&fmmod->ssb_fir_lpf);
+	return out * ctl->ssb_carrier_gain;
+}
 
 /************************\
 * WEAVER MODULATOR (SSB) *
@@ -114,13 +133,11 @@ get_dsb_sample(struct fmmod_instance *fmmod, float sample)
  * For more infos on the Weaver SSB modulator visit
  * http://dp.nonoo.hu/projects/ham-dsp-tutorial/11-ssb-weaver/
  *
- * Since the IIR filter is not good enough this is mostly a
- * VSB modulator plus the IIR filter messes up with the phase.
- * A FIR filter would need more taps to be steep enough and
- * is not practical since this runs on the oscilator's
- * sample rate. I left this here for reference and experimentation.
- * On my tests my -probably incompatible- receiver switched to
- * mono sometimes.
+ * Since the IIR filter is not good enough this is almost a
+ * VSB modulator plus the IIR filter messes up with the phases.
+ * It works and I got almost 7dB of stereo separation. It's a bit
+ * heavier than the Hartley modulator but performs better and has
+ * a steeper spectrum than the filter-based one.
  */
 
 static float
@@ -147,13 +164,13 @@ get_ssb_weaver_sample(struct fmmod_instance *fmmod, float sample)
 					cos_osc->sample_rate / 4);
 
 	/* Apply the low pass filter */
-	in_phase = iir_ssb_filter_apply(&fmmod->ssb_lpf, in_phase, 0);
-	quadrature = iir_ssb_filter_apply(&fmmod->ssb_lpf, quadrature, 1);
+	in_phase = iir_ssb_filter_apply(&fmmod->weaver_lpf, in_phase, 0);
+	quadrature = iir_ssb_filter_apply(&fmmod->weaver_lpf, quadrature, 1);
 
 	/* Since the IIR LPF filter above adds a delay of up to
 	 * SSB_FILTER_TAPS increase the phase of ssb_osc to match
 	 * the phase of the current output samples */
-	for(i = 0; i < SSB_FILTER_TAPS; i++)
+	for(i = 0; i < WEAVER_FILTER_TAPS; i++)
 		osc_increase_phase(cos_osc);
 
 	/* Save master oscilator's phase */
@@ -197,10 +214,7 @@ get_ssb_weaver_sample(struct fmmod_instance *fmmod, float sample)
  * to the center don't have propper phase difference.  We can't have
  * a better FIR filter here because we need lots of taps (I tried
  * with 500+ and it still didn't work well) and this runs at the
- * sample rate of the oscilator so we can't afford it. An
- * FFT/IFFT based Hilbert Transformer should work better.
- * I left this one as the default because at least with this
- * one the receiver didn't switch to mono.
+ * sample rate of the oscilator so we can't afford it.
  */
 static float
 get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
@@ -317,7 +331,6 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		audio_filter_update(aflt);
 	}
 
-
 	/* Upsample to the sample rate of the main oscilator */
 	frames_generated = resampler_upsample_audio(rsmpl, fmmod->inbuf_l,
 							fmmod->inbuf_r,
@@ -336,6 +349,9 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		break;
 	case FMMOD_SSB_WEAVER:
 		get_stereo_sample = get_ssb_weaver_sample;
+		break;
+	case FMMOD_SSB_FIR:
+		get_stereo_sample = get_ssb_fir_sample;
 		break;
 	case FMMOD_DSB:
 	default:
@@ -524,8 +540,10 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		goto cleanup;
 	}
 
+	/* Initialize the low pass FIR filter for the FIR-based SSB modulator */
+	fir_filter_init(&fmmod->ssb_fir_lpf, 36000, osc_samplerate);
 	/* Initialize the low pass filters of the Weaver modulator */
-	iir_ssb_filter_init(&fmmod->ssb_lpf);
+	iir_ssb_filter_init(&fmmod->weaver_lpf);
 	/* Initialize the Hilbert transformer for the Hartley modulator */
 	hilbert_transformer_init(&fmmod->ht);
 
@@ -553,7 +571,9 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		preemph_usecs = 50;
 		break;
 	}
-	audio_filter_init(&fmmod->aflt, 16500, jack_samplerate,
+	/* The cutoff frequency is set so that the filter's
+	 * maximum drop is at 19KHz (the pilot tone) */
+	audio_filter_init(&fmmod->aflt, 16000, jack_samplerate,
 						preemph_usecs);
 
 	/* Initialize RDS encoder */
@@ -643,11 +663,11 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	close(ctl_fd);
 
 	ctl = fmmod->ctl;
-	ctl->audio_gain = 0.45;
+	ctl->audio_gain = 1.0;
 	ctl->pilot_gain = 0.083;
 	ctl->rds_gain = 0.026;
-	ctl->ssb_carrier_gain = 1;
-	ctl->mpx_gain = 1;
+	ctl->ssb_carrier_gain = 1.0;
+	ctl->mpx_gain = 1.0;
 	ctl->stereo_modulation = FMMOD_DSB;
 	ctl->use_audio_lpf = 1;
 

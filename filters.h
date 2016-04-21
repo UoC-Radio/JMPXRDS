@@ -58,32 +58,20 @@ void audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint8_t);
 void audio_filter_update(struct audio_filter *);
 float audio_filter_apply(struct audio_filter *, float, uint8_t, uint8_t);
 
-struct bessel_lp_data {
-	double coefs[11];
-	double buff_l[10];
-	double buff_r[10];
-};
-
-void
-bessel_lp_init(struct bessel_lp_data  *bflt);
-float
-bessel_lp_apply(struct bessel_lp_data  *bflt, float sample, uint8_t chan_idx);
-
 /* IIR filter for the Weaver modulator (SSB) */
-#define SSB_FILTER_TAPS 10
-#define	SSB_FILTER_SIZE SSB_FILTER_TAPS + 1
-#define SSB_FILTER_GAIN 5.279294303e+02
-#define SSB_FILTER_REVERSE_GAIN (1 / SSB_FILTER_GAIN)
+#define WEAVER_FILTER_TAPS 10
+#define	WEAVER_FILTER_SIZE WEAVER_FILTER_TAPS + 1
+#define WEAVER_FILTER_REVERSE_MAX_GAIN (1.0 / 5.279294303e+02)
 
 struct ssb_filter_data {
-	float iir_inbuff_l[SSB_FILTER_SIZE];
-	float iir_outbuff_l[SSB_FILTER_SIZE];
-	float iir_inbuff_r[SSB_FILTER_SIZE];
-	float iir_outbuff_r[SSB_FILTER_SIZE];
+	float iir_inbuff_l[WEAVER_FILTER_SIZE];
+	float iir_outbuff_l[WEAVER_FILTER_SIZE];
+	float iir_inbuff_r[WEAVER_FILTER_SIZE];
+	float iir_outbuff_r[WEAVER_FILTER_SIZE];
 	/* ataps are symmetric, store the bottom
 	 * half part */
-	float iir_ataps[SSB_FILTER_TAPS / 2 + 1];
-	float iir_btaps[SSB_FILTER_TAPS];
+	float iir_ataps[WEAVER_FILTER_TAPS / 2 + 1];
+	float iir_btaps[WEAVER_FILTER_TAPS];
 };
 
 int iir_ssb_filter_init(struct ssb_filter_data *);

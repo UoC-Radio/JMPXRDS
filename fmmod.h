@@ -65,7 +65,8 @@ enum fmmod_region {
 enum fmmod_stereo_modulation {
 	FMMOD_DSB = 0,
 	FMMOD_SSB_HARTLEY = 1,
-	FMMOD_SSB_WEAVER = 2
+	FMMOD_SSB_WEAVER = 2,
+	FMMOD_SSB_FIR = 3
 };
 
 /* Control I/O channel */
@@ -119,7 +120,8 @@ struct fmmod_instance {
 	jack_nframes_t added_latency;
 	/* SSB modulators */
 	struct osc_state cos_osc;
-	struct ssb_filter_data ssb_lpf;
+	struct fir_filter_data ssb_fir_lpf;
+	struct ssb_filter_data weaver_lpf;
 	struct hilbert_transformer_data ht;
 	/* Control */
 	struct fmmod_control *ctl;
