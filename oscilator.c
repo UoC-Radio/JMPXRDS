@@ -86,11 +86,11 @@ osc_initialize(struct osc_state* osc, uint32_t sample_rate, int type)
 	/*
 	 * Due to Nyquist sampling theorem, the sample rate must be at
 	 * least twice the frequency we want to sample. To make it more
-	 * safe, check if the max supported frequency divided by
-	 * the sample rate is an even number (a multiple of 2)
+	 * safe, demand that the sample rate divided by the max supported
+	 * frequency must be an even number (a multiple of 2)
 	 */
 	if ((MAX_FREQUENCY >= sample_rate) ||
-	((MAX_FREQUENCY / sample_rate) % 2))
+	((sample_rate / MAX_FREQUENCY) % 2))
 		return -1;
 
 	osc->sample_rate = sample_rate;
