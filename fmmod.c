@@ -395,9 +395,11 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 			ctl->peak_mpx_out = mpx_out[i];
 	}
 
-	/* Write to socket if needed */
-	if(fmmod->output_type == FMMOD_OUT_SOCK)
-		write_to_sock(fmmod, mpx_out, frames_generated);
+	/* Write raw MPX signal to socket */
+	write_to_sock(fmmod, mpx_out, frames_generated);
+
+	/* Send out a FLAC-encoded version of the signal as an RTP stream */
+	rtp_server_send_buffer(&fmmod->rtpsrv, mpx_out, frames_generated);
 
 	return 0;
 }
@@ -464,7 +466,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		fmmod->output_type = FMMOD_OUT_JACK;
 	} else if (jack_samplerate > 0) {
 		output_samplerate = FMMOD_OUTPUT_SAMPLERATE_MIN;
-		fmmod->output_type = FMMOD_OUT_SOCK;
+		fmmod->output_type = FMMOD_OUT_NOJACK;
 	} else {
 		fprintf(stderr, "got invalid samplerate from jackd\n");
 		return FMMOD_ERR_JACKD_ERR;
@@ -591,7 +593,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	jack_on_shutdown(fmmod->client, fmmod_shutdown, fmmod);
 
 
-	/* Register ports */
+	/* Register input ports */
 	fmmod->inL = jack_port_register(fmmod->client, "AudioL",
 					JACK_DEFAULT_AUDIO_TYPE,
 					JackPortIsInput, 0);
@@ -608,6 +610,21 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		goto cleanup;
 	}
 
+
+	/* Create a named pipe (fifo socket) for sending
+	 * out the raw mpx signal (float32) */
+	uid = getuid();
+	snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
+	ret = mkfifo(sock_path, 0600);
+	if((ret < 0) && (errno != EEXIST)) {
+		ret = FMMOD_ERR_SOCK_ERR;
+		perror("mkfifo()");
+		goto cleanup;
+	}
+
+
+	/* Register output port if possible, if not allocate
+	 * our own buffers since we can't use JACK's */	
 	if(fmmod->output_type == FMMOD_OUT_JACK) {
 		fmmod->outMPX = jack_port_register(fmmod->client, "MPX",
 						JACK_DEFAULT_AUDIO_TYPE,
@@ -617,17 +634,6 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 			goto cleanup;
 		}
 	} else {
-		/* Create a named pipe (fifo socket) for sending
-		 * out the raw mpx signal (float32) */
-		uid = getuid();
-		snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
-		ret = mkfifo(sock_path, 0600);
-		if((ret < 0) && (errno != EEXIST)) {
-			ret = FMMOD_ERR_SOCK_ERR;
-			perror("mkfifo()");
-			goto cleanup;
-		}
-
 		fmmod->sock_outbuf_len =
 				(uint32_t)
 				(((float) output_samplerate /
@@ -639,6 +645,16 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 			goto cleanup;
 		}
 		memset(fmmod->sock_outbuf, 0, fmmod->sock_outbuf_len);
+	}
+
+	/* Initialize the RTP server for sending the FLAC-compressed
+	 * mpx signal to a remote host if needed */
+	fmmod->rtpsrv.fmmod_client = fmmod->client;
+	ret = rtp_server_init(&fmmod->rtpsrv, output_samplerate,
+					max_process_frames, 5000);
+	if(ret < 0) {
+		ret = FMMOD_ERR_RTP_ERR;
+		goto cleanup;
 	}
 
 	/* Initialize the control I/O channel */
@@ -700,6 +716,11 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	fmmod->active = 0;
 
+	munmap(fmmod->ctl, sizeof(struct fmmod_control));
+	shm_unlink(FMMOD_CTL_SHM_NAME);
+
+	rtp_server_destroy(&fmmod->rtpsrv);
+
 	rds_encoder_destroy(&fmmod->rds_enc);
 
 	resampler_destroy(&fmmod->rsmpl);
@@ -715,15 +736,10 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 	if(fmmod->mpxbuf != NULL)
 		free(fmmod->mpxbuf);
 
-	if(fmmod->output_type == FMMOD_OUT_SOCK) {
-		close(fmmod->out_sock_fd);
-		uid = getuid();
-		snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
-		unlink(sock_path);
-	}
-
-	munmap(fmmod->ctl, sizeof(struct fmmod_control));
-	shm_unlink(FMMOD_CTL_SHM_NAME);
+	close(fmmod->out_sock_fd);
+	uid = getuid();
+	snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
+	unlink(sock_path);
 
 	return;
 }

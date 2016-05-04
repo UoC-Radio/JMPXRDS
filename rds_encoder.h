@@ -161,7 +161,7 @@ int rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl);
 void rds_encoder_destroy(struct rds_encoder *enc);
 float rds_get_next_sample(struct rds_encoder *enc);
 
-/* Name of shared struct rds_encoder to be used between
+/* Name of shared struct rds_encoder_state to be used between
  * the main process and the client */
 #define RDS_ENC_SHM_NAME	"RDS_ENC_SHM"
 

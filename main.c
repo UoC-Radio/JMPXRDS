@@ -28,11 +28,23 @@
 static volatile sig_atomic_t active;
 
 static void
-signal_handler(int sig)
+signal_handler(int sig, siginfo_t *info, void *extra)
 {
-	if(sig == SIGPIPE)
+	switch(sig) {
+	case SIGPIPE:
 		return;
-	active = 0;
+	case SIGUSR1:
+		rtp_server_add_receiver(info->si_value.sival_int);
+		break;
+	case SIGUSR2:
+		rtp_server_remove_receiver(info->si_value.sival_int);
+		break;
+	default:
+		active = 0;
+		break;
+	}
+
+	return;
 }
 
 int
@@ -60,12 +72,15 @@ main(int argc,char *argv[])
 	/* Install a signal handler for graceful exit 
 	 * and for handling SIGPIPE */
 	sigemptyset(&sa.sa_mask);
-	sa.sa_handler = signal_handler;
+	sa.sa_flags = SA_SIGINFO;
+	sa.sa_sigaction = signal_handler;
 	sigaction(SIGQUIT, &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGHUP, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
 	sigaction(SIGPIPE, &sa, NULL);
+	sigaction(SIGUSR1, &sa, NULL);
+	sigaction(SIGUSR2, &sa, NULL);
 
 	puts("JMPXRDS Started");
 

@@ -20,6 +20,7 @@
 #include <jack/jack.h>	/* For jack-related types */
 #include "oscilator.h"	/* Also brings in stdint.h and config.h */
 #include "rds_encoder.h" /* Also brings in resampler.h */
+#include "rtp_server.h"
 #include "filters.h"
 
 /* We need something big enough to output the MPX
@@ -38,15 +39,15 @@ enum fmmod_errors {
 	FMMOD_ERR_RDS_ERR = -6,
 	FMMOD_ERR_SHM_ERR = -7,
 	FMMOD_ERR_SOCK_ERR = -8,
+	FMMOD_ERR_RTP_ERR = -9
 };
 
 /* If JACK's samplerate is not enough (e.g. soundcard
  * can't do 192KHz or CPU can't handle 192KHz processsing)
- * output data to a socket instead so that it can still be
- * transmitted from another host or another soundcard. */
+ * send the data only to the output socket and through RTP */
 enum fmmod_output {
 	FMMOD_OUT_JACK = 1,
-	FMMOD_OUT_SOCK = 2
+	FMMOD_OUT_NOJACK = 2
 };
 
 /* FM pre-emphasis filter parameters (tau)
@@ -112,6 +113,8 @@ struct fmmod_instance {
 	struct resampler_data rsmpl;
 	/* The RDS Encoder */
 	struct rds_encoder rds_enc;
+	/* The RTP Server */
+	struct rtp_server rtpsrv;
 	/* Jack-related */
 	jack_port_t *inL;
 	jack_port_t *inR;
