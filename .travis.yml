@@ -17,6 +17,7 @@ addons:
     - libjack-jackd2-dev
     - libsoxr-dev
     - libgstreamer1.0-dev
+    - libgstreamer-plugins-base1.0-dev
 
 before_script:
  - autoreconf -ivf
