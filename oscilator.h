@@ -18,7 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "config.h"
-#include <stdint.h>	/* For typed integers */
+#include <stdint.h>		/* For typed integers */
 
 /* We want a clean 38KHz tone because we 'll use that for A.M.
  * After experimenting with different sample rates I ended up
@@ -47,29 +47,29 @@
 	 * two so that % ONE_PERIOD changes to an & operator
 	 * -the compiler does that automaticaly- which greatly
 	 * improves performance */
-	#define WAVE_TABLE_SIZE		63
-	#define ONE_PERIOD		WAVE_TABLE_SIZE
+#define WAVE_TABLE_SIZE		63
+#define ONE_PERIOD		WAVE_TABLE_SIZE
 #else
-	#define ONE_PERIOD		2 * M_PI
+#define ONE_PERIOD		2 * M_PI
 #endif
 
 enum osc_type {
-	OSC_TYPE_SINE	= 0,
-	OSC_TYPE_COSINE	= 1,
+	OSC_TYPE_SINE = 0,
+	OSC_TYPE_COSINE = 1,
 };
 
 struct osc_state {
 #ifdef	USE_WAVE_TABLE
-	double	wave_table[WAVE_TABLE_SIZE];
+	double wave_table[WAVE_TABLE_SIZE];
 
 	/* For cubic interpolation we need to know not only the
 	 * values of f(xi) but also the values of f'(xi). Since we
 	 * know that f(x) is sin(x) or cos(x) we can just create a
 	 * lookup table to store the values of f(x)' and be
 	 * more accurate and fast. */
-	#ifdef	USE_CUBIC_INTERPOLATION
-	double	fdx[WAVE_TABLE_SIZE];
-	#endif
+#ifdef	USE_CUBIC_INTERPOLATION
+	double fdx[WAVE_TABLE_SIZE];
+#endif
 
 #endif
 	double phase_step;
@@ -78,10 +78,10 @@ struct osc_state {
 	int type;
 };
 
-int osc_initialize(struct osc_state*, uint32_t, int);
-void osc_increase_phase(struct osc_state*);
-void osc_shift_90deg(struct osc_state* sinwg);
-double osc_get_sample_for_freq(struct osc_state* osc, double freq);
-double osc_get_19Khz_sample(struct osc_state*);
-double osc_get_38Khz_sample(struct osc_state*);
-double osc_get_57Khz_sample(struct osc_state*);
+int osc_initialize(struct osc_state *, uint32_t, int);
+void osc_increase_phase(struct osc_state *);
+void osc_shift_90deg(struct osc_state *sinwg);
+double osc_get_sample_for_freq(struct osc_state *osc, double freq);
+double osc_get_19Khz_sample(struct osc_state *);
+double osc_get_38Khz_sample(struct osc_state *);
+double osc_get_57Khz_sample(struct osc_state *);

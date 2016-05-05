@@ -18,10 +18,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "oscilator.h"
-#include <stdlib.h>	/* For NULL */
-#include <math.h>	/* For sin, cos, M_PI, fmod and signbit */
-#include <string.h>	/* For memset */
-
+#include <stdlib.h>		/* For NULL */
+#include <math.h>		/* For sin, cos, M_PI, fmod and signbit */
+#include <string.h>		/* For memset */
 
 /***********\
 * OSCILATOR *
@@ -39,49 +38,51 @@
  *
  */
 int
-osc_initialize(struct osc_state* osc, uint32_t sample_rate, int type)
+osc_initialize(struct osc_state *osc, uint32_t sample_rate, int type)
 {
 	int i;
 	double phase;
 
-	if(osc == NULL)
+	if (osc == NULL)
 		return -1;
 
 	memset(osc, 0, sizeof(struct osc_state));
 	osc->type = type;
 
-	#ifdef USE_WAVE_TABLE
+#ifdef USE_WAVE_TABLE
 	/* Put one full period on the wave table (fit 2*pi radians on
 	 * WAVE_TABLE_SIZE slots) */
-	switch(type) {
+	switch (type) {
 	case OSC_TYPE_SINE:
 		for (i = 0; i < WAVE_TABLE_SIZE; i++) {
-			phase = 2.0 * M_PI * ((double) i) / ((double) WAVE_TABLE_SIZE);
+			phase = 2.0 * M_PI * ((double)i) /
+					     ((double)WAVE_TABLE_SIZE);
 
 			osc->wave_table[i] = sin(phase);
 
 			/* In case we want to use cubic interpolation, also store the
 			 * value of the derivative -cos(x)- */
-			#ifdef USE_CUBIC_INTERPOLATION
+#ifdef USE_CUBIC_INTERPOLATION
 			osc->fdx[i] = cos(phase);
-			#endif
+#endif
 		}
 		break;
 	case OSC_TYPE_COSINE:
 		for (i = 0; i < WAVE_TABLE_SIZE; i++) {
-			phase = 2.0 * M_PI * ((double) i) / ((double) WAVE_TABLE_SIZE);
+			phase = 2.0 * M_PI * ((double)i) /
+					     ((double)WAVE_TABLE_SIZE);
 
 			osc->wave_table[i] = cos(phase);
 
-			#ifdef USE_CUBIC_INTERPOLATION
+#ifdef USE_CUBIC_INTERPOLATION
 			osc->fdx[i] = sin(phase);
-			#endif
+#endif
 		}
 		break;
 	default:
 		return -1;
 	}
-	#endif
+#endif
 
 	/*
 	 * Due to Nyquist sampling theorem, the sample rate must be at
@@ -90,7 +91,7 @@ osc_initialize(struct osc_state* osc, uint32_t sample_rate, int type)
 	 * the sample rate is an even number (a multiple of 2)
 	 */
 	if ((MAX_FREQUENCY >= sample_rate) ||
-	((MAX_FREQUENCY / sample_rate) % 2))
+	    ((MAX_FREQUENCY / sample_rate) % 2))
 		return -1;
 
 	osc->sample_rate = sample_rate;
@@ -105,8 +106,7 @@ osc_initialize(struct osc_state* osc, uint32_t sample_rate, int type)
 	 * when we use a wave table, this will represent the increments on
 	 * the wave table instead (and one table holds one period).
 	 */
-	osc->phase_step = ((double) ONE_PERIOD) /
-				((double) osc->sample_rate);
+	osc->phase_step = ((double)ONE_PERIOD) / ((double)osc->sample_rate);
 
 	return 0;
 }
@@ -116,7 +116,7 @@ osc_initialize(struct osc_state* osc, uint32_t sample_rate, int type)
  *
  */
 void
-osc_increase_phase(struct osc_state* osc)
+osc_increase_phase(struct osc_state *osc)
 {
 	osc->current_phase += osc->phase_step;
 
@@ -124,8 +124,8 @@ osc_increase_phase(struct osc_state* osc)
 	 * we need to rewind the current phase so that
 	 * we don't go outside the table (since sin(2*p + a) = sin(a)
 	 * we just subtract 2 * pi). */
-	if (osc->current_phase >= (double) ONE_PERIOD)
-		osc->current_phase -= (double) ONE_PERIOD;
+	if (osc->current_phase >= (double)ONE_PERIOD)
+		osc->current_phase -= (double)ONE_PERIOD;
 
 	/* Make sure we didn't go too much (this will also catch
 	 * the case of -0.0) */
@@ -149,19 +149,19 @@ osc_increase_phase(struct osc_state* osc)
  *				to get sine(phase) using the wavetable
  */
 static double
-osc_linear_interpolate(struct osc_state* osc, double phase)
+osc_linear_interpolate(struct osc_state *osc, double phase)
 {
 	double x, x1, x2, y1, y2, slope;
 	int y1idx, y2idx;
 
-	x = fmod(phase, (double) ONE_PERIOD);
+	x = fmod(phase, (double)ONE_PERIOD);
 
 	/* Get the surounding points - wrap arround if needed */
-	x1 = fmod(phase - osc->phase_step, (double) ONE_PERIOD);
-	x2 = fmod(phase + osc->phase_step, (double) ONE_PERIOD);
+	x1 = fmod(phase - osc->phase_step, (double)ONE_PERIOD);
+	x2 = fmod(phase + osc->phase_step, (double)ONE_PERIOD);
 
-	y1idx = (int) x1;
-	y2idx = (int) x2;
+	y1idx = (int)x1;
+	y2idx = (int)x2;
 
 	y1 = osc->wave_table[y1idx];
 	y2 = osc->wave_table[y2idx];
@@ -173,7 +173,7 @@ osc_linear_interpolate(struct osc_state* osc, double phase)
 	 * F'(0) = a
 	 */
 
-	return y1 + (y2 - y1) * (x - x1) / (x2 - x1); 
+	return y1 + (y2 - y1) * (x - x1) / (x2 - x1);
 }
 #endif
 
@@ -183,15 +183,15 @@ osc_linear_interpolate(struct osc_state* osc, double phase)
  *				sine(phase) using the wave table
  */
 static double
-osc_cubic_interpolate(struct osc_state* osc, double phase)
+osc_cubic_interpolate(struct osc_state *osc, double phase)
 {
 	double x, xtemp, xsq, xcub, y1, y2;
-	double a, b, c ,d;
+	double a, b, c, d;
 	int x1, x2;
 
 	/* Get the surounding points - wrap arround if needed */
-	x1 = (int) (phase - osc->phase_step) % ONE_PERIOD;
-	x2 = (int) (phase + osc->phase_step) % ONE_PERIOD;
+	x1 = (int)(phase - osc->phase_step) % ONE_PERIOD;
+	x2 = (int)(phase + osc->phase_step) % ONE_PERIOD;
 
 	y1 = osc->wave_table[x1];
 	y2 = osc->wave_table[x2];
@@ -222,8 +222,8 @@ osc_cubic_interpolate(struct osc_state* osc, double phase)
 	d = y1;
 
 	/* Since we work on [0,1] bring x there by subtracting x1 */
-	xtemp = fmod(phase - osc->phase_step, (double) ONE_PERIOD);
-	x = fmod(phase - xtemp, (double) ONE_PERIOD);
+	xtemp = fmod(phase - osc->phase_step, (double)ONE_PERIOD);
+	x = fmod(phase - xtemp, (double)ONE_PERIOD);
 	xsq = pow(x, 2);
 	xcub = pow(x, 3);
 
@@ -246,38 +246,38 @@ osc_cubic_interpolate(struct osc_state* osc, double phase)
  *				at the current phase.
  */
 double
-osc_get_sample_for_freq(struct osc_state* osc, double freq)
+osc_get_sample_for_freq(struct osc_state *osc, double freq)
 {
 	double phase = osc->current_phase * freq;
 
-	#ifdef USE_WAVE_TABLE
-	#if defined(USE_CUBIC_INTERPOLATION)
-		return osc_cubic_interpolate(osc, phase);
-	#elif defined(USE_LINEAR_INTERPOLATION)
-		return osc_linear_interpolate(osc, phase);
-	#else
-		int table_slot;
+#ifdef USE_WAVE_TABLE
+#if defined(USE_CUBIC_INTERPOLATION)
+	return osc_cubic_interpolate(osc, phase);
+#elif defined(USE_LINEAR_INTERPOLATION)
+	return osc_linear_interpolate(osc, phase);
+#else
+	int table_slot;
 
-		/* Make sure we don't exceed table size, % here is like
-		 * a mask, if we get <X * ONE_PERIOD + something>, it'll
-		 * keep <something> wich is the same as rewinding but for table
-		 * slots (because ONE_PERIOD is the table size). */
-		table_slot = ((int) phase) % ONE_PERIOD;
+	/* Make sure we don't exceed table size, % here is like
+	 * a mask, if we get <X * ONE_PERIOD + something>, it'll
+	 * keep <something> wich is the same as rewinding but for table
+	 * slots (because ONE_PERIOD is the table size). */
+	table_slot = ((int)phase) % ONE_PERIOD;
 
-		return osc->wave_table[table_slot];
-	#endif
+	return osc->wave_table[table_slot];
+#endif
 
-	#else
-		/* No need to rewind since sin()/cos() will loop anyway */
-		switch(osc->type) {
-		case OSC_TYPE_SINE:
-			return sin(phase);
-		case OSC_TYPE_COSINE:
-			return cos(phase);
-		default:
-			return 0;
-		}
-	#endif
+#else
+	/* No need to rewind since sin()/cos() will loop anyway */
+	switch (osc->type) {
+	case OSC_TYPE_SINE:
+		return sin(phase);
+	case OSC_TYPE_COSINE:
+		return cos(phase);
+	default:
+		return 0;
+	}
+#endif
 }
 
 /**
@@ -285,9 +285,9 @@ osc_get_sample_for_freq(struct osc_state* osc, double freq)
  *				phase.
  */
 double
-osc_get_19Khz_sample(struct osc_state* osc)
+osc_get_19Khz_sample(struct osc_state *osc)
 {
-	return osc_get_sample_for_freq(osc, (double) 19000.0);
+	return osc_get_sample_for_freq(osc, (double)19000.0);
 }
 
 /**
@@ -295,9 +295,9 @@ osc_get_19Khz_sample(struct osc_state* osc)
  *				phase.
  */
 double
-osc_get_38Khz_sample(struct osc_state* osc)
+osc_get_38Khz_sample(struct osc_state *osc)
 {
-	return osc_get_sample_for_freq(osc, (double) 38000.0);
+	return osc_get_sample_for_freq(osc, (double)38000.0);
 }
 
 /**
@@ -305,7 +305,7 @@ osc_get_38Khz_sample(struct osc_state* osc)
  *				phase.
  */
 double
-osc_get_57Khz_sample(struct osc_state* osc)
+osc_get_57Khz_sample(struct osc_state *osc)
 {
-	return osc_get_sample_for_freq(osc, (double) 57000.0);
+	return osc_get_sample_for_freq(osc, (double)57000.0);
 }

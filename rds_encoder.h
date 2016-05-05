@@ -18,9 +18,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "resampler.h" /* For resampler types and prototypes */
-#include <stdint.h> /* For typed ints */
-#include <jack/jack.h>	/* For jack-related types */
+#include "resampler.h"		/* For resampler types and prototypes */
+#include <stdint.h>		/* For typed ints */
+#include <jack/jack.h>		/* For jack-related types */
 
 /* RDS encoding takes a data stream of specialy formated data,
  * does a differential encoding on it and passes it through a
@@ -104,31 +104,31 @@ struct rds_upsampled_group {
 struct rds_encoder_state {
 	uint8_t enabled;
 	uint16_t pi;
-	uint8_t	ecc;
+	uint8_t ecc;
 	uint8_t ecc_set:1;
 	uint16_t lic:12;
 	uint8_t lic_set:1;
-	uint8_t	pty:5;
-	uint8_t	ta:1;
-	uint8_t	tp:1;
-	uint8_t	ms:1;
-	uint8_t	di:4;
+	uint8_t pty:5;
+	uint8_t ta:1;
+	uint8_t tp:1;
+	uint8_t ms:1;
+	uint8_t di:4;
 	char ps[RDS_PS_LENGTH];
 	uint8_t ps_set:1;
-	uint8_t	ps_idx:2;
+	uint8_t ps_idx:2;
 	char ptyn[RDS_PTYN_LENGTH];
-	uint8_t	ptyn_set:1;
+	uint8_t ptyn_set:1;
 	uint8_t ptyn_idx:1;
-	uint8_t	ptyn_flush:1;
+	uint8_t ptyn_flush:1;
 	char rt[RDS_RT_LENGTH];
-	uint8_t	rt_set:1;
+	uint8_t rt_set:1;
 	uint8_t rt_idx:4;
-	uint8_t	rt_segments:4;
-	uint8_t	rt_flush:1;
-	uint8_t	af_data[12];
-	uint8_t	af_set:1;
-	uint8_t	af_len:4;
-	uint8_t	af_idx:4;
+	uint8_t rt_segments:4;
+	uint8_t rt_flush:1;
+	uint8_t af_data[12];
+	uint8_t af_set:1;
+	uint8_t af_len:4;
+	uint8_t af_idx:4;
 };
 
 struct rds_encoder {
@@ -180,9 +180,9 @@ uint8_t rds_get_ms(struct rds_encoder_state *st);
 int rds_set_ms(struct rds_encoder_state *st, uint8_t ms);
 uint8_t rds_get_di(struct rds_encoder_state *st);
 int rds_set_di(struct rds_encoder_state *st, uint8_t di);
-char* rds_get_ps(struct rds_encoder_state *st);
-int rds_set_ps(struct rds_encoder_state *st, const char* ps);
-char* rds_get_ptyn(struct rds_encoder_state *st);
-int rds_set_ptyn(struct rds_encoder_state *st, const char* ptyn);
-char* rds_get_rt(struct rds_encoder_state *st);
-int rds_set_rt(struct rds_encoder_state *st, const char* rt, int flush);
+char *rds_get_ps(struct rds_encoder_state *st);
+int rds_set_ps(struct rds_encoder_state *st, const char *ps);
+char *rds_get_ptyn(struct rds_encoder_state *st);
+int rds_set_ptyn(struct rds_encoder_state *st, const char *ptyn);
+char *rds_get_rt(struct rds_encoder_state *st);
+int rds_set_rt(struct rds_encoder_state *st, const char *rt, int flush);

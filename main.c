@@ -18,19 +18,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "fmmod.h"
-#include <stdlib.h>	/* For NULL */
-#include <unistd.h>	/* For sleep() */
-#include <stdio.h>	/* For printf */
-#include <sched.h>	/* For sched_setscheduler etc */
-#include <signal.h>	/* For signal handling / sig_atomic_t */
-#include <string.h>	/* For memset() */
+#include <stdlib.h>		/* For NULL */
+#include <unistd.h>		/* For sleep() */
+#include <stdio.h>		/* For printf */
+#include <sched.h>		/* For sched_setscheduler etc */
+#include <signal.h>		/* For signal handling / sig_atomic_t */
+#include <string.h>		/* For memset() */
 
 static volatile sig_atomic_t active;
 
 static void
-signal_handler(int sig, siginfo_t *info, void *extra)
+signal_handler(int sig, siginfo_t * info, void *extra)
 {
-	switch(sig) {
+	switch (sig) {
 	case SIGPIPE:
 		return;
 	case SIGUSR1:
@@ -48,7 +48,7 @@ signal_handler(int sig, siginfo_t *info, void *extra)
 }
 
 int
-main(int argc,char *argv[])
+main(int argc, char *argv[])
 {
 	int ret = 0;
 	struct sched_param sched;
@@ -62,9 +62,9 @@ main(int argc,char *argv[])
 	sched.sched_priority = 99;
 	if (sched_setscheduler(0, SCHED_FIFO, &sched) != 0)
 		perror("Unable to set real time scheduling:");
-	
+
 	ret = fmmod_initialize(&fmmod_instance, FMMOD_REGION_EU);
-	if(ret < 0)
+	if (ret < 0)
 		exit(ret);
 
 	active = 1;
@@ -89,7 +89,7 @@ main(int argc,char *argv[])
 	while (active && fmmod_instance.active)
 		sleep(1);
 
-	if(fmmod_instance.active)
+	if (fmmod_instance.active)
 		fmmod_destroy(&fmmod_instance, 0);
-	exit ( 0 );
+	exit(0);
 }

@@ -17,9 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include <jack/jack.h>	/* For jack-related types */
-#include "oscilator.h"	/* Also brings in stdint.h and config.h */
-#include "rds_encoder.h" /* Also brings in resampler.h */
+#include <jack/jack.h>		/* For jack-related types */
+#include "oscilator.h"		/* Also brings in stdint.h and config.h */
+#include "rds_encoder.h"	/* Also brings in resampler.h */
 #include "rtp_server.h"
 #include "filters.h"
 
@@ -32,7 +32,7 @@
 
 enum fmmod_errors {
 	FMMOD_ERR_INVALID_INPUT = -1,
-	FMMOD_ERR_RESAMPLER_ERR	= -2,
+	FMMOD_ERR_RESAMPLER_ERR = -2,
 	FMMOD_ERR_JACKD_ERR = -3,
 	FMMOD_ERR_NOMEM = -4,
 	FMMOD_ERR_OSC_ERR = -5,
@@ -72,16 +72,16 @@ enum fmmod_stereo_modulation {
 
 /* Control I/O channel */
 struct fmmod_control {
-	float	audio_gain;
-	float	pilot_gain;
-	float	rds_gain;
-	float	stereo_carrier_gain;
-	float	mpx_gain;
-	int	stereo_modulation;
-	int	use_audio_lpf;
-	float	peak_mpx_out;
-	float	peak_audio_in_l;
-	float	peak_audio_in_r;
+	float audio_gain;
+	float pilot_gain;
+	float rds_gain;
+	float stereo_carrier_gain;
+	float mpx_gain;
+	int stereo_modulation;
+	int use_audio_lpf;
+	float peak_mpx_out;
+	float peak_audio_in_l;
+	float peak_audio_in_r;
 };
 
 #define FMMOD_CTL_SHM_NAME "FMMOD_CTL_SHM"
@@ -130,8 +130,7 @@ struct fmmod_instance {
 	struct fmmod_control *ctl;
 };
 
-typedef float (*stereo_modulator)(struct fmmod_instance *, float);
+typedef float (*stereo_modulator) (struct fmmod_instance *, float);
 
 int fmmod_initialize(struct fmmod_instance *fmmod, int region);
 void fmmod_destroy(struct fmmod_instance *fmmod, int shutdown);
-

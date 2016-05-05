@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include <stdint.h>	/* For typed integers */
+#include <stdint.h>		/* For typed integers */
 
 /* A generic sinc FIR Low pass filter, multiplied by
  * a Blackman - Harris window */
@@ -89,4 +89,5 @@ struct hilbert_transformer_data {
 };
 
 int hilbert_transformer_init(struct hilbert_transformer_data *ht);
-float hilbert_transformer_apply(struct hilbert_transformer_data *ht, float sample);
+float hilbert_transformer_apply(struct hilbert_transformer_data *ht,
+				float sample);
