@@ -332,6 +332,7 @@ _rtp_server_init(void *data)
 	GstElement *flac_encoder = NULL;
 	GstElement *rtp_payloader = NULL;
 	GstElement *rtcpsrc = NULL;
+	GstElement *rtprtxqueue = NULL;
 	GstPad *srcpad = NULL;
 	GstPad *sinkpad = NULL;
 	GstAppSrcCallbacks gst_appsrc_cbs;
@@ -418,31 +419,38 @@ _rtp_server_init(void *data)
 	}
 	g_object_set(rtp_payloader, "config-interval", 3, NULL); 
 
-	/* Create the pipeline down to the payloader */
+	/* Initialize RTP rtx queue to support non-RFC compliant RTP
+	 * retransmissions */
+	rtprtxqueue = gst_element_factory_make("rtprtxqueue", "rtprtxqueue");
+	if(!rtprtxqueue) {
+		ret = -7;
+		goto cleanup;
+	}
+
+	/* Create the pipeline down to the rtprtxqueue */
 	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->appsrc,
-			audio_converter, flac_encoder, rtp_payloader, NULL);
+			audio_converter, flac_encoder, rtp_payloader, rtprtxqueue, NULL);
 
 	ret = gst_element_link_many(rtpsrv->appsrc, audio_converter,
-					flac_encoder,rtp_payloader, NULL);
+					flac_encoder,rtp_payloader, rtprtxqueue, NULL);
 	if(!ret) {
-		ret = -7;
+		ret = -8;
 		goto cleanup;
 	}
 
 	/* Initialize the rtpbin element and add it to the pipeline */
 	rtpsrv->rtpbin = gst_element_factory_make("rtpbin", "rtpbin");
 	if(!rtpsrv->rtpbin) {
-		ret = -8;
+		ret = -9;
 		goto cleanup;
 	}
 	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpbin);
-
 
 	/* Initialize the UDP sink for outgoing RTP messages and add localhost
 	 * to the list of receivers */
 	rtpsrv->rtpsink = gst_element_factory_make("multiudpsink", "rtpsink");
 	if(!rtpsrv->rtpsink) {
-		ret = -9;
+		ret = -10;
 		goto cleanup;
 	}
 	g_signal_emit_by_name(rtpsrv->rtpsink, "add", "127.0.0.1", rtpsrv->baseport, NULL);
@@ -451,7 +459,7 @@ _rtp_server_init(void *data)
 	 * to the list of receivers */
 	rtpsrv->rtcpsink = gst_element_factory_make("multiudpsink", "rtcpsink");
 	if(!rtpsrv->rtcpsink) {
-		ret = -10;
+		ret = -11;
 		goto cleanup;
 	}
 	g_signal_emit_by_name(rtpsrv->rtcpsink, "add", "127.0.0.1", rtpsrv->baseport + 1, NULL);
@@ -462,7 +470,7 @@ _rtp_server_init(void *data)
 	/* Initialize the UDP src for incoming RTCP messages */
 	rtcpsrc = gst_element_factory_make("udpsrc", "rtcpsrc");
 	if(!rtcpsrc) {
-		ret = -11;
+		ret = -12;
 		goto cleanup;
 	}
 	g_object_set(rtcpsrc, "port", rtpsrv->baseport + 2, NULL);
@@ -472,11 +480,11 @@ _rtp_server_init(void *data)
 
 
 	/* Set up an RTP sinkpad for session 0 from rtpbin and link it to the
-	 * payloader */
-	srcpad = gst_element_get_static_pad(rtp_payloader, "src");
+	 * rtprtxqueue */
+	srcpad = gst_element_get_static_pad(rtprtxqueue, "src");
 	sinkpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtp_sink_0");
 	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -12;
+		ret = -13;
 		goto cleanup;
 	}
 	gst_object_unref(srcpad);
@@ -487,7 +495,7 @@ _rtp_server_init(void *data)
 	srcpad = gst_element_get_static_pad(rtpsrv->rtpbin, "send_rtp_src_0");
 	sinkpad = gst_element_get_static_pad(rtpsrv->rtpsink, "sink");
 	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -13;
+		ret = -14;
 		goto cleanup;
 	}
 	gst_object_unref(srcpad);
@@ -498,7 +506,7 @@ _rtp_server_init(void *data)
 	srcpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtcp_src_0");
 	sinkpad = gst_element_get_static_pad(rtpsrv->rtcpsink, "sink");
 	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -14;
+		ret = -15;
 		goto cleanup;
 	}
 	gst_object_unref(srcpad);
@@ -509,7 +517,7 @@ _rtp_server_init(void *data)
 	srcpad = gst_element_get_static_pad(rtcpsrc, "src");
 	sinkpad = gst_element_get_request_pad(rtpsrv->rtpbin, "recv_rtcp_sink_0");
 	if (gst_pad_link (srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -15;
+		ret = -16;
 		goto cleanup;
 	}
 	gst_object_unref(srcpad);
