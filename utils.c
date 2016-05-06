@@ -32,7 +32,8 @@ utils_shm_init(const char* name, int size)
 	int ret = 0;
 	struct shm_mapping* shmem = NULL;
 
-	shmem = malloc(sizeof(struct shm_mapping));
+	shmem = (struct shm_mapping*)
+		malloc(sizeof(struct shm_mapping));
 	if(!shmem)
 		return NULL;
 	memset(shmem, 0, sizeof(struct shm_mapping));
@@ -70,12 +71,13 @@ utils_shm_init(const char* name, int size)
 }
 
 struct shm_mapping*
-utils_shm_attach(char* name, int size)
+utils_shm_attach(const char* name, int size)
 {
 	int ret = 0;
 	struct shm_mapping* shmem = NULL;
 
-	shmem = malloc(sizeof(struct shm_mapping));
+	shmem = (struct shm_mapping*)
+		malloc(sizeof(struct shm_mapping));
 	if(!shmem)
 		return NULL;
 	memset(shmem, 0, sizeof(struct shm_mapping));

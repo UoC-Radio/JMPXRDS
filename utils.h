@@ -29,7 +29,7 @@ struct shm_mapping*
 utils_shm_init(const char* name, int size);
 
 struct shm_mapping*
-utils_shm_attach(char* name, int size);
+utils_shm_attach(const char* name, int size);
 
 void
 utils_shm_destroy(struct shm_mapping* shmem, int unlink);

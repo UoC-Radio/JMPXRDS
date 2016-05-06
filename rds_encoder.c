@@ -757,7 +757,7 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 					sizeof(struct rds_encoder_state));
 	if(!enc->state_map)
 		return -1;
-	enc->state = enc->state_map->mem;
+	enc->state = (struct rds_encoder_state*) enc->state_map->mem;
 
 	/* Allocate buffers */
 	enc->upsampled_waveform_len = (size_t)

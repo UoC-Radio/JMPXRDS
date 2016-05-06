@@ -131,13 +131,15 @@ rtp_server_error_cb(GstBus * bus, GstMessage * msg, gpointer user_data)
 	g_clear_error(&err);
 	g_free(debug_info);
 	g_main_loop_quit(rtpsrv->loop);
+
+	return rtpsrv;
 }
 
 void
 rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 {
 	GstBuffer *gstbuff = NULL;
-	GstFlowReturn ret = 0;
+	GstFlowReturn ret = GST_FLOW_OK;
 
 	if (!buff || !num_samples || !rtpsrv ||
 	    rtpsrv_state != RTP_SERVER_ACTIVE)
@@ -147,8 +149,9 @@ rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 
 	/* Wrap the output buffer to a GStreamer buffer */
 	gstbuff_len = num_samples * sizeof(float);
-	gstbuff = gst_buffer_new_wrapped_full(0, (gpointer) buff, gstbuff_len,
-					      0, gstbuff_len, NULL, NULL);
+	gstbuff = gst_buffer_new_wrapped_full((GstMemoryFlags)0, (gpointer) buff,
+					      gstbuff_len, 0, gstbuff_len,
+					      NULL, NULL);
 
 	/* Set the buffer's properties */
 	GST_BUFFER_TIMESTAMP(gstbuff) = GST_CLOCK_TIME_NONE;
