@@ -17,6 +17,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "resampler.h"
+#include "utils.h"
 #include "rds_encoder.h"
 #include <time.h>		/* For gmtime, localtime etc (group 4A) */
 #include <arpa/inet.h>		/* For htons() */
@@ -742,7 +744,6 @@ rds_get_next_sample(struct rds_encoder *enc)
 int
 rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 {
-	int state_fd = 0;
 	int ret = 0;
 
 	if (enc == NULL)
@@ -752,23 +753,11 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 	enc->rsmpl = rsmpl;
 
 	/* Initialize I/O channel for encoder's state */
-	state_fd = shm_open(RDS_ENC_SHM_NAME, O_CREAT | O_RDWR, 0600);
-	if (state_fd < 0)
-		goto cleanup;
-
-	ret = ftruncate(state_fd, sizeof(struct rds_encoder_state));
-	if (ret < 0)
-		goto cleanup;
-
-	enc->state = (struct rds_encoder_state *)
-			mmap(0, sizeof(struct rds_encoder_state),
-			     PROT_READ | PROT_WRITE, MAP_SHARED, state_fd, 0);
-	if (enc->state == MAP_FAILED) {
-		ret = -1;
-		goto cleanup;
-	}
-	close(state_fd);
-	memset(enc->state, 0, sizeof(struct rds_encoder_state));
+	enc->state_map = utils_shm_init(RDS_ENC_SHM_NAME,
+					sizeof(struct rds_encoder_state));
+	if(!enc->state_map)
+		return -1;
+	enc->state = enc->state_map->mem;
 
 	/* Allocate buffers */
 	enc->upsampled_waveform_len = (size_t)
@@ -778,7 +767,7 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 
 	enc->outbuf[0].waveform = (float *) malloc(enc->upsampled_waveform_len);
 	if (enc->outbuf[0].waveform == NULL) {
-		ret = -1;
+		ret = -2;
 		goto cleanup;
 	}
 	memset(enc->outbuf[0].waveform, 0, enc->upsampled_waveform_len);
@@ -806,8 +795,7 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 void
 rds_encoder_destroy(struct rds_encoder *enc)
 {
-	munmap(enc->state, sizeof(struct rds_encoder_state));
-	shm_unlink(RDS_ENC_SHM_NAME);
+	utils_shm_destroy(enc->state_map, 1);
 
 	active = 0;
 

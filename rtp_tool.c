@@ -18,15 +18,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "utils.h"
 #include "rtp_server.h"
-#include <fcntl.h>		/* For O_* and F_* constants */
-#include <unistd.h>		/* For ftruncate(), close() */
-#include <string.h>		/* For memset() */
-#include <sys/mman.h>		/* For shm_open */
 #include <signal.h>		/* For sigqueue etc */
 #include <arpa/inet.h>		/* For inet_addr etc */
 #include <stdio.h>		/* For printf() */
-#include <stdlib.h>		/* For atoi() */
+#include <unistd.h>		/* For getopt() */
 
 static void
 usage(char *name)
@@ -39,29 +36,11 @@ usage(char *name)
 	       "\t-r   <string>\tRemove an IP address from the list of receivers\n");
 }
 
-static struct rtp_server_control *
-rtp_server_tool_get_ctl()
-{
-	int ctl_fd = 0;
-	int ret = 0;
-	struct rtp_server_control *ctl = NULL;
-
-	ctl_fd = shm_open(RTP_SRV_SHM_NAME, O_RDONLY, 0600);
-	if (ctl_fd < 0)
-		goto cleanup;
-
-	ctl = (struct rtp_server_control *)
-	    mmap(0, sizeof(struct rtp_server_control),
-		 PROT_READ, MAP_SHARED, ctl_fd, 0);
- cleanup:
-	close(ctl_fd);
-	return ctl;
-}
-
 int
 main(int argc, char *argv[])
 {
 	union sigval value;
+	struct shm_mapping *shmem = NULL;
 	struct rtp_server_control *ctl = NULL;
 	struct in_addr ipv4addr = { 0 };
 	int opt = 0;
@@ -69,11 +48,13 @@ main(int argc, char *argv[])
 	int pid = 0;
 	int i = 0;
 
-	ctl = rtp_server_tool_get_ctl();
-	if (!ctl) {
+	shmem = utils_shm_attach(RTP_SRV_SHM_NAME,
+				 sizeof(struct rtp_server_control));
+	if (!shmem) {
 		perror("Unable to communicate with the RTP server");
 		return -1;
 	}
+	ctl = (struct rtp_server_control*) shmem->mem;
 	pid = ctl->pid;
 
 	while ((opt = getopt(argc, argv, "ga:r:")) != -1)
@@ -111,13 +92,16 @@ main(int argc, char *argv[])
 			break;
 		default:
 			usage(argv[0]);
-			exit(-EINVAL);
+			utils_shm_destroy(shmem, 0);
+			return -1;
 		}
 
-	if (!argc || (argc > 1 && optind == 1)) {
+	if (argc < 2 || (argc > 1 && optind == 1)) {
 		usage(argv[0]);
-		exit(-EINVAL);
+		utils_shm_destroy(shmem, 0);
+		return -1;
 	}
 
+	utils_shm_destroy(shmem, 0);
 	return 0;
 }

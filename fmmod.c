@@ -20,6 +20,7 @@
 #ifndef _GNU_SOURCE		/* Defined by default when using g++ */
 #define _GNU_SOURCE		/* F_SETPIPE_Z is Linux specific */
 #endif
+#include "utils.h"
 #include "fmmod.h"
 #include <jack/transport.h>
 #include <stdlib.h>		/* For malloc() */
@@ -420,7 +421,6 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	uint8_t preemph_usecs = 0;
 	uint32_t uid = 0;
 	char sock_path[32] = { 0 };	/* /run/user/<userid>/jmpxrds.sock */
-	int ctl_fd = 0;
 	char *client_name = NULL;
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
@@ -636,26 +636,13 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	}
 
 	/* Initialize the control I/O channel */
-	ctl_fd = shm_open(FMMOD_CTL_SHM_NAME, O_CREAT | O_RDWR, 0600);
-	if (ctl_fd < 0) {
+	fmmod->ctl_map = utils_shm_init(FMMOD_CTL_SHM_NAME,
+					sizeof(struct fmmod_control));
+	if (!fmmod->ctl_map) {
 		ret = FMMOD_ERR_SHM_ERR;
 		goto cleanup;
 	}
-
-	ret = ftruncate(ctl_fd, sizeof(struct fmmod_control));
-	if (ret != 0) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
-	}
-
-	fmmod->ctl = (struct fmmod_control *)
-	    mmap(0, sizeof(struct fmmod_control),
-		 PROT_READ | PROT_WRITE, MAP_SHARED, ctl_fd, 0);
-	if (fmmod->ctl == MAP_FAILED) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
-	}
-	close(ctl_fd);
+	fmmod->ctl = (struct fmmod_control*) fmmod->ctl_map->mem;
 
 	ctl = fmmod->ctl;
 	ctl->audio_gain = 0.45;
@@ -693,8 +680,7 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	fmmod->active = 0;
 
-	munmap(fmmod->ctl, sizeof(struct fmmod_control));
-	shm_unlink(FMMOD_CTL_SHM_NAME);
+	utils_shm_destroy(fmmod->ctl_map, 1);
 
 	rtp_server_destroy(&fmmod->rtpsrv);
 

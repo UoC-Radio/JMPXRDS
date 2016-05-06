@@ -50,7 +50,7 @@ struct rtp_server_control {
 	in_addr_t receivers[RTP_SRV_MAX_RECEIVERS];
 };
 
-#define RTP_SRV_SHM_NAME "RTP_SRV_SHM"
+#define RTP_SRV_SHM_NAME "/RTP_SRV_SHM"
 
 struct rtp_server {
 	jack_client_t *fmmod_client;
@@ -65,6 +65,7 @@ struct rtp_server {
 	int mpx_samplerate;
 	int max_samples;
 	int baseport;
+	struct shm_mapping *ctl_map;
 	struct rtp_server_control *ctl;
 };
 

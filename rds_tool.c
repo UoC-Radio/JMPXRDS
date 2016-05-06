@@ -18,13 +18,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "rds_encoder.h"
+#include "utils.h"
 #include <stdlib.h>		/* For atoi / strtol */
 #include <stdio.h>		/* For printf / snprintf */
-#include <unistd.h>		/* For ftruncate */
 #include <string.h>		/* For memset / strnlen / strncmp */
-#include <sys/mman.h>		/* For shm_open */
-#include <fcntl.h>		/* For O_* constants */
-#include <sys/stat.h>		/* For mode constants */
 
 #define TEMP_BUF_LEN	RDS_RT_LENGTH + 1
 void usage(char *name)
@@ -56,30 +53,16 @@ main(int argc, char *argv[])
 	uint8_t ecc = 0;
 	uint16_t lic = 0;
 	char temp[TEMP_BUF_LEN] = { 0 };
+	struct shm_mapping *shmem = NULL;
 	struct rds_encoder_state *st = NULL;
 
-	if (argc < 2)
-		usage(argv[0]);
-
-	rds_state_fd = shm_open(RDS_ENC_SHM_NAME, O_RDWR, 0600);
-	if (rds_state_fd < 0) {
-		ret = -5;
-		goto cleanup;
+	shmem = utils_shm_attach(RDS_ENC_SHM_NAME,
+				 sizeof(struct rds_encoder_state));
+	if (!shmem) {
+		perror("Unable to communicate with the RDS encoder");
+		return -1;
 	}
-
-	ret = ftruncate(rds_state_fd, sizeof(struct rds_encoder));
-	if (ret != 0) {
-		ret = -5;
-		goto cleanup;
-	}
-
-	st = (struct rds_encoder_state *)
-	    mmap(0, sizeof(struct rds_encoder_state),
-		 PROT_READ | PROT_WRITE, MAP_SHARED, rds_state_fd, 0);
-	if (st == MAP_FAILED) {
-		ret = -5;
-		goto cleanup;
-	}
+	st = (struct rds_encoder_state*) shmem->mem;
 
 	for (i = 1; i < argc; i++) {
 		if (!strncmp(argv[i], "-g", 3)) {
@@ -225,9 +208,6 @@ main(int argc, char *argv[])
 	}
 
  cleanup:
-	if (rds_state_fd > 0)
-		close(rds_state_fd);
-	if (st)
-		munmap(st, sizeof(struct rds_encoder_state));
+	utils_shm_destroy(shmem, 0);
 	return ret;
 }

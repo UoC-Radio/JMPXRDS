@@ -17,8 +17,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include "resampler.h"		/* For resampler types and prototypes */
 #include <stdint.h>		/* For typed ints */
 #include <jack/jack.h>		/* For jack-related types */
 
@@ -131,7 +129,10 @@ struct rds_encoder_state {
 	uint8_t af_idx:4;
 };
 
+#define RDS_ENC_SHM_NAME	"/RDS_ENC_SHM"
+
 struct rds_encoder {
+	struct shm_mapping* state_map;
 	struct rds_encoder_state *state;
 	struct resampler_data *rsmpl;
 	struct rds_upsampled_group outbuf[2];
@@ -160,10 +161,6 @@ struct rds_encoder {
 int rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl);
 void rds_encoder_destroy(struct rds_encoder *enc);
 float rds_get_next_sample(struct rds_encoder *enc);
-
-/* Name of shared struct rds_encoder_state to be used between
- * the main process and the client */
-#define RDS_ENC_SHM_NAME	"RDS_ENC_SHM"
 
 /* Getters/Setters */
 uint16_t rds_get_pi(struct rds_encoder_state *st);

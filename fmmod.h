@@ -18,10 +18,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <jack/jack.h>		/* For jack-related types */
-#include "oscilator.h"		/* Also brings in stdint.h and config.h */
-#include "rds_encoder.h"	/* Also brings in resampler.h */
-#include "rtp_server.h"
 #include "filters.h"
+#include "resampler.h"
+#include "oscilator.h"		/* Also brings in stdint.h and config.h */
+#include "rds_encoder.h"
+#include "rtp_server.h"
+
 
 /* We need something big enough to output the MPX
  * signal. 96KHz should be enough for the audio part
@@ -84,7 +86,7 @@ struct fmmod_control {
 	float peak_audio_in_r;
 };
 
-#define FMMOD_CTL_SHM_NAME "FMMOD_CTL_SHM"
+#define FMMOD_CTL_SHM_NAME "/FMMOD_CTL_SHM"
 
 struct fmmod_instance {
 	/* State */
@@ -127,6 +129,7 @@ struct fmmod_instance {
 	struct ssb_filter_data weaver_lpf;
 	struct hilbert_transformer_data ht;
 	/* Control */
+	struct shm_mapping *ctl_map;
 	struct fmmod_control *ctl;
 };
 

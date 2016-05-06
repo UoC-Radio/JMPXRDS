@@ -52,53 +52,13 @@ rtp_server_init(struct rtp_server *rtpsrv, int mpx_samplerate,
 
 #else				/* DISABLE_RTP_SEVER */
 
-#include <fcntl.h>		/* For O_* and F_* constants */
-#include <unistd.h>		/* For ftruncate(), close() */
+#include "utils.h"
+#include <unistd.h>		/* For getpid() */
 #include <string.h>		/* For memset() and strstr() */
-#include <sys/mman.h>		/* For shm_open */
 #include <jack/thread.h>	/* For thread handling through jack */
 #include <gst/app/gstappsrc.h>	/* For gst_app_src_* functions */
 
 static volatile sig_atomic_t rtpsrv_state = RTP_SERVER_INACTIVE;
-
-static struct rtp_server_control *
-rtp_server_get_ctl()
-{
-	int ctl_fd = 0;
-	int ret = 0;
-	struct rtp_server_control *ctl = NULL;
-
-	ctl_fd = shm_open(RTP_SRV_SHM_NAME, O_CREAT | O_RDWR, 0600);
-	if (ctl_fd < 0)
-		goto cleanup;
-
-	ret = ftruncate(ctl_fd, sizeof(struct rtp_server_control));
-	if (ret < 0)
-		goto cleanup;
-
-	ctl = (struct rtp_server_control *)
-	    mmap(0, sizeof(struct rtp_server_control),
-		 PROT_READ | PROT_WRITE, MAP_SHARED, ctl_fd, 0);
- cleanup:
-	close(ctl_fd);
-	if (!ctl || ctl == MAP_FAILED)
-		shm_unlink(RTP_SRV_SHM_NAME);
-
-	return ctl;
-}
-
-static struct rtp_server *
-rtp_server_get_from_shm()
-{
-	struct rtp_server_control *ctl = NULL;
-	struct rtp_server *rtpsrv = NULL;
-
-	ctl = rtp_server_get_ctl();
-	if (!ctl)
-		return NULL;
-
-	return ctl->rtpsrv;
-}
 
 static gboolean
 rtp_server_update_stats(gpointer user_data)
@@ -204,8 +164,11 @@ rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 int
 rtp_server_add_receiver(int addr)
 {
+	int ret = 0;
 	char *ipv4string;
 	struct in_addr ipv4addr = { 0 };
+	struct shm_mapping *shmem = NULL;
+	struct rtp_server_control *ctl = NULL;
 	struct rtp_server *rtpsrv = NULL;
 	gchar *clients = NULL;
 	int rtpsinkok = 0;
@@ -213,9 +176,12 @@ rtp_server_add_receiver(int addr)
 
 	ipv4addr.s_addr = addr;
 
-	rtpsrv = rtp_server_get_from_shm();
-	if (!rtpsrv)
+	shmem = utils_shm_attach(RTP_SRV_SHM_NAME,
+				 sizeof(struct rtp_server_control));
+	if (!shmem)
 		return -1;
+	ctl = (struct rtp_server_control*) shmem->mem;
+	rtpsrv = ctl->rtpsrv;
 
 	ipv4string = inet_ntoa(ipv4addr);
 
@@ -246,19 +212,24 @@ rtp_server_add_receiver(int addr)
 	if (!rtpsinkok || !rtcpsinkok) {
 		/* Just in case it was added on only one of them */
 		rtp_server_remove_receiver(addr);
-		return -1;
-	}
+		ret = -1;
+	} else
+		rtp_server_update_stats((gpointer) rtpsrv);
 
-	rtp_server_update_stats((gpointer) rtpsrv);
+	/* Clear the shm mapping */
+	utils_shm_destroy(shmem, 0);
 
-	return 0;
+	return ret;
 }
 
 int
 rtp_server_remove_receiver(int addr)
 {
+	int ret = 0;
 	char *ipv4string;
 	struct in_addr ipv4addr = { 0 };
+	struct shm_mapping *shmem = NULL;
+	struct rtp_server_control *ctl = NULL;
 	struct rtp_server *rtpsrv = NULL;
 	gchar *clients = NULL;
 	int rtpsinkok = 0;
@@ -266,9 +237,12 @@ rtp_server_remove_receiver(int addr)
 
 	ipv4addr.s_addr = addr;
 
-	rtpsrv = rtp_server_get_from_shm();
-	if (!rtpsrv)
+	shmem = utils_shm_attach(RTP_SRV_SHM_NAME,
+				 sizeof(struct rtp_server_control));
+	if (!shmem)
 		return -1;
+	ctl = (struct rtp_server_control*) shmem->mem;
+	rtpsrv = ctl->rtpsrv;
 
 	ipv4string = inet_ntoa(ipv4addr);
 
@@ -290,17 +264,22 @@ rtp_server_remove_receiver(int addr)
 
 	/*XXX: No idea what to do on this case, is it even possible ? */
 	if (!rtpsinkok || !rtcpsinkok)
-		return -1;
+		ret = -1;
+	else
+		rtp_server_update_stats((gpointer) rtpsrv);
 
-	rtp_server_update_stats((gpointer) rtpsrv);
+	/* Clear the shm mapping */
+	utils_shm_destroy(shmem, 0);
 
-	return 0;
+	return ret;
 }
 
 void
 rtp_server_destroy(struct rtp_server *rtpsrv)
 {
 	rtpsrv_state = RTP_SERVER_INACTIVE;
+
+	utils_shm_destroy(rtpsrv->ctl_map, 1);
 
 	/* Send EOS and wait for it to propagate through the
 	 * pipeline */
@@ -344,12 +323,13 @@ _rtp_server_init(void *data)
 	struct rtp_server *rtpsrv = (struct rtp_server *)data;
 
 	/* Initialize I/O channel */
-	rtpsrv->ctl = rtp_server_get_ctl();
-	if (rtpsrv->ctl == NULL) {
+	rtpsrv->ctl_map = utils_shm_init(RTP_SRV_SHM_NAME,
+					 sizeof(struct rtp_server_control));
+	if(!rtpsrv->ctl_map) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(rtpsrv->ctl, 0, sizeof(struct rtp_server_control));
+	rtpsrv->ctl = (struct rtp_server_control*) rtpsrv->ctl_map->mem;
 	/* Store the pointer to rtpsrv so that we can recover it
 	 * when called by the signal handler */
 	rtpsrv->ctl->rtpsrv = rtpsrv;

@@ -17,14 +17,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "utils.h"
 #include "fmmod.h"
 #include <stdlib.h>		/* For strtol */
 #include <stdio.h>		/* For printf / snprintf */
 #include <string.h>		/* For memset / strncmp */
-#include <unistd.h>		/* For ftruncate */
-#include <sys/mman.h>		/* For shm_open */
-#include <fcntl.h>		/* For O_* constants */
-#include <sys/stat.h>		/* For mode constants */
 
 #define TEMP_BUF_LEN	3 + 1
 
@@ -48,34 +45,23 @@ usage(char *name)
 int
 main(int argc, char *argv[])
 {
-	int ctl_fd = 0;
 	int ret = 0;
 	int i = 0;
 	char temp[TEMP_BUF_LEN] = { 0 };
+	struct shm_mapping *shmem = NULL;
 	struct fmmod_control *ctl = NULL;
 
 	if (argc < 2)
 		usage(argv[0]);
 
-	ctl_fd = shm_open(FMMOD_CTL_SHM_NAME, O_RDWR, 0600);
-	if (ctl_fd < 0) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
+	shmem = utils_shm_attach(FMMOD_CTL_SHM_NAME,
+				 sizeof(struct fmmod_control));
+	if (!shmem) {
+		perror("Unable to communicate with JMPXRDS");
+		return -1;
 	}
+	ctl = (struct fmmod_control*) shmem->mem;
 
-	ret = ftruncate(ctl_fd, sizeof(struct fmmod_control));
-	if (ret != 0) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
-	}
-
-	ctl = (struct fmmod_control *)
-	    mmap(0, sizeof(struct fmmod_control),
-		 PROT_READ | PROT_WRITE, MAP_SHARED, ctl_fd, 0);
-	if (ctl == MAP_FAILED) {
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
-	}
 
 	for (i = 1; i < argc; i++) {
 		if (!strncmp(argv[i], "-g", 3)) {
@@ -207,9 +193,6 @@ main(int argc, char *argv[])
 	}
 
  cleanup:
-	if (ctl_fd > 0)
-		close(ctl_fd);
-	if (ctl)
-		munmap(ctl, sizeof(struct fmmod_control));
+	utils_shm_destroy(shmem, 0);
 	return ret;
 }
