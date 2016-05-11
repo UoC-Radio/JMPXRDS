@@ -284,27 +284,31 @@ rtp_server_destroy(struct rtp_server *rtpsrv)
 
 	utils_shm_destroy(rtpsrv->ctl_map, 1);
 
+	if (rtpsrv->init_res != 0)
+		goto failed;
+
 	/* Send EOS and wait for it to propagate through the
 	 * pipeline */
-	if (rtpsrv->appsrc) {
+	if (GST_IS_ELEMENT(rtpsrv->appsrc)) {
 		gst_app_src_end_of_stream(GST_APP_SRC(rtpsrv->appsrc));
 		gst_bus_poll(rtpsrv->msgbus, GST_MESSAGE_EOS,
 			     GST_CLOCK_TIME_NONE);
 	}
 
-	if (rtpsrv->pipeline) {
+	if (rtpsrv->loop) {
+		g_main_loop_quit(rtpsrv->loop);
+		g_main_loop_unref(rtpsrv->loop);
+	}
+
+ failed:
+	if (GST_IS_ELEMENT(rtpsrv->pipeline)) {
 		gst_element_set_state(rtpsrv->pipeline, GST_STATE_NULL);
 		gst_object_unref(rtpsrv->pipeline);
 	}
 
-	if (rtpsrv->msgbus) {
+	if (GST_IS_BUS(rtpsrv->msgbus)) {
 		gst_bus_remove_signal_watch(rtpsrv->msgbus);
 		gst_object_unref(rtpsrv->msgbus);
-	}
-
-	if (rtpsrv->loop) {
-		g_main_loop_quit(rtpsrv->loop);
-		g_main_loop_unref(rtpsrv->loop);
 	}
 
 	gst_deinit();
@@ -529,8 +533,8 @@ _rtp_server_init(void *data)
 	g_main_loop_run(rtpsrv->loop);
 
  cleanup:
-	rtp_server_destroy(rtpsrv);
 	rtpsrv->init_res = ret;
+	rtp_server_destroy(rtpsrv);
 	return (void *)rtpsrv;
 }
 
