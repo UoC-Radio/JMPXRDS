@@ -75,6 +75,14 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
 * FM MPX STEREO ENCODING *
 \************************/
 
+static float
+get_mono_sample(struct fmmod_instance *fmmod, float sample)
+{
+	/* No stereo pilot / subcarrier */
+	return 0;
+}
+
+
 /*
  * Standard Double Sideband with Suppressed Carrier (DSBSC)
  * The input sample is AM modulated with a sine wave
@@ -85,8 +93,15 @@ get_dsb_sample(struct fmmod_instance *fmmod, float sample)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
-	return sample * osc_get_38Khz_sample(sin_osc) *
-	    ctl->stereo_carrier_gain;
+	float out = 0;
+
+	/* Stereo Pilot at 19KHz */
+	out = ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+
+	/* AM modulated L - R */
+	out += sample * osc_get_38Khz_sample(sin_osc) *
+		        ctl->stereo_carrier_gain;
+	return out;
 }
 
 /*
@@ -112,19 +127,42 @@ get_dsb_sample(struct fmmod_instance *fmmod, float sample)
 
 /*
  * A simple FIR low pass filter that cuts off anything above
- * the carrier (the upper side band). I got almost 8dB of
- * stereo separation with this one.
+ * the carrier (the upper side band). This is almost a VSB
+ * modulator since the FIR filter is not that steep.
  */
 static float
 get_ssb_fir_sample(struct fmmod_instance *fmmod, float sample)
 {
+	int i = 0;
 	float out = 0.0;
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
+	double saved_sin_phase = 0;
+
+	/* Save master oscilator's phase */
+	saved_sin_phase = sin_osc->current_phase;
+
+	/* AM Modulated L - R with suppresed USB */
+
+	/* Increase the modulator's phase to compensate for
+	 * the delay added by the FIR filter */
+	for (i = 0; i < FIR_FILTER_TAPS; i++)
+		osc_increase_phase(sin_osc);
+
 	out = sample * osc_get_38Khz_sample(sin_osc);
 	out = fir_filter_apply(&fmmod->ssb_fir_lpf, out, 0);
 	fir_filter_update(&fmmod->ssb_fir_lpf);
-	return out * ctl->stereo_carrier_gain * -1;
+
+	/* Set the output gain percentage */
+	out *= ctl->stereo_carrier_gain;
+
+	/* Restore master oscilator's phase */
+	sin_osc->current_phase = saved_sin_phase;
+
+	/* Stereo pilot at 19KHz */
+	out += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+
+	return out;
 }
 
 /************************\
@@ -137,9 +175,8 @@ get_ssb_fir_sample(struct fmmod_instance *fmmod, float sample)
  *
  * Since the IIR filter is not good enough this is almost a
  * VSB modulator plus the IIR filter messes up with the phases.
- * It works and I got almost 7dB of stereo separation. It's a bit
- * heavier than the Hartley modulator but performs better and has
- * a steeper spectrum than the filter-based one.
+ * It's a bit heavier than the Hartley modulator but performs
+ * better and has a steeper spectrum than the filter-based one.
  */
 
 static float
@@ -193,10 +230,16 @@ get_ssb_weaver_sample(struct fmmod_instance *fmmod, float sample)
 
 	out = in_phase + quadrature;
 
+	/* Set the output gain percentage */
+	out *= ctl->stereo_carrier_gain;
+
 	/* Restore master oscilator's phase */
 	sin_osc->current_phase = saved_sin_phase;
 
-	return out * ctl->stereo_carrier_gain;
+	/* Stereo pilot at 19KHz */
+	out += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+
+	return out;
 }
 
 /*************************\
@@ -222,6 +265,7 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
+	double saved_sin_phase = 0;
 	float shifted_sample = 0;
 	float out = 0;
 	int carrier_freq = 38000;
@@ -235,6 +279,14 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 	/* Phase shift by 90deg using the Hilbert transformer */
 	shifted_sample = hilbert_transformer_apply(&fmmod->ht, sample);
 
+	/* Save master oscilator's phase */
+	saved_sin_phase = sin_osc->current_phase;
+
+	/* Increase the modulator's phase to compensate for
+	 * the delay added by the FIR filter */
+	for (i = 0; i < HT_FIR_FILTER_TAPS; i++)
+		osc_increase_phase(sin_osc);
+
 	/* Phase lock the ssb oscilator to the master
 	 * oscilator */
 	cos_osc->current_phase = sin_osc->current_phase;
@@ -247,7 +299,16 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 	out = shifted_sample * osc_get_sample_for_freq(sin_osc, carrier_freq);
 	out += delay_line[0] * osc_get_sample_for_freq(cos_osc, carrier_freq);
 
-	return out * ctl->stereo_carrier_gain * -1;
+	/* Set the output gain percentage */
+	out *= ctl->stereo_carrier_gain;
+
+	/* Restore master oscilator's phase */
+	sin_osc->current_phase = saved_sin_phase;
+
+	/* Stereo pilot at 19KHz */
+	out += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+
+	return out;
 }
 
 /****************\
@@ -337,6 +398,9 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 
 	/* Choose stereo modulation method */
 	switch (ctl->stereo_modulation) {
+	case FMMOD_MONO:
+		get_stereo_sample = get_mono_sample;
+		break;
 	case FMMOD_SSB_HARTLEY:
 		get_stereo_sample = get_ssb_hartley_sample;
 		break;
@@ -357,10 +421,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		/* L + R (Mono) */
 		mpxbuf[i] = upsampled_audio_l[i] + upsampled_audio_r[i];
 
-		/* 19KHz FM Stereo Pilot */
-		mpxbuf[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
-
-		/* L - R (Stereo) modulated by the 38KHz carrier (2 x Pilot) */
+		/* Stereo (L - R) subcarrier */
 		mpxbuf[i] += (*get_stereo_sample) (fmmod,
 						   upsampled_audio_l[i] -
 						   upsampled_audio_r[i]);
@@ -368,6 +429,9 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
 		mpxbuf[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
 					rds_get_next_sample(&fmmod->rds_enc);
+
+		/* Set mpx gain percentage */
+		mpxbuf[i] *= ctl->mpx_gain;
 
 		osc_increase_phase(sin_osc);
 	}
@@ -530,7 +594,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	}
 
 	/* Initialize the low pass FIR filter for the FIR-based SSB modulator */
-	fir_filter_init(&fmmod->ssb_fir_lpf, 36000, osc_samplerate);
+	fir_filter_init(&fmmod->ssb_fir_lpf, 37500, osc_samplerate);
 	/* Initialize the low pass filters of the Weaver modulator */
 	iir_ssb_filter_init(&fmmod->weaver_lpf);
 	/* Initialize the Hilbert transformer for the Hartley modulator */
@@ -682,11 +746,11 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	utils_shm_destroy(fmmod->ctl_map, 1);
 
-	rtp_server_destroy(&fmmod->rtpsrv);
-
 	rds_encoder_destroy(&fmmod->rds_enc);
 
 	resampler_destroy(&fmmod->rsmpl);
+
+	rtp_server_destroy(&fmmod->rtpsrv);
 
 	if (fmmod->inbuf_l != NULL)
 		free(fmmod->inbuf_l);

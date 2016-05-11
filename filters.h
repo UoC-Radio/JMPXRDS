@@ -23,6 +23,7 @@
  * a Blackman - Harris window */
 #define FIR_FILTER_SIZE		127	/* Keep it a power of 2 - 1
 					 * so that it also becomes a mask */
+#define	FIR_FILTER_TAPS		(FIR_FILTER_SIZE - 1)
 #define	FIR_FILTER_HALF_SIZE	(FIR_FILTER_SIZE - 1) / 2
 
 struct fir_filter_data {

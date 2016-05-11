@@ -69,7 +69,8 @@ enum fmmod_stereo_modulation {
 	FMMOD_DSB = 0,
 	FMMOD_SSB_HARTLEY = 1,
 	FMMOD_SSB_WEAVER = 2,
-	FMMOD_SSB_FIR = 3
+	FMMOD_SSB_FIR = 3,
+	FMMOD_MONO = 4
 };
 
 /* Control I/O channel */
