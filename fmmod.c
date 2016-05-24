@@ -146,7 +146,7 @@ get_ssb_fir_sample(struct fmmod_instance *fmmod, float sample)
 
 	/* Increase the modulator's phase to compensate for
 	 * the delay added by the FIR filter */
-	for (i = 0; i < FIR_FILTER_TAPS; i++)
+	for (i = 0; i < FIR_FILTER_HALF_SIZE; i++)
 		osc_increase_phase(sin_osc);
 
 	out = sample * osc_get_38Khz_sample(sin_osc);
@@ -284,7 +284,7 @@ get_ssb_hartley_sample(struct fmmod_instance *fmmod, float sample)
 
 	/* Increase the modulator's phase to compensate for
 	 * the delay added by the FIR filter */
-	for (i = 0; i < HT_FIR_FILTER_TAPS; i++)
+	for (i = 0; i < HT_FIR_FILTER_TAPS / 2; i++)
 		osc_increase_phase(sin_osc);
 
 	/* Phase lock the ssb oscilator to the master
