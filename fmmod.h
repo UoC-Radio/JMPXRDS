@@ -96,9 +96,10 @@ struct fmmod_instance {
 	float *inbuf_l;
 	float *inbuf_r;
 	uint32_t inbuf_len;
-	/* Upsampled audio buffer */
-	float *uaudio_buf_l;
-	float *uaudio_buf_r;
+	/* Upsampled audio buffers */
+	float *uaudio_buf_0;
+	float *uaudio_buf_1;
+	float *delay_buf;
 	uint32_t uaudio_buf_len;
 	/* MPX Output buffer */
 	float *mpxbuf;
@@ -134,7 +135,7 @@ struct fmmod_instance {
 	struct fmmod_control *ctl;
 };
 
-typedef float (*stereo_modulator) (struct fmmod_instance *, float);
+typedef float (*mpx_generator) (struct fmmod_instance *, float*, float*, int, int);
 
 int fmmod_initialize(struct fmmod_instance *fmmod, int region);
 void fmmod_destroy(struct fmmod_instance *fmmod, int shutdown);

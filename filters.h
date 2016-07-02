@@ -82,6 +82,7 @@ float iir_ssb_filter_apply(struct ssb_filter_data *, float, uint8_t);
 #define HT_FIR_FILTER_SIZE		65
 #define HT_FIR_FILTER_GAIN 1.568367973e+00
 #define HT_FIR_FILTER_TAPS		(HT_FIR_FILTER_SIZE - 1)
+#define	HT_FIR_FILTER_HALF_SIZE		(HT_FIR_FILTER_SIZE - 1) / 2
 #define HT_FIR_FILTER_REVERSE_GAIN (1 / HT_FIR_FILTER_GAIN)
 
 struct hilbert_transformer_data {
