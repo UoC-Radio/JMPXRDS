@@ -82,7 +82,7 @@ get_delayed_lpr_sample(struct fmmod_instance *fmmod, float* lpr, int num_samples
 
 	/* Called for the first time, initialize tmp buffer */
 	if (fmmod->delay_buf == NULL) {
-		fmmod->delay_buf = malloc(fmmod->uaudio_buf_len);
+		fmmod->delay_buf = (float*) malloc(fmmod->uaudio_buf_len);
 		memset(fmmod->delay_buf, 0, fmmod->uaudio_buf_len);
 		previous = fmmod->delay_buf;
 		previous_num_samples = delay;
