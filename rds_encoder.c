@@ -31,12 +31,6 @@
 #include <fcntl.h>		/* For O_* and F_* constants */
 #include <math.h>		/* For fabs */
 #include <jack/thread.h>	/* For thread handling through jack */
-#include <pthread.h>		/* For pthread mutex / conditional */
-#include <signal.h>		/* For sig_atomic_t */
-
-pthread_mutex_t rds_process_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t rds_process_trigger = PTHREAD_COND_INITIALIZER;
-static volatile sig_atomic_t active;
 
 /************\
 * MODULATION *
@@ -623,9 +617,9 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 	struct rds_group next_group;
 	struct rds_upsampled_group *outbuf = NULL;
 
-	pthread_mutex_lock(&rds_process_mutex);
-	while (pthread_cond_wait(&rds_process_trigger, &rds_process_mutex) !=
-	       0) ;
+	pthread_mutex_lock(&enc->rds_process_mutex);
+	while (pthread_cond_wait(&enc->rds_process_trigger, &enc->rds_process_mutex) !=
+	       0);
 
 	/* Only mess with the unused output buffer */
 	out_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
@@ -654,7 +648,7 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 		outbuf->result = 0;
 
  cleanup:
-	pthread_mutex_unlock(&rds_process_mutex);
+	pthread_mutex_unlock(&enc->rds_process_mutex);
 	return outbuf;
 }
 
@@ -664,8 +658,13 @@ rds_main_loop(void *arg)
 	struct rds_encoder *enc = (struct rds_encoder *)arg;
 	struct rds_upsampled_group *outbuf = NULL;
 
-	while (active)
+	pthread_mutex_lock(&enc->rds_loop_exit_mutex);
+
+	while (enc->active)
 		outbuf = rds_get_next_upsampled_group(enc);
+
+	/* Allow cleanup of resources */
+	pthread_mutex_unlock(&enc->rds_loop_exit_mutex);
 
 	return (void *)outbuf;
 }
@@ -677,25 +676,25 @@ rds_update_output(struct rds_encoder *enc)
 	int rtprio = 0;
 	static jack_native_thread_t tid = 0;
 
-	rtprio = jack_client_max_real_time_priority(enc->fmmod_client);
-	if (rtprio < 0)
-		return -1;
-
 	/* Switch output buffer */
 	enc->curr_outbuf_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
 
 	/* Start processing the next buffer */
 	if (tid == 0) {
 		/* If thread doesn't exist create it */
+		rtprio = jack_client_max_real_time_priority(enc->fmmod_client);
+		if (rtprio < 0)
+			return -1;
+
 		ret = jack_client_create_thread(enc->fmmod_client, &tid,
 						rtprio, 1,
 						rds_main_loop, (void *)enc);
 		if (ret < 0)
 			return -1;
 	}
-	pthread_mutex_lock(&rds_process_mutex);
-	pthread_cond_signal(&rds_process_trigger);
-	pthread_mutex_unlock(&rds_process_mutex);
+	pthread_mutex_lock(&enc->rds_process_mutex);
+	pthread_cond_signal(&enc->rds_process_trigger);
+	pthread_mutex_unlock(&enc->rds_process_mutex);
 
 	return 0;
 }
@@ -716,7 +715,7 @@ rds_get_next_sample(struct rds_encoder *enc)
 	struct rds_encoder_state *st = enc->state;
 
 	/* Encoder is disabled, don't do any processing */
-	if (st->enabled == 0)
+	if (!enc->active || !st->enabled)
 		return 0;
 
 	/* We have remaining samples from the last group */
@@ -779,11 +778,17 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 	}
 	memset(enc->outbuf[1].waveform, 0, enc->upsampled_waveform_len);
 
+	/* Initialize conditional locks */
+	pthread_mutex_init(&enc->rds_process_mutex, NULL);
+	pthread_cond_init(&enc->rds_process_trigger, NULL);
+	pthread_mutex_init(&enc->rds_loop_exit_mutex, NULL);
+
 	/* Set default state */
 	enc->state->ms = RDS_MS_DEFAULT;
 	enc->state->di = RDS_DI_STEREO | RDS_DI_DYNPTY;
 
-	active = 1;
+	/* Let main loop run */
+	enc->active = 1;
 
  cleanup:
 	if (ret < 0)
@@ -795,9 +800,32 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 void
 rds_encoder_destroy(struct rds_encoder *enc)
 {
+	struct rds_encoder_state *st = enc->state;
+
+	/* Didn't initialize */
+	if(st == NULL)
+		return;
+
+	/* Not active */
+	if(!enc->active)
+		goto inactive;
+
+	/* Stop rds main loop and disable the encoder
+	 * so that future requests for rds samples are ignored */
+	enc->active = 0;
+	st->enabled = 0;
+
+	/* Wait for main loop to exit */
+	pthread_mutex_lock(&enc->rds_loop_exit_mutex);
+	pthread_mutex_unlock(&enc->rds_loop_exit_mutex);
+
+ inactive:
+	/* Cleanup */
 	utils_shm_destroy(enc->state_map, 1);
 
-	active = 0;
+	pthread_mutex_destroy(&enc->rds_process_mutex);
+	pthread_cond_destroy(&enc->rds_process_trigger);
+	pthread_mutex_destroy(&enc->rds_loop_exit_mutex);
 
 	if (enc->outbuf[0].waveform != NULL)
 		free(enc->outbuf[0].waveform);

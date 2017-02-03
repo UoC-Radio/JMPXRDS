@@ -58,8 +58,6 @@ rtp_server_init(struct rtp_server *rtpsrv, int mpx_samplerate,
 #include <jack/thread.h>	/* For thread handling through jack */
 #include <gst/app/gstappsrc.h>	/* For gst_app_src_* functions */
 
-static volatile sig_atomic_t rtpsrv_state = RTP_SERVER_INACTIVE;
-
 static gboolean
 rtp_server_update_stats(gpointer user_data)
 {
@@ -95,6 +93,7 @@ rtp_server_update_stats(gpointer user_data)
 			i++;
 		}
 	}
+	g_free(clients);
 
 	ctl->num_receivers = i;
 
@@ -105,14 +104,14 @@ static void
 rtp_server_queue_ready(GstAppSrc * appsrc, guint length, gpointer user_data)
 {
 	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
-	rtpsrv_state = RTP_SERVER_ACTIVE;
+	rtpsrv->state = RTP_SERVER_ACTIVE;
 }
 
 static void
 rtp_server_queue_full(GstAppSrc * appsrc, gpointer user_data)
 {
 	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
-	rtpsrv_state = RTP_SERVER_QUEUE_FULL;
+	rtpsrv->state = RTP_SERVER_QUEUE_FULL;
 }
 
 static void *
@@ -142,7 +141,7 @@ rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 	GstFlowReturn ret = GST_FLOW_OK;
 
 	if (!buff || !num_samples || !rtpsrv ||
-	    rtpsrv_state != RTP_SERVER_ACTIVE)
+	    rtpsrv->state != RTP_SERVER_ACTIVE)
 		return;
 
 	guint gstbuff_len = 0;
@@ -280,37 +279,55 @@ rtp_server_remove_receiver(int addr)
 void
 rtp_server_destroy(struct rtp_server *rtpsrv)
 {
-	rtpsrv_state = RTP_SERVER_INACTIVE;
+	/* GSTreamer not initialized */
+	if(!gst_is_initialized())
+		return;
 
-	utils_shm_destroy(rtpsrv->ctl_map, 1);
+	/* Server terminated nothing more to do */
+	if(rtpsrv->state == RTP_SERVER_TERMINATED)
+		return;
 
-	if (rtpsrv->init_res != 0)
-		goto failed;
+	/* Server never ran, no need to stop it */
+	if (rtpsrv->state == RTP_SERVER_INACTIVE)
+		goto not_running;
+
+	/* Set state to inactive */
+	rtpsrv->state = RTP_SERVER_INACTIVE;
 
 	/* Send EOS and wait for it to propagate through the
 	 * pipeline */
-	if (GST_IS_ELEMENT(rtpsrv->appsrc)) {
-		gst_app_src_end_of_stream(GST_APP_SRC(rtpsrv->appsrc));
-		gst_bus_poll(rtpsrv->msgbus, GST_MESSAGE_EOS,
-			     GST_CLOCK_TIME_NONE);
-	}
+	gst_app_src_end_of_stream(GST_APP_SRC(rtpsrv->appsrc));
+	gst_bus_poll(rtpsrv->msgbus, GST_MESSAGE_EOS, GST_CLOCK_TIME_NONE);
 
-	if (rtpsrv->loop) {
-		g_main_loop_quit(rtpsrv->loop);
-		g_main_loop_unref(rtpsrv->loop);
-	}
+	/* Stop the main loop */
+	g_main_loop_quit(rtpsrv->loop);
+	g_main_loop_unref(rtpsrv->loop);
 
- failed:
+	/* Server terminated, set the state here
+	 * to avoid a race condition where rtp_server_destroy
+	 * gets called right after the main loop exits and
+	 * gst_deinit below hasn't finished. If this happens
+	 * gst_deinit will get called again and segfault. */
+	rtpsrv->state = RTP_SERVER_TERMINATED;
+
+ not_running:
+
+	/* Release the pipeline */
 	if (GST_IS_ELEMENT(rtpsrv->pipeline)) {
 		gst_element_set_state(rtpsrv->pipeline, GST_STATE_NULL);
 		gst_object_unref(rtpsrv->pipeline);
 	}
 
+	/* Release the bus */
 	if (GST_IS_BUS(rtpsrv->msgbus)) {
 		gst_bus_remove_signal_watch(rtpsrv->msgbus);
 		gst_object_unref(rtpsrv->msgbus);
 	}
 
+	/* Cleanup the shared memory map */
+	utils_shm_destroy(rtpsrv->ctl_map, 1);
+
+	/* Cleanup what's left */
 	gst_deinit();
 }
 
@@ -374,8 +391,8 @@ _rtp_server_init(void *data)
 					 "layout", G_TYPE_STRING, "interleaved",
 					 "channel-mask", GST_TYPE_BITMASK, 0x1,
 					 NULL);
-
 	gst_app_src_set_caps(GST_APP_SRC(rtpsrv->appsrc), audio_caps);
+	gst_caps_unref(audio_caps);
 
 	gst_app_src_set_stream_type(GST_APP_SRC(rtpsrv->appsrc),
 				    GST_APP_STREAM_TYPE_STREAM);
@@ -527,8 +544,12 @@ _rtp_server_init(void *data)
 
 	/* We are ready, set the pipeline to playing state and
 	 * create a main loop for the server to receive messages */
-	gst_element_set_state(rtpsrv->pipeline, GST_STATE_PLAYING);
-	rtpsrv_state = RTP_SERVER_ACTIVE;
+	if(gst_element_set_state(rtpsrv->pipeline, GST_STATE_PLAYING) ==
+	   GST_STATE_CHANGE_FAILURE) {
+		ret = -17;
+		goto cleanup;
+	} else
+	rtpsrv->state = RTP_SERVER_ACTIVE;
 	rtpsrv->loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(rtpsrv->loop);
 

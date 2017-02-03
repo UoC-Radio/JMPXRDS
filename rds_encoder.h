@@ -19,6 +19,7 @@
  */
 #include <stdint.h>		/* For typed ints */
 #include <jack/jack.h>		/* For jack-related types */
+#include <pthread.h>		/* For pthread mutex / conditional */
 
 /* RDS encoding takes a data stream of specialy formated data,
  * does a differential encoding on it and passes it through a
@@ -138,6 +139,10 @@ struct rds_encoder {
 	struct rds_upsampled_group outbuf[2];
 	int curr_outbuf_idx;
 	size_t upsampled_waveform_len;
+	int active;
+	pthread_mutex_t rds_process_mutex;
+	pthread_cond_t rds_process_trigger;
+	pthread_mutex_t rds_loop_exit_mutex;
 	jack_client_t *fmmod_client;
 };
 

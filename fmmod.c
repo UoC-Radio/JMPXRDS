@@ -769,9 +769,9 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	rds_encoder_destroy(&fmmod->rds_enc);
 
-	resampler_destroy(&fmmod->rsmpl);
-
 	rtp_server_destroy(&fmmod->rtpsrv);
+
+	resampler_destroy(&fmmod->rsmpl);
 
 	if (fmmod->inbuf_l != NULL)
 		free(fmmod->inbuf_l);

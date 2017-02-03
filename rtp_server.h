@@ -36,7 +36,8 @@ struct rtp_server {
 enum rtp_server_state {
 	RTP_SERVER_INACTIVE = 0,
 	RTP_SERVER_ACTIVE = 1,
-	RTP_SERVER_QUEUE_FULL = 2
+	RTP_SERVER_QUEUE_FULL = 2,
+	RTP_SERVER_TERMINATED = 3
 };
 
 #define RTP_SRV_MAX_RECEIVERS	64
@@ -53,6 +54,7 @@ struct rtp_server_control {
 #define RTP_SRV_SHM_NAME "/RTP_SRV_SHM"
 
 struct rtp_server {
+	int state;
 	jack_client_t *fmmod_client;
 	GstElement *appsrc;
 	GstElement *pipeline;
