@@ -420,6 +420,7 @@ _rtp_server_init(void *data)
 		ret = -5;
 		goto cleanup;
 	}
+	g_object_set(flac_encoder, "blocksize", rtpsrv->max_samples, NULL);
 
 	/* Initialize RTP payloader, since there is no spec for FLAC
 	 * use the GStreamer buffer payloader. We'll use GStreamer
