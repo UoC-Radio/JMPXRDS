@@ -621,6 +621,11 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 	while (pthread_cond_wait(&enc->rds_process_trigger, &enc->rds_process_mutex) !=
 	       0);
 
+	/* Encoder is inactive or is being terminated
+	 * so skip processing */
+	if (!enc->active)
+		return NULL;
+
 	/* Only mess with the unused output buffer */
 	out_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
 	outbuf = &enc->outbuf[out_idx];
@@ -814,6 +819,12 @@ rds_encoder_destroy(struct rds_encoder *enc)
 	 * so that future requests for rds samples are ignored */
 	enc->active = 0;
 	st->enabled = 0;
+
+	/* Trigger main loop so that it gets un-stuck and
+	 * can properly exit */
+	pthread_mutex_lock(&enc->rds_process_mutex);
+	pthread_cond_signal(&enc->rds_process_trigger);
+	pthread_mutex_unlock(&enc->rds_process_mutex);
 
 	/* Wait for main loop to exit */
 	pthread_mutex_lock(&enc->rds_loop_exit_mutex);
