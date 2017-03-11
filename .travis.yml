@@ -18,6 +18,7 @@ addons:
     - libsoxr-dev
     - libgstreamer1.0-dev
     - libgstreamer-plugins-base1.0-dev
+    - fftw3-dev
 
 before_script:
  - autoreconf -ivf
