@@ -18,26 +18,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <stdint.h>		/* For typed integers */
+#include <fftw3.h>		/* For FFTW support */
 
 /* A generic sinc FIR Low pass filter, multiplied by
  * a Blackman - Harris window */
-#define FIR_FILTER_SIZE		127	/* Keep it a power of 2 - 1
-					 * so that it also becomes a mask */
-#define	FIR_FILTER_TAPS		(FIR_FILTER_SIZE - 1)
-#define	FIR_FILTER_HALF_SIZE	(FIR_FILTER_SIZE - 1) / 2
-
 struct fir_filter_data {
-	float fir_coeffs[FIR_FILTER_HALF_SIZE];
-	float fir_buff_l[FIR_FILTER_SIZE];
-	float fir_buff_r[FIR_FILTER_SIZE];
-	uint16_t fir_index;
+	uint16_t num_bins;
+	fftw_complex *impulse;
+	fftw_complex *complex_buff;
+	double *real_buff;
+	fftw_plan dft_plan;
+	fftw_plan ift_plan;
 };
 
-int fir_filter_init(struct fir_filter_data *, uint32_t, uint32_t);
-float fir_filter_apply(struct fir_filter_data *, float, uint8_t);
-void fir_filter_update(struct fir_filter_data *);
+void fir_filter_destroy(struct fir_filter_data *fir);
+int fir_filter_init(struct fir_filter_data *fir, uint32_t, uint32_t, uint16_t);
+int fir_filter_apply(struct fir_filter_data *fir, float*, float*, uint16_t, float);
 
-/* FM Preemphasis IIR filter */
+/* FM Preemphasis IIR filter
+ * Only used as part of the combined audio filter- */
 struct fmpreemph_filter_data {
 	float iir_inbuff_l[2];
 	float iir_outbuff_l[2];
@@ -47,17 +46,16 @@ struct fmpreemph_filter_data {
 	float iir_btaps[2];
 };
 
-/* -Only used as part of the combined audio filter- */
-
 /* Combined audio filter */
 struct audio_filter {
 	struct fir_filter_data audio_lpf;
 	struct fmpreemph_filter_data fm_preemph;
 };
 
-void audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint8_t);
-void audio_filter_update(struct audio_filter *);
-float audio_filter_apply(struct audio_filter *, float, uint8_t, uint8_t);
+void audio_filter_destroy(struct audio_filter *aflt);
+int audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint16_t, uint8_t);
+int audio_filter_apply(struct audio_filter *, float*, float *, float *, float *,
+			uint16_t, float, uint8_t);
 
 /* IIR filter for the Weaver modulator (SSB) */
 #define WEAVER_FILTER_TAPS 10
@@ -79,17 +77,14 @@ int iir_ssb_filter_init(struct ssb_filter_data *);
 float iir_ssb_filter_apply(struct ssb_filter_data *, float, uint8_t);
 
 /* Hilbert transformer for the Hartley modulator (SSB) */
-#define HT_FIR_FILTER_SIZE		65
-#define HT_FIR_FILTER_GAIN 1.568367973e+00
-#define HT_FIR_FILTER_TAPS		(HT_FIR_FILTER_SIZE - 1)
-#define	HT_FIR_FILTER_HALF_SIZE		(HT_FIR_FILTER_SIZE - 1) / 2
-#define HT_FIR_FILTER_REVERSE_GAIN (1 / HT_FIR_FILTER_GAIN)
-
 struct hilbert_transformer_data {
-	float fir_coeffs[HT_FIR_FILTER_SIZE];
-	float fir_buff[HT_FIR_FILTER_SIZE];
+	uint16_t num_bins;
+	fftw_complex *complex_buff;
+	double *real_buff;
+	fftw_plan dft_plan;
+	fftw_plan ift_plan;
 };
 
-int hilbert_transformer_init(struct hilbert_transformer_data *ht);
-float hilbert_transformer_apply(struct hilbert_transformer_data *ht,
-				float sample);
+int hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t);
+void hilbert_transformer_destroy(struct hilbert_transformer_data *ht);
+int hilbert_transformer_apply(struct hilbert_transformer_data *ht, float *, uint16_t);

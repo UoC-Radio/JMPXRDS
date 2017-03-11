@@ -96,14 +96,14 @@ struct fmmod_instance {
 	float *inbuf_l;
 	float *inbuf_r;
 	uint32_t inbuf_len;
+	uint32_t upsampled_num_samples;
+	uint32_t upsampled_buf_len;
 	/* Upsampled audio buffers */
 	float *uaudio_buf_0;
 	float *uaudio_buf_1;
 	float *delay_buf;
-	uint32_t uaudio_buf_len;
 	/* MPX Output buffer */
 	float *mpxbuf;
-	uint32_t mpxbuf_len;
 	int output_type;
 	/* For socket output */
 	float *sock_outbuf;
@@ -135,7 +135,7 @@ struct fmmod_instance {
 	struct fmmod_control *ctl;
 };
 
-typedef float (*mpx_generator) (struct fmmod_instance *, float*, float*, int, int);
+typedef int (*mpx_generator) (struct fmmod_instance *, float*, float*, int, float*);
 
 int fmmod_initialize(struct fmmod_instance *fmmod, int region);
 void fmmod_destroy(struct fmmod_instance *fmmod, int shutdown);

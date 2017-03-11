@@ -165,10 +165,10 @@ main(int argc, char *argv[])
 				snprintf(temp, 4, "%s", argv[++i]);
 				ctl->stereo_modulation =
 				    strtol(temp, NULL, 10) & 0x7;
-				/* Weaver and filter-based modulator eliminates USB but
-				 * doesn't increase the gain of the LSB so do it here when switching. */
-				if (ctl->stereo_modulation == FMMOD_SSB_WEAVER
-				    || ctl->stereo_modulation == FMMOD_SSB_FIR)
+				/* Weaver modulator eliminates USB but
+				 * doesn't increase the gain of the LSB
+				 * so do it here when switching. */
+				if (ctl->stereo_modulation == FMMOD_SSB_WEAVER)
 					ctl->stereo_carrier_gain = 2;
 				else
 					ctl->stereo_carrier_gain = 1;

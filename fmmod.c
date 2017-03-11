@@ -31,10 +31,22 @@
 #include <sys/stat.h>		/* For mode constants */
 #include <fcntl.h>		/* For O_* and F_* constants */
 #include <errno.h>		/* For errno and EEXIST */
+#include <math.h>		/* For fmin/fmax */
 
 /*********\
 * HELPERS *
 \*********/
+
+static int
+num_resampled_samples(int in_srate, int out_srate, int num_samples)
+{
+	float ratio = (float) out_srate / (float) in_srate;
+	float olenf = ratio * ((float) num_samples);
+	/* Also cover the case where out_srate < in_srate */
+	olenf = fmax(olenf, num_samples - 1.0);
+	return (int) olenf;
+}
+
 
 static int
 write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
@@ -82,8 +94,8 @@ get_delayed_lpr_sample(struct fmmod_instance *fmmod, float* lpr, int num_samples
 
 	/* Called for the first time, initialize tmp buffer */
 	if (fmmod->delay_buf == NULL) {
-		fmmod->delay_buf = (float*) malloc(fmmod->uaudio_buf_len);
-		memset(fmmod->delay_buf, 0, fmmod->uaudio_buf_len);
+		fmmod->delay_buf = (float*) malloc(fmmod->upsampled_buf_len);
+		memset(fmmod->delay_buf, 0, fmmod->upsampled_buf_len);
 		previous = fmmod->delay_buf;
 		previous_num_samples = delay;
 	/* Done with current period, save it to tmp buffer */
@@ -106,12 +118,34 @@ get_delayed_lpr_sample(struct fmmod_instance *fmmod, float* lpr, int num_samples
 * FM MPX STEREO ENCODING *
 \************************/
 
-static float
-get_mono_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-		int num_samples, int idx)
+/*
+ * Mono generator, just L+R plus RDS if
+ * available
+ */
+static int
+fmmod_mono_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
+		     int num_samples, float* out)
 {
+	struct osc_state *sin_osc = &fmmod->sin_osc;
+	struct fmmod_control *ctl = fmmod->ctl;
+	int i = 0;
+
 	/* No stereo pilot / subcarrier */
-	return lpr[idx];
+	for(i = 0; i < num_samples; i++) {
+		/* L + R */
+		out[i] = lpr[i];
+
+		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
+		out[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
+					  rds_get_next_sample(&fmmod->rds_enc);
+
+		/* Set mpx gain percentage */
+		out[i] *= ctl->mpx_gain;
+
+		osc_increase_phase(sin_osc);
+	}
+
+	return 0;
 }
 
 
@@ -120,24 +154,36 @@ get_mono_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
  * The input sample is AM modulated with a sine wave
  * at 38KHz (twice the pilot's frequency)
  */
-static float
-get_dsb_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-	       int num_samples, int idx)
+static int
+fmmod_dsb_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
+		    int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
-	float out = 0.0;
+	int i = 0;
 
-	/* L + R */
-	out = lpr[idx];
+	for(i = 0; i < num_samples; i++) {
+		/* L + R */
+		out[i] = lpr[i];
 
-	/* Stereo Pilot at 19KHz */
-	out += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+		/* Stereo Pilot at 19KHz */
+		out[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
 
-	/* AM modulated L - R */
-	out += lmr[idx] * osc_get_38Khz_sample(sin_osc) *
-		          ctl->stereo_carrier_gain;
-	return out;
+		/* AM modulated L - R */
+		out[i] += lmr[i] * osc_get_38Khz_sample(sin_osc) *
+			           ctl->stereo_carrier_gain;
+
+		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
+		out[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
+					  rds_get_next_sample(&fmmod->rds_enc);
+
+		/* Set mpx gain percentage */
+		out[i] *= ctl->mpx_gain;
+
+		osc_increase_phase(sin_osc);
+	}
+
+	return 0;
 }
 
 /*
@@ -163,33 +209,51 @@ get_dsb_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 
 /*
  * A simple FIR low pass filter that cuts off anything above
- * the carrier (the upper side band). This is a VSB
- * modulator since the FIR filter is not that steep.
+ * the carrier (the upper side band).
  */
-static float
-get_ssb_fir_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-		   int num_samples, int idx)
+static int
+fmmod_ssb_fir_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
+			int num_samples, float* out)
 {
-	int i = 0;
-	float out = 0.0;
-	float tmp = 0.0;
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
+	double saved_phase = 0.0L;
+	int i = 0;
 
-	/* Delayed L + R */
-	out = get_delayed_lpr_sample(fmmod, lpr, num_samples,
-				     FIR_FILTER_HALF_SIZE, idx);
+	/* Start with the L-R part, save the oscilator's phase
+	 * so that we can re-set it when calculating the pilot
+	 * and the RDS parts */
+	saved_phase = sin_osc->current_phase;
+	for(i = 0; i < num_samples; i++) {
+		/* AM modulated L - R */
+		out[i] = lmr[i] * osc_get_38Khz_sample(sin_osc);
+		osc_increase_phase(sin_osc);
+	}
 
-	/* Stereo pilot at 19KHz */
-	out += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+	/* Apply the FIR filter to suppres the USB */
+	fir_filter_apply(&fmmod->ssb_fir_lpf, out, out,
+		    num_samples, ctl->stereo_carrier_gain);
 
-	/* AM Modulated L - R with suppresed USB */
-	tmp = lmr[idx] * osc_get_38Khz_sample(sin_osc);
-	tmp = fir_filter_apply(&fmmod->ssb_fir_lpf, tmp, 0);
-	fir_filter_update(&fmmod->ssb_fir_lpf);
-	out += tmp * ctl->stereo_carrier_gain;
+	/* Now restore the oscilator's phase and add the rest */
+	sin_osc->current_phase = saved_phase;
+	for(i = 0; i < num_samples; i++) {
+		/* L + R */
+		out[i] += lpr[i];
 
-	return out;
+		/* Stereo Pilot at 19KHz */
+		out[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+
+		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
+		out[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
+					  rds_get_next_sample(&fmmod->rds_enc);
+
+		/* Set mpx gain percentage */
+		out[i] *= ctl->mpx_gain;
+
+		osc_increase_phase(sin_osc);
+	}
+
+	return 0;
 }
 
 /************************\
@@ -199,60 +263,64 @@ get_ssb_fir_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 /*
  * For more infos on the Weaver SSB modulator visit
  * http://dp.nonoo.hu/projects/ham-dsp-tutorial/11-ssb-weaver/
- *
- * Since the IIR filter is not good enough this is almost a
- * VSB modulator plus the IIR filter messes up with the phases.
- * It's a bit heavier than the Hartley modulator but performs
- * better and has a steeper spectrum than the filter-based one.
  */
-static float
-get_ssb_weaver_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-		      int num_samples, int idx)
+static int
+fmmod_ssb_weaver_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
+			   int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
 	float in_phase = 0.0;
 	float quadrature = 0.0;
-	float out = 0.0;
 	float tmp = 0.0;
 	int frequency_shift = 0;
 	int i = 0;
 
-	/* Delayed L + R */
-	out = get_delayed_lpr_sample(fmmod, lpr, num_samples,
-				     WEAVER_FILTER_TAPS, idx);
+	for(i = 0; i < num_samples; i++) {
+		/* Delayed L + R */
+		out[i] = get_delayed_lpr_sample(fmmod, lpr, num_samples,
+					     WEAVER_FILTER_TAPS, i);
 
-	/* Stereo pilot at 19KHz */
-	out += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+		/* Stereo pilot at 19KHz */
+		out[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
 
-	/* Phase lock the ssb oscilator to the master
-	 * oscilator */
-	cos_osc->current_phase = sin_osc->current_phase;
+		/* Phase-lock the SSB oscilator to the master
+		 * oscilator */
+		cos_osc->current_phase = sin_osc->current_phase;
 
-	/* Create a quadrature version of the input signal */
-	in_phase = lmr[idx] * osc_get_sample_for_freq(sin_osc,
-						    sin_osc->sample_rate / 4);
-	quadrature = lmr[idx] * osc_get_sample_for_freq(cos_osc,
-						      cos_osc->sample_rate / 4);
+		/* Create a quadrature version of the input signal */
+		in_phase = lmr[i] * osc_get_sample_for_freq(sin_osc,
+					   sin_osc->sample_rate / 4);
 
-	/* Apply the low pass filter */
-	in_phase = iir_ssb_filter_apply(&fmmod->weaver_lpf, in_phase, 0);
-	quadrature = iir_ssb_filter_apply(&fmmod->weaver_lpf, quadrature, 1);
+		quadrature = lmr[i] * osc_get_sample_for_freq(cos_osc,
+					     cos_osc->sample_rate / 4);
 
-	/* Shift it to the carrier frequency and combine in_phase
-	 * and quadrature to create the LSB signal we want */
-	frequency_shift = (sin_osc->sample_rate / 4) - 38000;
-	in_phase *= osc_get_sample_for_freq(sin_osc, frequency_shift);
-	frequency_shift = (cos_osc->sample_rate / 4) - 38000;
-	quadrature *= osc_get_sample_for_freq(cos_osc, frequency_shift);
+		/* Apply the low pass filter */
+		in_phase = iir_ssb_filter_apply(&fmmod->weaver_lpf, in_phase, 0);
+		quadrature = iir_ssb_filter_apply(&fmmod->weaver_lpf, quadrature, 1);
 
-	tmp = in_phase + quadrature;
+		/* Shift it to the carrier frequency and combine in_phase
+		 * and quadrature to create the LSB signal we want */
+		frequency_shift = (sin_osc->sample_rate / 4) - 38000;
+		in_phase *= osc_get_sample_for_freq(sin_osc, frequency_shift);
+		frequency_shift = (cos_osc->sample_rate / 4) - 38000;
+		quadrature *= osc_get_sample_for_freq(cos_osc, frequency_shift);
 
-	/* Set the output gain percentage */
-	out += tmp * ctl->stereo_carrier_gain;
+		tmp = in_phase + quadrature;
+		out[i] += tmp * ctl->stereo_carrier_gain;
 
-	return out;
+		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
+		out[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
+					  rds_get_next_sample(&fmmod->rds_enc);
+
+		/* Set mpx gain percentage */
+		out[i] *= ctl->mpx_gain;
+
+		osc_increase_phase(sin_osc);
+	}
+
+	return 0;
 }
 
 /*************************\
@@ -262,60 +330,58 @@ get_ssb_weaver_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 /*
  * For more information on the Hartley SSB modulator visit
  * http://dp.nonoo.hu/projects/ham-dsp-tutorial/09-ssb-hartley/
- *
- * This one is simpler and it creates a nice SSB spectrum, however
- * the FIR filter used here to perform the Hilbert transform (an
- * asymetric FIR filter) is not steep enough and frequencies close
- * to the center don't have propper phase difference.  We can't have
- * a better FIR filter here because we need lots of taps (I tried
- * with 500+ and it still didn't work well) and this runs at the
- * sample rate of the oscilator so we can't afford it.
  */
-static float
-get_ssb_hartley_sample(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-		       int num_samples, int idx)
+static int
+fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
+			   int num_samples, float* out)
 {
-	static float delay_line[HT_FIR_FILTER_HALF_SIZE] = { 0 };
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
-	float shifted_sample = 0.0;
-	float out = 0.0;
-	float tmp = 0.0;
+	struct hilbert_transformer_data *ht = &fmmod->ht;
 	int carrier_freq = 38000;
 	int i = 0;
 
-	/* Delayed L + R */
-	out = get_delayed_lpr_sample(fmmod, lpr, num_samples,
-				     HT_FIR_FILTER_HALF_SIZE, idx);
+	/* Phase shift L-R by 90deg using the Hilbert transformer */
+	hilbert_transformer_apply(&fmmod->ht, lmr, num_samples);
 
-	/* Stereo pilot at 19KHz */
-	out += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
+	/* Now shifted L+R signal is in ht->real_buff */
 
-	/* Put the original sample on the end of the delay line */
-	for (i = 0; i < HT_FIR_FILTER_HALF_SIZE - 1; i++)
-		delay_line[i] = delay_line[i + 1];
-	delay_line[HT_FIR_FILTER_HALF_SIZE - 1] = lmr[idx];
+	for(i = 0; i < num_samples; i++) {
+		/* Phase lock the ssb oscilator to the master
+		 * oscilator */
+		cos_osc->current_phase = sin_osc->current_phase;
 
-	/* Phase shift by 90deg using the Hilbert transformer */
-	shifted_sample = hilbert_transformer_apply(&fmmod->ht, lmr[idx]);
+		/* L-R SSB */
+		/* Modulate the shifted signal and the original signal
+		 * with two sine waves that also have 90deg phase difference
+		 * -to preserve the phase difference also on the carrier-. Then
+		 * add them to get the lower sideband (the upper sideband will
+		 * be canceled-out) */
+		out[i] =  (float) (ht->real_buff[i] *
+			  osc_get_sample_for_freq(cos_osc, carrier_freq));
+		out[i] += lmr[i] *
+			  osc_get_sample_for_freq(sin_osc, carrier_freq);
 
-	/* Phase lock the ssb oscilator to the master
-	 * oscilator */
-	cos_osc->current_phase = sin_osc->current_phase;
+		out[i] *= ctl->stereo_carrier_gain;
 
-	/* The begining of the delay line and the shifted sample
-	 * now have a 90deg phase difference, oscilate one with
-	 * the master -sine- oscilator and the other with the ssb
-	 * -cosine- oscilator (90deg difference) and shift the
-	 * modulated signal to the carrier freq */
-	tmp = shifted_sample * osc_get_sample_for_freq(sin_osc, carrier_freq);
-	tmp += delay_line[0] * osc_get_sample_for_freq(cos_osc, carrier_freq);
+		/* L + R */
+		out[i] += lpr[i];
 
-	/* Set the output gain percentage */
-	out += tmp * ctl->stereo_carrier_gain;
+		/* Stereo Pilot at 19KHz */
+		out[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
 
-	return out;
+		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
+		out[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
+					  rds_get_next_sample(&fmmod->rds_enc);
+
+		/* Set mpx gain percentage */
+		out[i] *= ctl->mpx_gain;
+
+		osc_increase_phase(sin_osc);
+	}
+
+	return 0;
 }
 
 /****************\
@@ -345,7 +411,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
 	struct audio_filter *aflt = &fmmod->aflt;
 	struct fmmod_control *ctl = fmmod->ctl;
-	mpx_generator get_mpx_sample;
+	mpx_generator get_mpx_samples;
 
 	/* FMmod is inactive, don't do any processing */
 	if (!fmmod->active)
@@ -384,22 +450,16 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 
 	/* Apply audio filter on input and merge the two
 	 * channels to prepare the buffer for upsampling */
-	for (i = 0; i < nframes; i++) {
-		fmmod->inbuf_l[i] = ctl->audio_gain *
-		    audio_filter_apply(aflt, left_in[i], 0, ctl->use_audio_lpf);
+	audio_filter_apply(aflt, left_in, fmmod->inbuf_l,
+			   right_in, fmmod->inbuf_r, nframes,
+			   ctl->audio_gain, ctl->use_audio_lpf);
 
-		fmmod->inbuf_r[i] = ctl->audio_gain *
-		    audio_filter_apply(aflt, right_in[i], 1, ctl->use_audio_lpf);
+	/* Update audio peak levels */
+	if (fmmod->inbuf_l[i] > ctl->peak_audio_in_l)
+		ctl->peak_audio_in_l = fmmod->inbuf_l[i];
 
-		/* Update audio peak levels */
-		if (fmmod->inbuf_l[i] > ctl->peak_audio_in_l)
-			ctl->peak_audio_in_l = fmmod->inbuf_l[i];
-
-		if (fmmod->inbuf_r[i] > ctl->peak_audio_in_r)
-			ctl->peak_audio_in_r = fmmod->inbuf_r[i];
-
-		audio_filter_update(aflt);
-	}
+	if (fmmod->inbuf_r[i] > ctl->peak_audio_in_r)
+		ctl->peak_audio_in_r = fmmod->inbuf_r[i];
 
 	/* Upsample to the sample rate of the main oscilator */
 	frames_generated = resampler_upsample_audio(rsmpl, fmmod->inbuf_l,
@@ -407,7 +467,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 						    upsampled_audio_l,
 						    upsampled_audio_r,
 						    nframes,
-						    fmmod->uaudio_buf_len);
+						    fmmod->upsampled_buf_len);
 	if (frames_generated < 0)
 		return FMMOD_ERR_RESAMPLER_ERR;
 
@@ -422,40 +482,25 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	/* Choose modulation method */
 	switch (ctl->stereo_modulation) {
 	case FMMOD_MONO:
-		get_mpx_sample = get_mono_sample;
+		get_mpx_samples = fmmod_mono_generator;
 		break;
 	case FMMOD_SSB_HARTLEY:
-		get_mpx_sample = get_ssb_hartley_sample;
+		get_mpx_samples = fmmod_ssb_hartley_generator;
 		break;
 	case FMMOD_SSB_WEAVER:
-		get_mpx_sample = get_ssb_weaver_sample;
+		get_mpx_samples = fmmod_ssb_weaver_generator;
 		break;
 	case FMMOD_SSB_FIR:
-		get_mpx_sample = get_ssb_fir_sample;
+		get_mpx_samples = fmmod_ssb_fir_generator;
 		break;
 	case FMMOD_DSB:
 	default:
-		get_mpx_sample = get_dsb_sample;
+		get_mpx_samples = fmmod_dsb_generator;
 		break;
 	}
 
 	/* Create the multiplex signal */
-	for (i = 0; i < frames_generated; i++) {
-		/* Get Mono/Stereo encoded MPX signal */
-		mpxbuf[i] = (*get_mpx_sample) (fmmod,
-						lpr_buf, lmr_buf,
-						frames_generated,
-						i);
-
-		/* Add RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
-		mpxbuf[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
-					rds_get_next_sample(&fmmod->rds_enc);
-
-		/* Set mpx gain percentage */
-		mpxbuf[i] *= ctl->mpx_gain;
-
-		osc_increase_phase(sin_osc);
-	}
+	get_mpx_samples(fmmod, lpr_buf, lmr_buf, frames_generated, mpxbuf);
 
 	/* Now downsample to the output sample rate */
 	frames_generated = resampler_downsample_mpx(rsmpl, mpxbuf, mpx_out,
@@ -545,12 +590,18 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		return FMMOD_ERR_JACKD_ERR;
 	}
 
-	/* Get maximum number of frames JACK will send to process() */
+	/* Get maximum number of frames JACK will send to process() and
+	 * calculate buffer lengths */
 	max_process_frames = jack_get_buffer_size(fmmod->client);
-
-	/* Allocate input audio buffers */
 	fmmod->inbuf_len = max_process_frames *
 	    		   sizeof(jack_default_audio_sample_t);
+	fmmod->upsampled_num_samples = num_resampled_samples(jack_samplerate,
+							osc_samplerate,
+							max_process_frames);
+	fmmod->upsampled_buf_len = fmmod->upsampled_num_samples *
+				   sizeof(jack_default_audio_sample_t);
+
+	/* Allocate input audio buffers */
 	fmmod->inbuf_l = (float *)malloc(fmmod->inbuf_len);
 	if (fmmod->inbuf_l == NULL) {
 		ret = FMMOD_ERR_NOMEM;
@@ -567,38 +618,27 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 
 	/* Allocate buffers for the upsampled audio. Use separate
 	 * buffers for L/R to make use of SoXr's OpenMP code */
-	fmmod->uaudio_buf_len = (uint32_t)
-	    ((((float)osc_samplerate /
-	       (float)jack_samplerate) + 1.0) *
-	     (float)max_process_frames *
-	     (float)sizeof(jack_default_audio_sample_t));
-
-	fmmod->uaudio_buf_0 = (float *)malloc(fmmod->uaudio_buf_len);
+	fmmod->uaudio_buf_0 = (float *)malloc(fmmod->upsampled_buf_len);
 	if (fmmod->uaudio_buf_0 == NULL) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(fmmod->uaudio_buf_0, 0, fmmod->uaudio_buf_len);
+	memset(fmmod->uaudio_buf_0, 0, fmmod->upsampled_buf_len);
 
-	fmmod->uaudio_buf_1 = (float *)malloc(fmmod->uaudio_buf_len);
+	fmmod->uaudio_buf_1 = (float *)malloc(fmmod->upsampled_buf_len);
 	if (fmmod->uaudio_buf_1 == NULL) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(fmmod->uaudio_buf_1, 0, fmmod->uaudio_buf_len);
+	memset(fmmod->uaudio_buf_1, 0, fmmod->upsampled_buf_len);
 
 	/* Allocate output buffer for MPX */
-	fmmod->mpxbuf_len = (uint32_t)
-	    ((((float)osc_samplerate /
-	       (float)jack_samplerate) + 1.0) *
-	     (float)max_process_frames *
-	     (float)sizeof(jack_default_audio_sample_t));
-	fmmod->mpxbuf = (float *)malloc(fmmod->mpxbuf_len);
+	fmmod->mpxbuf = (float *)malloc(fmmod->upsampled_buf_len);
 	if (fmmod->mpxbuf == NULL) {
 		ret = FMMOD_ERR_NOMEM;
 		goto cleanup;
 	}
-	memset(fmmod->mpxbuf, 0, fmmod->mpxbuf_len);
+	memset(fmmod->mpxbuf, 0, fmmod->upsampled_buf_len);
 
 	/* Initialize the main oscilator */
 	ret = osc_initialize(&fmmod->sin_osc, osc_samplerate, OSC_TYPE_SINE);
@@ -615,11 +655,12 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	}
 
 	/* Initialize the low pass FIR filter for the FIR-based SSB modulator */
-	fir_filter_init(&fmmod->ssb_fir_lpf, 37500, osc_samplerate);
+	fir_filter_init(&fmmod->ssb_fir_lpf, 38000, osc_samplerate,
+			fmmod->upsampled_num_samples);
 	/* Initialize the low pass filters of the Weaver modulator */
 	iir_ssb_filter_init(&fmmod->weaver_lpf);
 	/* Initialize the Hilbert transformer for the Hartley modulator */
-	hilbert_transformer_init(&fmmod->ht);
+	hilbert_transformer_init(&fmmod->ht, fmmod->upsampled_num_samples);
 
 	/* Initialize resampler */
 	ret = resampler_init(&fmmod->rsmpl, jack_samplerate,
@@ -644,9 +685,11 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		preemph_usecs = 50;
 		break;
 	}
+
 	/* The cutoff frequency is set so that the filter's
 	 * maximum drop is at 19KHz (the pilot tone) */
-	audio_filter_init(&fmmod->aflt, 16000, jack_samplerate, preemph_usecs);
+	audio_filter_init(&fmmod->aflt, 16500, jack_samplerate,
+			  max_process_frames, preemph_usecs);
 
 	/* Initialize RDS encoder */
 	ret = rds_encoder_init(&fmmod->rds_enc, &fmmod->rsmpl);
@@ -701,7 +744,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	} else {
 		fmmod->sock_outbuf_len = (uint32_t)
 		    (((float)output_samplerate /
-		      (float)osc_samplerate) * (float)fmmod->mpxbuf_len);
+		      (float)osc_samplerate) * (float)fmmod->upsampled_buf_len);
 		fmmod->sock_outbuf = (float *)malloc(fmmod->sock_outbuf_len);
 		if (fmmod->sock_outbuf == NULL) {
 			ret = FMMOD_ERR_NOMEM;
@@ -773,6 +816,12 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	resampler_destroy(&fmmod->rsmpl);
 
+	audio_filter_destroy(&fmmod->aflt);
+
+	fir_filter_destroy(&fmmod->ssb_fir_lpf);
+
+	hilbert_transformer_destroy(&fmmod->ht);
+
 	if (fmmod->inbuf_l != NULL)
 		free(fmmod->inbuf_l);
 	if (fmmod->inbuf_r != NULL)
@@ -790,6 +839,9 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 	uid = getuid();
 	snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
 	unlink(sock_path);
+
+	if (fmmod->sock_outbuf != NULL)
+		free(fmmod->sock_outbuf);
 
 	return;
 }

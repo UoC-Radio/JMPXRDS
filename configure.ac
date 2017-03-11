@@ -35,6 +35,9 @@ AC_SUBST([LIBRT])
 AC_CHECK_LIB([soxr], [soxr_create], [LIBSAMPLERATE=-lsoxr],
 	     AC_MSG_ERROR([Could not find libsoxr]))
 AC_SUBST([LIBSAMPLERATE])
+AC_CHECK_LIB([m], [sin], [LIBFFTW3=-lfftw3],
+	     AC_MSG_ERROR([Could not find libfftw3]))
+AC_SUBST([LIBFFTW3])
 AC_CHECK_LIB([jack], [jack_client_open], [LIBJACK=-ljack],
 	     AC_MSG_ERROR([Could not find jack libraries]))
 AC_SUBST([LIBJACK])
