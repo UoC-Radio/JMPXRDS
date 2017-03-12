@@ -394,7 +394,7 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 static int
 fmmod_process(jack_nframes_t nframes, void *arg)
 {
-	int i;
+	int i = 0;
 	jack_default_audio_sample_t *left_in, *right_in;
 	jack_default_audio_sample_t *mpx_out;
 	size_t mpx_out_len = 0;
@@ -405,7 +405,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	float *lmr_buf = NULL;
 	float lpr = 0.0;
 	float lmr = 0.0;
-	int frames_generated;
+	int frames_generated = 0;
 	struct fmmod_instance *fmmod = (struct fmmod_instance *)arg;
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
@@ -455,11 +455,13 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 			   ctl->audio_gain, ctl->use_audio_lpf);
 
 	/* Update audio peak levels */
-	if (fmmod->inbuf_l[i] > ctl->peak_audio_in_l)
-		ctl->peak_audio_in_l = fmmod->inbuf_l[i];
+	for(i = 0; i < nframes; i++) {
+		if (fmmod->inbuf_l[i] > ctl->peak_audio_in_l)
+			ctl->peak_audio_in_l = fmmod->inbuf_l[i];
 
-	if (fmmod->inbuf_r[i] > ctl->peak_audio_in_r)
-		ctl->peak_audio_in_r = fmmod->inbuf_r[i];
+		if (fmmod->inbuf_r[i] > ctl->peak_audio_in_r)
+			ctl->peak_audio_in_r = fmmod->inbuf_r[i];
+	}
 
 	/* Upsample to the sample rate of the main oscilator */
 	frames_generated = resampler_upsample_audio(rsmpl, fmmod->inbuf_l,

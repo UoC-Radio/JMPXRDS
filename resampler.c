@@ -151,12 +151,8 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 
 	/* Initialize upsampler's parameters */
 	io_spec = soxr_io_spec(SOXR_FLOAT32_S, SOXR_FLOAT32_S);
-	runtime_spec = soxr_runtime_spec(1);	/* TODO: OpenMP support */
-	q_spec = soxr_quality_spec(SOXR_LQ, 0);
-	/* 1 is Nyquist freq (half the sampling rate) so this rate is
-	 * relative to the Nyquist freq */
-	q_spec.passband_end = ((double)16500 / (double)osc_samplerate) * 2.0L;
-	q_spec.stopband_begin = ((double)19000 / (double)osc_samplerate) * 2.0L;
+	runtime_spec = soxr_runtime_spec(2);
+	q_spec = soxr_quality_spec(SOXR_QQ, SOXR_HI_PREC_CLOCK);
 	rsmpl->audio_upsampler = soxr_create(jack_samplerate, osc_samplerate, 2,
 					     &error, &io_spec, &q_spec,
 					     &runtime_spec);
@@ -170,11 +166,9 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	/* RDS UPSAMPLER */
 
 	/* Initialize upsampler's parameters */
-	io_spec = soxr_io_spec(SOXR_FLOAT32, SOXR_FLOAT32);
-	q_spec = soxr_quality_spec(SOXR_LQ, 0);
-	q_spec.passband_end = ((double)16000 / (double)osc_samplerate) * 2.0L;
-	q_spec.stopband_begin =
-		((double)(rds_samplerate / 2) / (double)osc_samplerate) * 2.0L;
+	io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
+	runtime_spec = soxr_runtime_spec(1);
+	q_spec = soxr_quality_spec(SOXR_QQ, SOXR_HI_PREC_CLOCK);
 	rsmpl->rds_upsampler = soxr_create(rds_samplerate, osc_samplerate, 1,
 					   &error, &io_spec, &q_spec,
 					   &runtime_spec);
@@ -192,9 +186,11 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	}
 
 	/* Initialize downsampler's parameters */
-	io_spec = soxr_io_spec(SOXR_FLOAT32, SOXR_FLOAT32);
-	q_spec = soxr_quality_spec(SOXR_HQ, 0);
+	io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
+	runtime_spec = soxr_runtime_spec(1);
+	q_spec = soxr_quality_spec(SOXR_32_BITQ, SOXR_HI_PREC_CLOCK);
 	q_spec.passband_end = ((double)60000 / (double)output_samplerate) * 2.0L;
+	q_spec.stopband_begin = ((double)65000 / (double)output_samplerate) * 2.0L;
 
 	rsmpl->mpx_downsampler = soxr_create(osc_samplerate, output_samplerate,
 					     1, &error, &io_spec, &q_spec,
