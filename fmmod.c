@@ -708,7 +708,8 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	/* Register input ports */
 	fmmod->inL = jack_port_register(fmmod->client, "AudioL",
 					JACK_DEFAULT_AUDIO_TYPE,
-					JackPortIsInput, 0);
+					JackPortIsInput | JackPortIsTerminal,
+					0);
 	if (fmmod->inL == NULL) {
 		ret = FMMOD_ERR_JACKD_ERR;
 		goto cleanup;
@@ -716,7 +717,8 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 
 	fmmod->inR = jack_port_register(fmmod->client, "AudioR",
 					JACK_DEFAULT_AUDIO_TYPE,
-					JackPortIsInput, 0);
+					JackPortIsInput | JackPortIsTerminal,
+					0);
 	if (fmmod->inR == NULL) {
 		ret = FMMOD_ERR_JACKD_ERR;
 		goto cleanup;
@@ -738,7 +740,8 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	if (fmmod->output_type == FMMOD_OUT_JACK) {
 		fmmod->outMPX = jack_port_register(fmmod->client, "MPX",
 						   JACK_DEFAULT_AUDIO_TYPE,
-						   JackPortIsOutput, 0);
+						   JackPortIsOutput |
+						   JackPortIsTerminal, 0);
 		if (fmmod->outMPX == NULL) {
 			ret = FMMOD_ERR_JACKD_ERR;
 			goto cleanup;
