@@ -106,7 +106,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	/* Calculate and store the filter's FFT curve from cutoff_bin
 	 * to the end of the spectrum */
 	remaining_bins = half_bins - lpf->cutoff_bin;
-	lpf->filter_curve = malloc(remaining_bins * sizeof(double));
+	lpf->filter_curve = (double*) malloc(remaining_bins * sizeof(double));
 	if(!lpf->filter_curve) {
 		ret = -1;
 		goto cleanup;
