@@ -20,20 +20,21 @@
 #include <stdint.h>		/* For typed integers */
 #include <fftw3.h>		/* For FFTW support */
 
-/* A generic sinc FIR Low pass filter, multiplied by
- * a Blackman - Harris window */
-struct fir_filter_data {
+/* A generic FFT low pass filter */
+struct lpf_filter_data {
 	uint16_t num_bins;
-	fftw_complex *impulse;
+	uint16_t cutoff_bin;
+	uint32_t sample_rate;
+	double *filter_curve;
 	fftw_complex *complex_buff;
 	double *real_buff;
 	fftw_plan dft_plan;
 	fftw_plan ift_plan;
 };
 
-void fir_filter_destroy(struct fir_filter_data *fir);
-int fir_filter_init(struct fir_filter_data *fir, uint32_t, uint32_t, uint16_t);
-int fir_filter_apply(struct fir_filter_data *fir, float*, float*, uint16_t, float);
+void lpf_filter_destroy(struct lpf_filter_data *);
+int lpf_filter_init(struct lpf_filter_data *, uint32_t, uint32_t, uint16_t);
+int lpf_filter_apply(struct lpf_filter_data *, float*, float*, uint16_t, float);
 
 /* FM Preemphasis IIR filter
  * Only used as part of the combined audio filter- */
@@ -48,7 +49,7 @@ struct fmpreemph_filter_data {
 
 /* Combined audio filter */
 struct audio_filter {
-	struct fir_filter_data audio_lpf;
+	struct lpf_filter_data audio_lpf;
 	struct fmpreemph_filter_data fm_preemph;
 };
 

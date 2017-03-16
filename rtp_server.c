@@ -138,17 +138,17 @@ void
 rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 {
 	GstBuffer *gstbuff = NULL;
+	guint gstbuff_len = 0;
 	GstFlowReturn ret = GST_FLOW_OK;
 
 	if (!buff || !num_samples || !rtpsrv ||
 	    rtpsrv->state != RTP_SERVER_ACTIVE)
 		return;
 
-	guint gstbuff_len = 0;
-
 	/* Wrap the output buffer to a GStreamer buffer */
 	gstbuff_len = num_samples * sizeof(float);
-	gstbuff = gst_buffer_new_wrapped_full((GstMemoryFlags)0, (gpointer) buff,
+	gstbuff = gst_buffer_new_wrapped_full((GstMemoryFlags) 0,
+					      (gpointer) buff,
 					      gstbuff_len, 0, gstbuff_len,
 					      NULL, NULL);
 

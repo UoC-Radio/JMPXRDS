@@ -37,7 +37,7 @@ usage(char *name)
 	       "\t-p   <int>\tSet pilot gain percentage (default is 8%%)\n"
 	       "\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
 	       "\t-c   <int>\tSet stereo carrier gain percentage (default is 100%%)\n"
-	       "\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver), 3-> SSB (FIR Filter), 4-> Mono\n"
+	       "\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver), 3-> SSB (LP Filter), 4-> Mono\n"
 	       "\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
 }
 
@@ -88,7 +88,7 @@ main(int argc, char *argv[])
 				ctl->stereo_modulation ==
 					FMMOD_SSB_WEAVER ? "SSB (Weaver)" :
 				ctl->stereo_modulation ==
-					FMMOD_SSB_FIR ? "SSB (FIR Filter)" :
+					FMMOD_SSB_LPF ? "SSB (LP Filter)" :
 				"DSBSC",
 				ctl->use_audio_lpf ? "Enabled" : "Disabled",
 				ctl->peak_audio_in_l, ctl->peak_audio_in_r,

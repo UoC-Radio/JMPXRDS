@@ -203,16 +203,16 @@ fmmod_dsb_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
  * than mono but the standard subcarrier performs better.
  */
 
-/********************************\
-* FIR FILTER BASED SSB MODULATOR *
-\********************************/
+/****************************\
+* FILTER BASED SSB MODULATOR *
+\****************************/
 
 /*
- * A simple FIR low pass filter that cuts off anything above
+ * A simple FFT low pass filter that cuts off anything above
  * the carrier (the upper side band).
  */
 static int
-fmmod_ssb_fir_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
+fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 			int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
@@ -230,8 +230,8 @@ fmmod_ssb_fir_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 		osc_increase_phase(sin_osc);
 	}
 
-	/* Apply the FIR filter to suppres the USB */
-	fir_filter_apply(&fmmod->ssb_fir_lpf, out, out,
+	/* Apply the lpf filter to suppres the USB */
+	lpf_filter_apply(&fmmod->ssb_lpf, out, out,
 		    num_samples, ctl->stereo_carrier_gain);
 
 	/* Now restore the oscilator's phase and add the rest */
@@ -492,8 +492,8 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	case FMMOD_SSB_WEAVER:
 		get_mpx_samples = fmmod_ssb_weaver_generator;
 		break;
-	case FMMOD_SSB_FIR:
-		get_mpx_samples = fmmod_ssb_fir_generator;
+	case FMMOD_SSB_LPF:
+		get_mpx_samples = fmmod_ssb_lpf_generator;
 		break;
 	case FMMOD_DSB:
 	default:
@@ -656,8 +656,8 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 		goto cleanup;
 	}
 
-	/* Initialize the low pass FIR filter for the FIR-based SSB modulator */
-	fir_filter_init(&fmmod->ssb_fir_lpf, 38000, osc_samplerate,
+	/* Initialize the low pass FFT filter for the filter-based SSB modulator */
+	lpf_filter_init(&fmmod->ssb_lpf, 38000, osc_samplerate,
 			fmmod->upsampled_num_samples);
 	/* Initialize the low pass filters of the Weaver modulator */
 	iir_ssb_filter_init(&fmmod->weaver_lpf);
@@ -747,9 +747,10 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 			goto cleanup;
 		}
 	} else {
-		fmmod->sock_outbuf_len = (uint32_t)
-		    (((float)output_samplerate /
-		      (float)osc_samplerate) * (float)fmmod->upsampled_buf_len);
+		fmmod->sock_outbuf_len = num_resampled_samples(osc_samplerate,
+							       output_samplerate,
+							       max_process_frames);
+		fmmod->sock_outbuf_len *= sizeof(float);
 		fmmod->sock_outbuf = (float *)malloc(fmmod->sock_outbuf_len);
 		if (fmmod->sock_outbuf == NULL) {
 			ret = FMMOD_ERR_NOMEM;
@@ -823,7 +824,7 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	audio_filter_destroy(&fmmod->aflt);
 
-	fir_filter_destroy(&fmmod->ssb_fir_lpf);
+	lpf_filter_destroy(&fmmod->ssb_lpf);
 
 	hilbert_transformer_destroy(&fmmod->ht);
 

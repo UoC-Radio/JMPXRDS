@@ -32,6 +32,20 @@
 #include <math.h>		/* For fabs */
 #include <jack/thread.h>	/* For thread handling through jack */
 
+/*********\
+* HELPERS *
+\*********/
+
+static int
+num_resampled_samples(int in_srate, int out_srate, int num_samples)
+{
+	float ratio = (float) out_srate / (float) in_srate;
+	float olenf = ratio * ((float) num_samples);
+	/* Also cover the case where out_srate < in_srate */
+	olenf = fmax(olenf, num_samples - 1.0);
+	return (int) olenf;
+}
+
 /************\
 * MODULATION *
 \************/
@@ -764,10 +778,11 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 	enc->state = (struct rds_encoder_state*) enc->state_map->mem;
 
 	/* Allocate buffers */
-	enc->upsampled_waveform_len = (size_t)
-	    ((((float)rsmpl->osc_samplerate /
-	       (float)RDS_SAMPLE_RATE) + 1.0) *
-	     (float)RDS_GROUP_SAMPLES * (float)sizeof(float));
+	enc->upsampled_waveform_len = num_resampled_samples(RDS_SAMPLE_RATE,
+							    rsmpl->osc_samplerate,
+							    RDS_GROUP_SAMPLES);
+	enc->upsampled_waveform_len *= sizeof(float);
+
 
 	enc->outbuf[0].waveform = (float *) malloc(enc->upsampled_waveform_len);
 	if (enc->outbuf[0].waveform == NULL) {

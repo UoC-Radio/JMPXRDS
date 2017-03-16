@@ -20,202 +20,168 @@
 #include "filters.h"
 #include <stdlib.h>		/* For NULL */
 #include <string.h>		/* For memset */
-#include <math.h>		/* For sin, cos and M_PI */
+#include <math.h>		/* For exp() */
+
+/*********\
+* HELPERS *
+\*********/
+
+/* Note that we don't use the normalization factor
+ * here so that it always starts at 1.0 -exp(0)-. */
+static double
+gaussian(uint16_t bin, uint16_t variance)
+{
+	double c = (double) variance;
+	/* Cutoff bin is at 0 */
+	uint32_t tmp = bin;
+	tmp *= tmp;
+	return exp(-(double)tmp / c);
+}
 
 /*****************************\
-* GENERIC FIR LOW-PASS FILTER *
+* GENERIC FFT LOW-PASS FILTER *
 \*****************************/
 
-/*
- * That's a typical Sinc filter, multiplied by a
- * Blackman - Harris window. For more information
- * Wikipedia is your friend. We use this to protect
- * the stereo pilot (19KHz) from audio and for the
- * FIR filter-based SSB modulator.
- */
-
-/* Sinc = sin(pi* x)/(pi * x) */
-static double inline
-sinc(double phase)
-{
-	return (sin(M_PI * phase) / (M_PI * phase));
-}
-
-/* Sinc impulse:
- * 	h[n] = sinc(2*fc * (n - (N-1/2))
- */
-static double inline
-sinc_impulse(double fc_doubled, uint16_t bin, uint16_t num_bins)
-{
-	double middle_bin = ((double) num_bins - 1.0) / 2.0;
-	return sinc(fc_doubled * ((double) bin - middle_bin));
-}
-
-/* Blackman - Harris window */
-static double inline
-blackman_window(uint16_t bin, uint16_t num_bins)
-{
-	double a0, a1, a2, a3;
-	double width = (double) num_bins - 1.0;
-
-	a0 = 0.35875;
-	a1 = 0.48829;
-	a2 = 0.14128;
-	a3 = 0.01168;
-
-	return (a0 - a1 * cos((2.0 * M_PI * (double) bin) / width) +
-		a2 * cos((4.0 * M_PI * (double) bin) / width) -
-		a3 * cos((6.0 * M_PI * (double) bin) / width));
-}
-
-/*
- * Calculates the filters impulse response on the time domain
- * and puts it on fir->real_buff
- */
-static int
-fir_filter_impulse_init(struct fir_filter_data *fir, uint32_t cutoff_freq,
-			uint32_t sample_rate, uint16_t num_bins)
-{
-	int i = 0;
-	double fc_doubled = 0;
-
-	/* Fc: cutoff frequency as a fraction of sample rate */
-	fc_doubled = 2.0 * ((double)cutoff_freq / (double)sample_rate);
-
-	/* Calculate the filter's impulse and put it on
-	 * real_buff, after applying the window function
-	 * on top of it  */
-	for (i = 0; i < num_bins; i++) {
-		fir->real_buff[i] = sinc_impulse(fc_doubled, i, num_bins) *
-				    blackman_window(i, num_bins);
-	}
-
-	return 0;
-}
-
 void
-fir_filter_destroy(struct fir_filter_data *fir)
+lpf_filter_destroy(struct lpf_filter_data *lpf)
 {
-	if(fir->real_buff)
-		fftw_free(fir->real_buff);
-	if(fir->complex_buff)
-		fftw_free(fir->complex_buff);
-	if(fir->impulse)
-		fftw_free(fir->impulse);
-	if(fir->dft_plan)
-		fftw_destroy_plan(fir->dft_plan);
-	if(fir->ift_plan)
-		fftw_destroy_plan(fir->ift_plan);
+	if(lpf->filter_curve)
+		free(lpf->filter_curve);
+	if(lpf->real_buff)
+		fftw_free(lpf->real_buff);
+	if(lpf->complex_buff)
+		fftw_free(lpf->complex_buff);
+	if(lpf->dft_plan)
+		fftw_destroy_plan(lpf->dft_plan);
+	if(lpf->ift_plan)
+		fftw_destroy_plan(lpf->ift_plan);
 }
 
 int
-fir_filter_init(struct fir_filter_data *fir, uint32_t cutoff_freq,
-		uint32_t sample_rate, uint16_t num_bins)
+lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
+		uint32_t sample_rate, uint16_t max_frames)
 {
 	int i = 0;
 	int ret = 0;
-	fftw_plan tmp_plan = {0};
-	fir->num_bins = num_bins;
+	uint32_t nyquist_freq = 0;
+	double passband_ratio = 0.0L;
+	double trans_bw = 0.0L;
+	double trans_ratio = 0.0L;
+	uint16_t variance = 0;
+	lpf->num_bins = max_frames;
+	uint16_t half_bins = (lpf->num_bins / 2) + 1;
+	uint16_t remaining_bins = 0;
 
-	/* Allocate buffers */
-	fir->real_buff = fftw_alloc_real(num_bins);
-	if(!fir->real_buff) {
+	/*
+	 * Calculate the frequency bin after which we 'll start
+	 * filtering out the remaining bins. The frequency bins will cover
+	 * frequencies from 0 to Nyquist frequency so we have
+	 * to calculate what portion of that spectrum is our passband
+	 * (below the cutoff frequency), relative to the Nyquist
+	 * frequency.
+	 *
+	 * Note: Because the signal is purely real, the FFT spectrum will
+	 * be "mirrored" -conjugate symmetric-, so we only need to
+	 * use half of it (positive frequencies) plus the point in the middle).
+	 * That's why we have half_bins here and below.
+	 */
+	nyquist_freq = sample_rate / 2.0;
+	passband_ratio = (double) cutoff_freq / (double) nyquist_freq;
+	lpf->cutoff_bin = (uint16_t) (passband_ratio * (double) (half_bins));
+
+	/*
+	 * We don't want the filter to bee too steep (like a sinc filter which
+	 * zeroes out everything after the cutoff bin) to avoid the "ringing"
+	 * noise. Instead use a Gaussian curve (the second half part of the
+	 * "bell") to make the transition smooth.
+	 *
+	 * We calculate the Gaussian's variance -the witdh of the bell- for
+	 * a given transition bandwidth, in bins, the same way we did it above
+	 * for the cutoff frequency bin.
+	 */
+	trans_bw = 2500.0L; /* 2.5KHz should be enough */
+	trans_ratio = trans_bw / (double) nyquist_freq;
+	variance = 2 * (uint16_t) (trans_ratio * (double) (half_bins));
+
+	/* Calculate and store the filter's FFT curve from cutoff_bin
+	 * to the end of the spectrum */
+	remaining_bins = half_bins - lpf->cutoff_bin;
+	lpf->filter_curve = malloc(remaining_bins * sizeof(double));
+	if(!lpf->filter_curve) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(fir->real_buff, 0, sizeof(double) * num_bins);
 
-	/* Because the signal is purely real, the FFT spectrum will
-	 * be "mirrored" -conjugate symmetric-, so we only need to
-	 * use half of it */
-	fir->complex_buff = fftw_alloc_complex(num_bins / 2 + 1);
-	if(!fir->complex_buff) {
+	for(i = 0; i < remaining_bins; i++)
+		lpf->filter_curve[i] = gaussian(i, variance);
+
+
+	/* Allocate buffers for DFT/IFT */
+	lpf->real_buff = fftw_alloc_real(max_frames);
+	if(!lpf->real_buff) {
 		ret = -2;
 		goto cleanup;
 	}
-	memset(fir->complex_buff, 0, sizeof(fftw_complex) * (num_bins / 2 + 1));
+	memset(lpf->real_buff, 0, sizeof(double) * max_frames);
 
-	fir->impulse = fftw_alloc_complex(num_bins / 2 + 1);
-	if(!fir->impulse) {
+	lpf->complex_buff = fftw_alloc_complex(half_bins);
+	if(!lpf->complex_buff) {
 		ret = -3;
 		goto cleanup;
 	}
-	memset(fir->impulse, 0, sizeof(fftw_complex) * (num_bins / 2 + 1));
-
-	/* Create the filter's impulse on fir->real_buff */
-	fir_filter_impulse_init(fir, cutoff_freq, sample_rate, num_bins);
-
-	/* Create a temporary plan and store the impulse's frequency-domain
-	 * representation on fir->impulse */
-	tmp_plan = fftw_plan_dft_r2c_1d(num_bins, fir->real_buff,
-					     fir->impulse, FFTW_ESTIMATE);
-	if(!tmp_plan) {
-		ret = -4;
-		goto cleanup;
-	}
-	fftw_execute(tmp_plan);
-	fftw_destroy_plan(tmp_plan);
+	memset(lpf->complex_buff, 0, sizeof(fftw_complex) * half_bins);
 
 
 	/* Create DFT plan */
-	fir->dft_plan = fftw_plan_dft_r2c_1d(num_bins, fir->real_buff,
-					     fir->complex_buff, FFTW_MEASURE);
-	if(!fir->dft_plan) {
-		ret = -5;
+	lpf->dft_plan = fftw_plan_dft_r2c_1d(lpf->num_bins, lpf->real_buff,
+					     lpf->complex_buff, FFTW_MEASURE);
+	if(!lpf->dft_plan) {
+		ret = -4;
 		goto cleanup;
 	}
-	fftw_execute(fir->dft_plan);
+	fftw_execute(lpf->dft_plan);
 
 
 	/* Create IFT plan */
-	fir->ift_plan = fftw_plan_dft_c2r_1d(num_bins, fir->complex_buff,
-					     fir->real_buff, FFTW_MEASURE);
-	if(!fir->ift_plan)
-		ret = -6;
+	lpf->ift_plan = fftw_plan_dft_c2r_1d(lpf->num_bins, lpf->complex_buff,
+					     lpf->real_buff, FFTW_MEASURE);
+	if(!lpf->ift_plan)
+		ret = -5;
 
  cleanup:
 	if(ret < 0)
-		fir_filter_destroy(fir);
+		lpf_filter_destroy(lpf);
 	return ret;
 }
 
 int
-fir_filter_apply(struct fir_filter_data *fir, float *in, float *out,
+lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 		 uint16_t num_samples, float gain)
 {
 	float ratio = 0.0;
-	fftw_complex tmp = {0};
+	int middle_bin = lpf->num_bins / 2 + 1;
 	int i = 0;
+	int c = 0;
 
 	/* Copy samples to the real buffer, converting them to
 	 * double on the way */
-	memset(fir->real_buff, 0, sizeof(double) * num_samples);
+	memset(lpf->real_buff, 0, sizeof(double) * num_samples);
 	for(i = 0; i < num_samples; i++)
-		fir->real_buff[i] = (double) in[i];
+		lpf->real_buff[i] = (double) in[i];
 
 	/* Run the DFT plan to get the freq domain (complex or
 	 * analytical) representation of the signal */
-	fftw_execute(fir->dft_plan);
+	fftw_execute(lpf->dft_plan);
 
-	/* Now signal is on the complex buffer, convolution in 1d
-	 * equals point-wise multiplication, so multiply the complex
-	 * representation of the signal with the complex representation
-	 * of the filter's impulse. Remember however that these are complex
-	 * numbers so we need to do complex multiplication. */
-	for(i = 0; i < fir->num_bins / 2 + 1; i++) {
-		/* Real part */
-		tmp[0] = fir->impulse[i][0] * fir->complex_buff[i][0] -
-			 fir->impulse[i][1] * fir->complex_buff[i][1];
-		/* Imaginary part */
-		tmp[1] = fir->impulse[i][0] * fir->complex_buff[i][1] +
-			 fir->impulse[i][1] * fir->complex_buff[i][0];
-
-		fir->complex_buff[i][0] = tmp[0];
-		fir->complex_buff[i][1] = tmp[1];
+	/* Now signal is on the complex buffer, filter-out
+	 * all frequency bins above the cutoff_bin */
+	for(i = lpf->cutoff_bin; i < middle_bin; i++, c++) {
+		lpf->complex_buff[i][0] *= lpf->filter_curve[c];
+		lpf->complex_buff[i][1] = 0;
 	}
 
 	/* Switch the signal back to the time domain */
-	fftw_execute(fir->ift_plan);
+	fftw_execute(lpf->ift_plan);
 
 	/* Note that FFTW returns unnormalized data so the IFT output
 	 * is multiplied with the product of the logical dimentions
@@ -223,10 +189,10 @@ fir_filter_apply(struct fir_filter_data *fir, float *in, float *out,
 	 * To make things simpler and more efficient, we calculate a gain
 	 * ratio that will handle both the requested gain and the
 	 * normalization (multiplication is cheaper than division). */
-	ratio = (float) gain / (float) fir->num_bins;
+	ratio = (float) gain / (float) lpf->num_bins;
 
 	for(i = 0; i < num_samples; i++)
-		out[i] = ((float) fir->real_buff[i]) * ratio;
+		out[i] = ((float) lpf->real_buff[i]) * ratio;
 
 	return 0;
 }
@@ -351,7 +317,7 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *iir,
 void
 audio_filter_destroy(struct audio_filter *aflt)
 {
-	fir_filter_destroy(&aflt->audio_lpf);
+	lpf_filter_destroy(&aflt->audio_lpf);
 }
 
 int
@@ -361,7 +327,7 @@ audio_filter_init(struct audio_filter *aflt, uint32_t cutoff_freq,
 {
 	int ret = 0;
 
-	ret = fir_filter_init(&aflt->audio_lpf, cutoff_freq,
+	ret = lpf_filter_init(&aflt->audio_lpf, cutoff_freq,
 			      sample_rate, max_samples);
 	if (ret < 0)
 		return ret;
@@ -377,7 +343,7 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 		   float *samples_out_r, uint16_t num_samples,
 		   float gain_multiplier, uint8_t use_lp_filter)
 {
-	struct fir_filter_data *fir = &aflt->audio_lpf;
+	struct lpf_filter_data *lpf = &aflt->audio_lpf;
 	int i = 0;
 
 	/* First apply the FM pre-emphasis IIR filter */
@@ -399,9 +365,9 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 	}
 
 	/* Frequency domain convolution */
-	fir_filter_apply(fir, samples_out_l, samples_out_l,
+	lpf_filter_apply(lpf, samples_out_l, samples_out_l,
 			     num_samples, gain_multiplier);
-	fir_filter_apply(fir, samples_out_r, samples_out_r,
+	lpf_filter_apply(lpf, samples_out_r, samples_out_r,
 			     num_samples, gain_multiplier);
 
 	return 0;
@@ -506,8 +472,7 @@ iir_ssb_filter_apply(struct ssb_filter_data *iir,
  * this implementation think of the signal as a vector on the I/Q
  * plane. To rotate the vector by -pi/2 we need to swap Q with I.
  * We need to do that for both positive and negative frequencies
- * (it's not like the FIR filter where we multiply two signals
- * here we modify a signal so we need the whole thing). This is
+ * (it's not like the LP filter, we need the whole thing). This is
  * equivalent to multiplying positive frequencies with i
  * (so it's (0 +i) * (Re -iIm) = -Im +iRe) and negative frequencies
  * with -i (so it's (0 -i) * (Re +iIm) = Im -iRe). Note that if

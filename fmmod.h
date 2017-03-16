@@ -69,7 +69,7 @@ enum fmmod_stereo_modulation {
 	FMMOD_DSB = 0,
 	FMMOD_SSB_HARTLEY = 1,
 	FMMOD_SSB_WEAVER = 2,
-	FMMOD_SSB_FIR = 3,
+	FMMOD_SSB_LPF = 3,
 	FMMOD_MONO = 4
 };
 
@@ -127,7 +127,7 @@ struct fmmod_instance {
 	jack_nframes_t added_latency;
 	/* SSB modulators */
 	struct osc_state cos_osc;
-	struct fir_filter_data ssb_fir_lpf;
+	struct lpf_filter_data ssb_lpf;
 	struct ssb_filter_data weaver_lpf;
 	struct hilbert_transformer_data ht;
 	/* Control */
