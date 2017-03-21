@@ -41,7 +41,11 @@ enum fmmod_errors {
 	FMMOD_ERR_RDS_ERR = -6,
 	FMMOD_ERR_SHM_ERR = -7,
 	FMMOD_ERR_SOCK_ERR = -8,
-	FMMOD_ERR_RTP_ERR = -9
+	FMMOD_ERR_RTP_ERR = -9,
+	FMMOD_ERR_ALREADY_RUNNING = -10,
+	FMMOD_ERR_LPF = -11,
+	FMMOD_ERR_HILBERT = -12,
+	FMMOD_ERR_AFLT = -13,
 };
 
 /* If JACK's samplerate is not enough (e.g. soundcard
@@ -86,8 +90,6 @@ struct fmmod_control {
 	float peak_audio_in_l;
 	float peak_audio_in_r;
 };
-
-#define FMMOD_CTL_SHM_NAME "/FMMOD_CTL_SHM"
 
 struct fmmod_instance {
 	/* State */

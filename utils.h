@@ -18,6 +18,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/************************\
+* SHARED MEMORY HANDLING *
+\************************/
+
+#define FMMOD_CTL_SHM_NAME	"/FMMOD_CTL_SHM"
+#define RDS_ENC_SHM_NAME	"/RDS_ENC_SHM"
+#define RTP_SRV_SHM_NAME	"/RTP_SRV_SHM"
+
 struct shm_mapping {
 	const char* name;
 	int size;
@@ -33,3 +41,29 @@ utils_shm_attach(const char* name, int size);
 
 void
 utils_shm_destroy(struct shm_mapping* shmem, int unlink);
+
+void
+utils_shm_unlink_all();
+
+/****************\
+* CONSOLE OUTPUT *
+\****************/
+
+void
+utils_ann(const char* msg);
+
+void
+utils_info(const char* fmt,...);
+
+void
+utils_err(const char* fmt,...);
+
+void
+utils_perr(const char* msg);
+
+void
+utils_dbg(const char* fmt,...);
+
+void
+utils_trace(const char* fmt,...);
+

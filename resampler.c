@@ -19,7 +19,6 @@
  */
 #include "resampler.h"
 #include <stdlib.h>		/* For NULL */
-#include <stdio.h>		/* For printf */
 #include <string.h>		/* For memset/memcpy */
 
 /**************\
@@ -157,7 +156,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 					     &error, &io_spec, &q_spec,
 					     &runtime_spec);
 	if (error) {
-		ret = -1;
+		ret = -2;
 		goto cleanup;
 	}
 
@@ -174,7 +173,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 					   &runtime_spec);
 
 	if (error) {
-		ret = -1;
+		ret = -3;
 		goto cleanup;
 	}
 
@@ -197,7 +196,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 					     &runtime_spec);
 
 	if (error) {
-		ret = -1;
+		ret = -4;
 		goto cleanup;
 	}
 

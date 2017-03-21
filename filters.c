@@ -527,7 +527,7 @@ hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 	ht->dft_plan = fftw_plan_dft_r2c_1d(num_bins, ht->real_buff,
 					     ht->complex_buff, FFTW_MEASURE);
 	if(!ht->dft_plan) {
-		ret = -5;
+		ret = -3;
 		goto cleanup;
 	}
 	fftw_execute(ht->dft_plan);
@@ -537,7 +537,7 @@ hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 	ht->ift_plan = fftw_plan_dft_c2r_1d(num_bins, ht->complex_buff,
 					    ht->real_buff, FFTW_MEASURE);
 	if(!ht->ift_plan)
-		ret = -6;
+		ret = -4;
 
  cleanup:
 	if(ret < 0)

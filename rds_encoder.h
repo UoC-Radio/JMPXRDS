@@ -130,8 +130,6 @@ struct rds_encoder_state {
 	uint8_t af_idx:4;
 };
 
-#define RDS_ENC_SHM_NAME	"/RDS_ENC_SHM"
-
 struct rds_encoder {
 	struct shm_mapping* state_map;
 	struct rds_encoder_state *state;

@@ -770,11 +770,16 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 	memset(enc, 0, sizeof(struct rds_encoder));
 	enc->rsmpl = rsmpl;
 
+	/* Initialize conditional locks */
+	pthread_mutex_init(&enc->rds_process_mutex, NULL);
+	pthread_cond_init(&enc->rds_process_trigger, NULL);
+	pthread_mutex_init(&enc->rds_loop_exit_mutex, NULL);
+
 	/* Initialize I/O channel for encoder's state */
 	enc->state_map = utils_shm_init(RDS_ENC_SHM_NAME,
 					sizeof(struct rds_encoder_state));
 	if(!enc->state_map)
-		return -1;
+		return -2;
 	enc->state = (struct rds_encoder_state*) enc->state_map->mem;
 
 	/* Allocate buffers */
@@ -786,22 +791,17 @@ rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl)
 
 	enc->outbuf[0].waveform = (float *) malloc(enc->upsampled_waveform_len);
 	if (enc->outbuf[0].waveform == NULL) {
-		ret = -2;
+		ret = -3;
 		goto cleanup;
 	}
 	memset(enc->outbuf[0].waveform, 0, enc->upsampled_waveform_len);
 
 	enc->outbuf[1].waveform = (float *) malloc(enc->upsampled_waveform_len);
 	if (enc->outbuf[1].waveform == NULL) {
-		ret = -1;
+		ret = -4;
 		goto cleanup;
 	}
 	memset(enc->outbuf[1].waveform, 0, enc->upsampled_waveform_len);
-
-	/* Initialize conditional locks */
-	pthread_mutex_init(&enc->rds_process_mutex, NULL);
-	pthread_cond_init(&enc->rds_process_trigger, NULL);
-	pthread_mutex_init(&enc->rds_loop_exit_mutex, NULL);
 
 	/* Set default state */
 	enc->state->ms = RDS_MS_DEFAULT;

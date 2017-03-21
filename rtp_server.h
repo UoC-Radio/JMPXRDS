@@ -51,8 +51,6 @@ struct rtp_server_control {
 	in_addr_t receivers[RTP_SRV_MAX_RECEIVERS];
 };
 
-#define RTP_SRV_SHM_NAME "/RTP_SRV_SHM"
-
 struct rtp_server {
 	int state;
 	jack_client_t *fmmod_client;

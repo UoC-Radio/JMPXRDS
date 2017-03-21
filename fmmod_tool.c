@@ -20,25 +20,27 @@
 #include "utils.h"
 #include "fmmod.h"
 #include <stdlib.h>		/* For strtol */
-#include <stdio.h>		/* For printf / snprintf */
+#include <stdio.h>		/* For snprintf */
 #include <string.h>		/* For memset / strncmp */
+#include <unistd.h>		/* For getopt() */
 
 #define TEMP_BUF_LEN	3 + 1
 
 void
 usage(char *name)
 {
-	printf("FMMOD Configuration tool for JMPXRDS\n");
-	printf("\nUsage: %s -g or [<parameter> <value>] pairs\n", name);
-	printf("\nParameters:\n"
-	       "\t-g\t\tGet current values\n"
-	       "\t-a   <int>\tSet audio gain precentage (default is 40%%)\n"
-	       "\t-m   <int>\tSet MPX gain percentage (default is 100%%)\n"
-	       "\t-p   <int>\tSet pilot gain percentage (default is 8%%)\n"
-	       "\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
-	       "\t-c   <int>\tSet stereo carrier gain percentage (default is 100%%)\n"
-	       "\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley), 2-> SSB (Weaver), 3-> SSB (LP Filter), 4-> Mono\n"
-	       "\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
+	utils_ann("FMMOD Configuration tool for JMPXRDS\n");
+	utils_info("Usage: %s -g or [<parameter> <value>] pairs\n", name);
+	utils_info("\nParameters:\n"
+		"\t-g\t\tGet current values\n"
+		"\t-a   <int>\tSet audio gain precentage (default is 40%%)\n"
+		"\t-m   <int>\tSet MPX gain percentage (default is 100%%)\n"
+		"\t-p   <int>\tSet pilot gain percentage (default is 8%%)\n"
+		"\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
+		"\t-c   <int>\tSet stereo carrier gain percentage (default is 100%%)\n"
+		"\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley),\n"
+				"\t\t\t2-> SSB (Weaver), 3-> SSB (LP Filter), 4-> Mono\n"
+		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
 }
 
 /* Yes it's ugly... */
@@ -47,25 +49,23 @@ main(int argc, char *argv[])
 {
 	int ret = 0;
 	int i = 0;
+	int opt = 0;
 	char temp[TEMP_BUF_LEN] = { 0 };
 	struct shm_mapping *shmem = NULL;
 	struct fmmod_control *ctl = NULL;
 
-	if (argc < 2)
-		usage(argv[0]);
-
 	shmem = utils_shm_attach(FMMOD_CTL_SHM_NAME,
 				 sizeof(struct fmmod_control));
 	if (!shmem) {
-		perror("Unable to communicate with JMPXRDS");
+		utils_perr("Unable to communicate with JMPXRDS");
 		return -1;
 	}
 	ctl = (struct fmmod_control*) shmem->mem;
 
-
-	for (i = 1; i < argc; i++) {
-		if (!strncmp(argv[i], "-g", 3)) {
-			printf("Current config:\n"
+	while ((opt = getopt(argc, argv, "ga:m:p:r:c:s:f:")) != -1)
+		switch (opt) {
+		case 'g':
+			utils_info("Current config:\n"
 				"\tAudio:     %i%%\n"
 				"\tMPX:       %i%%\n"
 				"\tPilot:     %i%%\n"
@@ -93,105 +93,81 @@ main(int argc, char *argv[])
 				ctl->use_audio_lpf ? "Enabled" : "Disabled",
 				ctl->peak_audio_in_l, ctl->peak_audio_in_r,
 				ctl->peak_mpx_out);
+			break;
+
+		case 'a':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			ctl->audio_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+			utils_info("New audio gain:  \t%i%%\n",
+				   (int)(100 * ctl->audio_gain));
+			break;
+
+		case 'm':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			ctl->mpx_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+			utils_info("New MPX gain:  \t%i%%\n",
+				   (int)(100 * ctl->mpx_gain));
+			break;
+
+		case 'p':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			ctl->pilot_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+			utils_info("New pilot gain:  \t%i%%\n",
+				   (int)(100 * ctl->pilot_gain));
+			break;
+
+		case 'r':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			ctl->rds_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+			utils_info("New RDS gain:  \t%i%%\n",
+				   (int)(100 * ctl->rds_gain));
+			break;
+
+		case 'c':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			ctl->stereo_carrier_gain =
+				(float)(strtol(temp, NULL, 10)) / 100.0;
+			utils_info("New stereo carrier gain:  \t%i%%\n",
+				   (int)(100 * ctl->stereo_carrier_gain));
+			break;
+
+		case 's':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x7;
+			/* Weaver and LP modulators eliminate USB but
+			 * they don't increase the gain of the LSB
+			 * so do it here when switching. */
+			if (ctl->stereo_modulation == FMMOD_SSB_WEAVER ||
+			    ctl->stereo_modulation == FMMOD_SSB_LPF)
+				ctl->stereo_carrier_gain = 2;
+			else
+				ctl->stereo_carrier_gain = 1;
+			utils_info("Set stereo modulation:  \t%i\n",
+				   ctl->stereo_modulation);
+			break;
+
+		case 'f':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			ctl->use_audio_lpf = strtol(temp, NULL, 10) & 0x1;
+			utils_info("Set Audio LPF status:  \t%i\n",
+				   ctl->use_audio_lpf);
+			break;
+		default:
+			usage(argv[0]);
+			utils_shm_destroy(shmem, 0);
+			return -1;
 		}
-		if (!strncmp(argv[i], "-a", 3)) {
-			if (i < argc - 1) {
-				memset(temp, 0, TEMP_BUF_LEN);
-				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->audio_gain =
-				    (float)(strtol(temp, NULL, 10)) / 100.0;
-				printf("New audio gain:  \t%i%%\n",
-				       (int)(100 * ctl->audio_gain));
-			} else {
-				usage(argv[0]);
-				goto cleanup;
-			}
-		}
-		if (!strncmp(argv[i], "-m", 3)) {
-			if (i < argc - 1) {
-				memset(temp, 0, TEMP_BUF_LEN);
-				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->mpx_gain =
-				    (float)(strtol(temp, NULL, 10)) / 100.0;
-				printf("New MPX gain:  \t%i%%\n",
-				       (int)(100 * ctl->mpx_gain));
-			} else {
-				usage(argv[0]);
-				goto cleanup;
-			}
-		}
-		if (!strncmp(argv[i], "-p", 3)) {
-			if (i < argc - 1) {
-				memset(temp, 0, TEMP_BUF_LEN);
-				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->pilot_gain =
-				    (float)(strtol(temp, NULL, 10)) / 100.0;
-				printf("New pilot gain:  \t%i%%\n",
-				       (int)(100 * ctl->pilot_gain));
-			} else {
-				usage(argv[0]);
-				goto cleanup;
-			}
-		}
-		if (!strncmp(argv[i], "-r", 3)) {
-			if (i < argc - 1) {
-				memset(temp, 0, TEMP_BUF_LEN);
-				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->rds_gain =
-				    (float)(strtol(temp, NULL, 10)) / 100.0;
-				printf("New RDS gain:  \t%i%%\n",
-				       (int)(100 * ctl->rds_gain));
-			} else {
-				usage(argv[0]);
-				goto cleanup;
-			}
-		}
-		if (!strncmp(argv[i], "-c", 3)) {
-			if (i < argc - 1) {
-				memset(temp, 0, TEMP_BUF_LEN);
-				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->stereo_carrier_gain =
-				    (float)(strtol(temp, NULL, 10)) / 100.0;
-				printf("New stereo carrier gain:  \t%i%%\n",
-				       (int)(100 * ctl->stereo_carrier_gain));
-			} else {
-				usage(argv[0]);
-				goto cleanup;
-			}
-		}
-		if (!strncmp(argv[i], "-s", 3)) {
-			if (i < argc - 1) {
-				memset(temp, 0, TEMP_BUF_LEN);
-				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->stereo_modulation =
-				    strtol(temp, NULL, 10) & 0x7;
-				/* Weaver modulator eliminates USB but
-				 * doesn't increase the gain of the LSB
-				 * so do it here when switching. */
-				if (ctl->stereo_modulation == FMMOD_SSB_WEAVER)
-					ctl->stereo_carrier_gain = 2;
-				else
-					ctl->stereo_carrier_gain = 1;
-				printf("Set stereo modulation:  \t%i\n",
-				       ctl->stereo_modulation);
-			} else {
-				usage(argv[0]);
-				goto cleanup;
-			}
-		}
-		if (!strncmp(argv[i], "-f", 3)) {
-			if (i < argc - 1) {
-				memset(temp, 0, TEMP_BUF_LEN);
-				snprintf(temp, 4, "%s", argv[++i]);
-				ctl->use_audio_lpf =
-				    strtol(temp, NULL, 10) & 0x1;
-				printf("Set Audio LPF status:  \t%i\n",
-				       ctl->use_audio_lpf);
-			} else {
-				usage(argv[0]);
-				goto cleanup;
-			}
-		}
+
+	if (argc < 2 || (argc > 1 && optind == 1)) {
+		usage(argv[0]);
+		ret = -1;
 	}
 
  cleanup:

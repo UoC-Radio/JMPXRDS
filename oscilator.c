@@ -80,7 +80,7 @@ osc_initialize(struct osc_state *osc, uint32_t sample_rate, int type)
 		}
 		break;
 	default:
-		return -1;
+		return -2;
 	}
 #endif
 
@@ -92,7 +92,7 @@ osc_initialize(struct osc_state *osc, uint32_t sample_rate, int type)
 	 */
 	if ((MAX_FREQUENCY >= sample_rate) ||
 	    ((MAX_FREQUENCY / sample_rate) % 2))
-		return -1;
+		return -3;
 
 	osc->sample_rate = sample_rate;
 

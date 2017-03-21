@@ -583,7 +583,7 @@ rtp_server_init(struct rtp_server *rtpsrv, int mpx_samplerate, int max_samples,
 						_rtp_server_init,
 						(void *)rtpsrv);
 		if (ret < 0 || rtpsrv->init_res != 0)
-			return -1;
+			return rtpsrv->init_res;
 	}
 
 	return 0;

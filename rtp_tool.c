@@ -22,18 +22,17 @@
 #include "rtp_server.h"
 #include <signal.h>		/* For sigqueue etc */
 #include <arpa/inet.h>		/* For inet_addr etc */
-#include <stdio.h>		/* For printf() */
 #include <unistd.h>		/* For getopt() */
 
 static void
 usage(char *name)
 {
-	printf("RTP Configuration tool for JMPXRDS\n");
-	printf("\nUsage: %s -g or [<parameter> <value>] pairs\n", name);
-	printf("\nParameters:\n"
-	       "\t-g\t\tGet current status\n"
-	       "\t-a   <string>\tAdd an IP address to the list of receivers\n"
-	       "\t-r   <string>\tRemove an IP address from the list of receivers\n");
+	utils_ann("RTP Server configuration tool for JMPXRDS\n");
+	utils_info("Usage: %s -g or [<parameter> <value>] pairs\n", name);
+	utils_info("\nParameters:\n"
+		"\t-g\t\tGet current status\n"
+		"\t-a   <string>\tAdd an IP address to the list of receivers\n"
+		"\t-r   <string>\tRemove an IP address from the list of receivers\n");
 }
 
 int
@@ -51,7 +50,7 @@ main(int argc, char *argv[])
 	shmem = utils_shm_attach(RTP_SRV_SHM_NAME,
 				 sizeof(struct rtp_server_control));
 	if (!shmem) {
-		perror("Unable to communicate with the RTP server");
+		utils_perr("Unable to communicate with the RTP server");
 		return -1;
 	}
 	ctl = (struct rtp_server_control*) shmem->mem;
@@ -60,35 +59,35 @@ main(int argc, char *argv[])
 	while ((opt = getopt(argc, argv, "ga:r:")) != -1)
 		switch (opt) {
 		case 'g':
-			printf("RTP bytes sent: %" PRIu64 "\n",
+			utils_info("RTP bytes sent: %" PRIu64 "\n",
 			       ctl->rtp_bytes_sent);
-			printf("RTCP bytes sent: %" PRIu64 "\n",
+			utils_info("RTCP bytes sent: %" PRIu64 "\n",
 			       ctl->rtcp_bytes_sent);
-			printf("List of receivers:\n");
+			utils_info("List of receivers:\n");
 			for (i = 0; i < ctl->num_receivers; i++) {
 				ipv4addr.s_addr = ctl->receivers[i];
-				printf("\t%s\n", inet_ntoa(ipv4addr));
+				utils_info("\t%s\n", inet_ntoa(ipv4addr));
 			}
 			break;
 		case 'a':
 			ret = inet_aton(optarg, &ipv4addr);
 			if (!ret) {
-				printf("Invalid IP address !\n");
+				utils_err("Invalid IP address !\n");
 				break;
 			}
 			value.sival_int = ipv4addr.s_addr;
 			if (sigqueue(pid, SIGUSR1, value) != 0)
-				perror("sigqueue():");
+				utils_perr("Couldn't send signal, sigqueue()");
 			break;
 		case 'r':
 			ret = inet_aton(optarg, &ipv4addr);
 			if (!ret) {
-				printf("Invalid IP address !\n");
+				utils_err("Invalid IP address !\n");
 				break;
 			}
 			value.sival_int = ipv4addr.s_addr;
 			if (sigqueue(pid, SIGUSR2, value) != 0)
-				perror("sigqueue():");
+				utils_perr("Couldn't send signal, sigqueue()");
 			break;
 		default:
 			usage(argv[0]);
@@ -98,10 +97,9 @@ main(int argc, char *argv[])
 
 	if (argc < 2 || (argc > 1 && optind == 1)) {
 		usage(argv[0]);
-		utils_shm_destroy(shmem, 0);
-		return -1;
+		ret = -1;
 	}
 
 	utils_shm_destroy(shmem, 0);
-	return 0;
+	return ret;
 }

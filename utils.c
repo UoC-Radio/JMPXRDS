@@ -25,6 +25,13 @@
 #include <sys/stat.h>	/* For mode constants */
 #include <fcntl.h>	/* For O_* constants */
 #include <unistd.h>	/* For ftruncate() */
+#include <stdarg.h>	/* For variable argument handling */
+#include <stdio.h>	/* For v/printf() */
+#include <errno.h>	/* For errno */
+
+/************************\
+* SHARED MEMORY HANDLING *
+\************************/
 
 struct shm_mapping*
 utils_shm_init(const char* name, int size)
@@ -121,3 +128,99 @@ utils_shm_destroy(struct shm_mapping* shmem, int unlink)
 
 	free(shmem);
 }
+
+void
+utils_shm_unlink_all()
+{
+	shm_unlink(FMMOD_CTL_SHM_NAME);
+	shm_unlink(RDS_ENC_SHM_NAME);
+	shm_unlink(RTP_SRV_SHM_NAME);
+}
+
+
+/****************\
+* CONSOLE OUTPUT *
+
+\****************/
+/* Some codes for prety output on the terminal */
+#define NORMAL	"\x1B[0m"
+#define	BRIGHT	"\x1B[1m"
+#define	DIM	"\x1B[2m"
+#define RED	"\x1B[31m"
+#define GREEN	"\x1B[32m"
+#define YELLOW	"\x1B[33m"
+#define BLUE	"\x1B[34m"
+#define MAGENTA	"\x1B[35m"
+#define CYAN	"\x1B[36m"
+#define WHITE	"\x1B[37m"
+
+void
+utils_ann(const char* msg)
+{
+	printf(GREEN);
+	printf("%s", msg);
+	printf(NORMAL);
+}
+
+void
+utils_info(const char* fmt,...)
+{
+	va_list args;
+
+	printf(CYAN);
+	va_start(args, fmt);
+	vprintf(fmt, args);
+	va_end(args);
+	printf(NORMAL);
+}
+
+void
+utils_err(const char* fmt,...)
+{
+	va_list args;
+
+	fprintf(stderr, RED);
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+	fprintf(stderr, NORMAL);
+}
+
+void
+utils_perr(const char* msg)
+{
+	fprintf(stderr, RED);
+	fprintf(stderr, "%s: %s\n", msg, strerror(errno));
+	fprintf(stderr, NORMAL);
+}
+
+#ifdef DEBUG
+void
+utils_dbg(const char* fmt,...)
+{
+	va_list args;
+
+	fprintf(stderr, MAGENTA);
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+	fprintf(stderr, NORMAL);
+}
+
+void
+utils_trace(const char* fmt,...)
+{
+	va_list args;
+
+	fprintf(stderr, YELLOW);
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+	fprintf(stderr, NORMAL);
+}
+#else
+void
+utils_dbg(const char* fmt,...) { }
+void
+utils_trace(const char* fmt,...) {}
+#endif

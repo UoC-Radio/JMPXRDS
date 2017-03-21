@@ -18,6 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "fmmod.h"
+#include "utils.h"
 #include <stdlib.h>		/* For NULL */
 #include <unistd.h>		/* For sleep() */
 #include <stdio.h>		/* For printf */
@@ -25,11 +26,23 @@
 #include <signal.h>		/* For signal handling / sig_atomic_t */
 #include <string.h>		/* For memset() */
 
+#ifdef DEBUG
+#include <execinfo.h>		/* For backtrace() etc */
+#include <ucontext.h>
+#endif
+
 static volatile sig_atomic_t active;
 
 static void
-signal_handler(int sig, siginfo_t * info, void *extra)
+signal_handler(int sig, siginfo_t * info, void *context)
 {
+#ifdef DEBUG
+	void *bt[16] = {0};
+	int bt_size = 0;
+	char **messages = NULL;
+	int i = 0;
+	ucontext_t *uc = (ucontext_t *)context;
+#endif
 	switch (sig) {
 	case SIGPIPE:
 		return;
@@ -38,6 +51,36 @@ signal_handler(int sig, siginfo_t * info, void *extra)
 		break;
 	case SIGUSR2:
 		rtp_server_remove_receiver(info->si_value.sival_int);
+		break;
+	case SIGABRT:
+		utils_err("[MAIN] Got abort at %p \n",
+			  info->si_addr);
+#ifdef DEBUG
+		if(info->si_addr) {
+			bt_size = backtrace(bt, 16);
+			messages = backtrace_symbols(bt, bt_size);
+			utils_trace("Backtrace:\n");
+			for(i= 1; i < bt_size; ++i)
+				utils_trace("\t%s\n", messages[i]);
+		}
+#endif
+		utils_shm_unlink_all();
+		raise(SIGKILL);
+		break;
+	case SIGSEGV:
+		utils_err("[MAIN] Got segfault at %p \n",
+			  info->si_addr);
+#ifdef DEBUG
+		if(info->si_addr) {
+			bt_size = backtrace(bt, 16);
+			messages = backtrace_symbols(bt, bt_size);
+			utils_trace("Backtrace:\n");
+			for(i= 1; i < bt_size; ++i)
+				utils_trace("\t%s\n", messages[i]);
+		}
+#endif
+		utils_shm_unlink_all();
+		raise(SIGKILL);
 		break;
 	default:
 		active = 0;
@@ -61,7 +104,7 @@ main(int argc, char *argv[])
 	sched_getparam(0, &sched);
 	sched.sched_priority = 99;
 	if (sched_setscheduler(0, SCHED_FIFO, &sched) != 0)
-		perror("Unable to set real time scheduling:");
+		utils_perr("[MAIN] Unable to set real time scheduling:");
 
 	ret = fmmod_initialize(&fmmod_instance, FMMOD_REGION_EU);
 	if (ret < 0)
@@ -81,8 +124,10 @@ main(int argc, char *argv[])
 	sigaction(SIGPIPE, &sa, NULL);
 	sigaction(SIGUSR1, &sa, NULL);
 	sigaction(SIGUSR2, &sa, NULL);
+	sigaction(SIGSEGV, &sa, NULL);
+	sigaction(SIGABRT, &sa, NULL);
 
-	puts("JMPXRDS Started");
+	utils_ann("JMPXRDS Started\n");
 
 	/* Keep running until the transport stops
 	 * or in case we are interrupted */
