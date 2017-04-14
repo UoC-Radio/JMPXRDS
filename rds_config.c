@@ -123,6 +123,23 @@ rds_set_ta(struct rds_encoder_state *st, uint8_t ta)
 }
 
 uint8_t
+rds_get_tp(struct rds_encoder_state * st)
+{
+	if (st == NULL)
+		return 0;
+	return st->tp;
+}
+
+int
+rds_set_tp(struct rds_encoder_state *st, uint8_t tp)
+{
+	if (st == NULL)
+		return -1;
+	st->tp = tp & 1;
+	return 0;
+}
+
+uint8_t
 rds_get_ms(struct rds_encoder_state * st)
 {
 	if (st == NULL)

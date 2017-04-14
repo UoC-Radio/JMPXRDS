@@ -130,6 +130,20 @@ struct rds_encoder_state {
 	uint8_t af_idx:4;
 };
 
+enum rds_fields {
+	RDS_FIELD_PI = 0,
+	RDS_FIELD_ECC,
+	RDS_FIELD_LIC,
+	RDS_FIELD_PTY,
+	RDS_FIELD_TA,
+	RDS_FIELD_TP,
+	RDS_FIELD_MS,
+	RDS_FIELD_DI,
+	RDS_FIELD_PS,
+	RDS_FIELD_PTYN,
+	RDS_FIELD_RT,
+};
+
 struct rds_encoder {
 	struct shm_mapping* state_map;
 	struct rds_encoder_state *state;
@@ -176,6 +190,8 @@ uint8_t rds_get_pty(struct rds_encoder_state *st);
 int rds_set_pty(struct rds_encoder_state *st, uint8_t pty);
 uint8_t rds_get_ta(struct rds_encoder_state *st);
 int rds_set_ta(struct rds_encoder_state *st, uint8_t ta);
+uint8_t rds_get_tp(struct rds_encoder_state * st);
+int rds_set_tp(struct rds_encoder_state *st, uint8_t tp);
 uint8_t rds_get_ms(struct rds_encoder_state *st);
 int rds_set_ms(struct rds_encoder_state *st, uint8_t ms);
 uint8_t rds_get_di(struct rds_encoder_state *st);
@@ -186,3 +202,7 @@ char *rds_get_ptyn(struct rds_encoder_state *st);
 int rds_set_ptyn(struct rds_encoder_state *st, const char *ptyn);
 char *rds_get_rt(struct rds_encoder_state *st);
 int rds_set_rt(struct rds_encoder_state *st, const char *rt, int flush);
+
+/* Abstract getter/setter for bit fields */
+typedef uint8_t (*rds_bf_getter) (struct rds_encoder_state *);
+typedef int (*rds_bf_setter) (struct rds_encoder_state *, uint8_t);

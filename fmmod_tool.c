@@ -43,7 +43,7 @@ usage(char *name)
 		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
 }
 
-/* Yes it's ugly... */
+
 int
 main(int argc, char *argv[])
 {
@@ -140,6 +140,8 @@ main(int argc, char *argv[])
 			memset(temp, 0, TEMP_BUF_LEN);
 			snprintf(temp, 4, "%s", optarg);
 			ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x7;
+			if(ctl->stereo_modulation > FMMOD_MONO)
+				ctl->stereo_modulation = FMMOD_DSB;
 			/* Weaver and LP modulators eliminate USB but
 			 * they don't increase the gain of the LSB
 			 * so do it here when switching. */

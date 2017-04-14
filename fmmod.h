@@ -89,6 +89,8 @@ struct fmmod_control {
 	float peak_mpx_out;
 	float peak_audio_in_l;
 	float peak_audio_in_r;
+	int sample_rate;
+	int max_samples;
 };
 
 struct fmmod_instance {

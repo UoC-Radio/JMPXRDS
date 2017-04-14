@@ -530,7 +530,6 @@ hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 		ret = -3;
 		goto cleanup;
 	}
-	fftw_execute(ht->dft_plan);
 
 
 	/* Create IFT plan */

@@ -30,16 +30,20 @@ void usage(char *name)
 	utils_ann("RDS Configuration tool for JMPXRDS\n");
 	utils_info("Usage: %s -g or [<parameter> <value>] pairs\n", name);
 	utils_info("\nParameters:\n"
-	       "\t-g\t\tGet current config\n"
-	       "\t-e          \tEnable RDS encoder\n"
-	       "\t-d          \tDisable RDS encoder\n"
-	       "\t-rt   <text>\tSet radiotext\n"
-	       "\t-ps   <text>\tSet Programme Service Name (PSN)\n"
-	       "\t-pi   <hex>\tSet Programme Identifier (PI)\n"
-	       "\t-pty  <int>\tSet Programme Type (PTY)\n"
-	       "\t-ptyn <text>\tSet Programme Type Name (PTYN)\n"
-	       "\t-ecc  <hex>\tSet Extended Country Code (ECC)\n"
-	       "\t-lic  <hex>\tSet Language Identifier Code\n");
+		"\t-g\t\tGet current config\n"
+		"\t-e          \tEnable RDS encoder\n"
+		"\t-d          \tDisable RDS encoder\n"
+		"\t-rt   <text>\tSet radiotext\n"
+		"\t-ps   <text>\tSet Programme Service Name (PSN)\n"
+		"\t-pi   <hex>\tSet Programme Identifier (PI)\n"
+		"\t-pty  <int>\tSet Programme Type (PTY)\n"
+		"\t-ptyn <text>\tSet Programme Type Name (PTYN)\n"
+		"\t-ecc  <hex>\tSet Extended Country Code (ECC)\n"
+		"\t-lic  <hex>\tSet Language Identifier Code (LIC)\n"
+		"\t-tp   <bool>\tSet Traffic Programme flag (TP)\n"
+		"\t-ta   <bool>\tSet Traffic Announcement flag (TA)\n"
+		"\t-ms   <bool>\tSet Music/Speech flag (MS)\n"
+		"\t-di   <hex>\tSet Decoder Info (DI)\n");
 }
 
 static const struct option opts[] = {
@@ -50,6 +54,10 @@ static const struct option opts[] = {
 	{"ptyn", required_argument,0,	5},
 	{"ecc",	required_argument,0,	6},
 	{"lic",	required_argument,0,	7},
+	{"tp",	required_argument,0,	8},
+	{"ta",	required_argument,0,	9},
+	{"ms",	required_argument,0,	10},
+	{"di",	required_argument,0,	11},
 	{0,	0,		0,	0}
 };
 
@@ -64,6 +72,10 @@ main(int argc, char *argv[])
 	uint8_t pty = 0;
 	uint8_t ecc = 0;
 	uint16_t lic = 0;
+	uint8_t tp = 0;
+	uint8_t ta = 0;
+	uint8_t ms = 0;
+	uint8_t di = 0;
 	char temp[TEMP_BUF_LEN] = { 0 };
 	struct shm_mapping *shmem = NULL;
 	struct rds_encoder_state *st = NULL;
@@ -90,7 +102,11 @@ main(int argc, char *argv[])
 				"\tPTY:  %i\n"
 				"\tPSN:   %s\n"
 				"\tRT:   %s\n"
-				"\tPTYN: %s\n",
+				"\tPTYN: %s\n"
+				"\tTP: 0x%X\n"
+				"\tTA: 0x%X\n"
+				"\tMS: 0x%X\n"
+				"\tDI: 0x%X\n",
 				st->enabled ? "Enabled" : "Disabled",
 				rds_get_pi(st),
 				rds_get_ecc(st),
@@ -98,7 +114,11 @@ main(int argc, char *argv[])
 				rds_get_pty(st),
 				rds_get_ps(st),
 				st->rt_set ? rds_get_rt(st) : "<Not set>",
-				st->ptyn_set ? rds_get_ptyn(st) : "<Not set>");
+				st->ptyn_set ? rds_get_ptyn(st) : "<Not set>",
+				rds_get_tp(st),
+				rds_get_ta(st),
+				rds_get_ms(st),
+				rds_get_di(st));
 			break;
 		case 'e':
 			st->enabled = 1;
@@ -182,6 +202,51 @@ main(int argc, char *argv[])
 				goto cleanup;
 			} else
 				utils_info("LIC set:  \t0x%X\n", lic);
+			break;
+		case 8:	/* Traffic Programme */
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 2, "%s", optarg);
+			tp = strtol(temp, NULL, 2) ? 1 : 0;
+			ret = rds_set_tp(st, tp);
+			if (ret < 0) {
+				utils_err("Failed to set TP !\n");
+				goto cleanup;
+			} else
+				utils_info("TP set:  \t0x%X\n", tp);
+			break;
+		case 9:	/* Traffic Announcement */
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 2, "%s", optarg);
+			ta = strtol(temp, NULL, 2) ? 1 : 0;
+			ret = rds_set_ta(st, ta);
+			if (ret < 0) {
+				utils_err("Failed to set TA !\n");
+				goto cleanup;
+			} else
+				utils_info("TA set:  \t0x%X\n", ta);
+			break;
+		case 10:/* Music/Speech flag */
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 2, "%s", optarg);
+			ms = strtol(temp, NULL, 2) ? 1 : 0;
+			ret = rds_set_ms(st, ms);
+			if (ret < 0) {
+				utils_err("Failed to set MS !\n");
+				goto cleanup;
+			} else
+				utils_info("MS set:  \t0x%X\n", ms);
+			break;
+		case 11:/* Decoder Info */
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 2, "%s", optarg);
+			di = strtol(temp, NULL, 16);
+			di &= 0xF;
+			ret = rds_set_di(st, di);
+			if (ret < 0) {
+				utils_err("Failed to set MS !\n");
+				goto cleanup;
+			} else
+				utils_info("MS set:  \t0x%X\n", di);
 			break;
 		default:
 			usage(argv[0]);

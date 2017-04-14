@@ -2,7 +2,7 @@
 AC_INIT([jmpxrds],[0.5],[mickflemm+jmpxrds@gmail.com])
 AC_CONFIG_SRCDIR([main.c])
 AC_CONFIG_AUX_DIR([build-aux])
-AM_INIT_AUTOMAKE([foreign -Wall -Werror dist-bzip2])
+AM_INIT_AUTOMAKE([foreign subdir-objects -Wall -Werror dist-bzip2])
 
 #Configuration / define macros
 AC_ARG_WITH([wave-table],
@@ -22,6 +22,12 @@ AC_ARG_WITH([rtp-server],
 	    [],
 	    [with_rtp_server=yes])
 
+AC_ARG_WITH([gtk],
+	    AS_HELP_STRING([--without-gtk],
+			   [Don't build the GUI]),
+	    [],
+	    [with_gtk=yes])
+
 # Check for programs
 AC_PROG_CC
 
@@ -35,7 +41,7 @@ AC_SUBST([LIBRT])
 AC_CHECK_LIB([soxr], [soxr_create], [LIBSAMPLERATE=-lsoxr],
 	     AC_MSG_ERROR([Could not find libsoxr]))
 AC_SUBST([LIBSAMPLERATE])
-AC_CHECK_LIB([m], [sin], [LIBFFTW3=-lfftw3],
+AC_CHECK_LIB([fftw3], [fftw_execute], [LIBFFTW3=-lfftw3],
 	     AC_MSG_ERROR([Could not find libfftw3]))
 AC_SUBST([LIBFFTW3])
 AC_CHECK_LIB([jack], [jack_client_open], [LIBJACK=-ljack],
@@ -66,6 +72,37 @@ AS_IF([test "x$with_rtp_server" != xno],
 		   [RTP Server disabled during config])
 	])
 AM_CONDITIONAL([RTPSRV], [test "x$with_rtp_server" != xno])
+
+AS_IF([test "x$with_gtk" != xno],
+	[PKG_CHECK_MODULES([GTK],
+			   [
+				gtk+-3.0 >= 3.16.0
+			   ],
+			   [
+				AC_SUBST(GTK_CFLAGS)
+				AC_SUBST(GTK_LIBS)
+			   ],
+			   [
+				AC_MSG_ERROR([Could not find GTK+ >= 3.16])
+			   ])
+	 PKG_CHECK_MODULES([Epoxy],
+			   [
+				epoxy >= 1.3.0
+			   ],
+			   [
+				AC_SUBST(Epoxy_CFLAGS)
+				AC_SUBST(Epoxy_LIBS)
+			   ],
+			   [
+				AC_MSG_ERROR([Could not find libepoxy >= 1.3.0])
+			   ])
+	],
+	[
+	 AC_DEFINE([DISABLE_GUI], [1],
+		   [GUI disabled during config])
+	])
+AM_CONDITIONAL([GUI], [test "x$with_gtk" != xno])
+
 
 # Check for headers
 AC_CHECK_HEADERS([arpa/inet.h fcntl.h stdint.h stdlib.h string.h])

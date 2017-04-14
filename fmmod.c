@@ -811,6 +811,8 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	ctl->mpx_gain = 1.0;
 	ctl->stereo_modulation = FMMOD_DSB;
 	ctl->use_audio_lpf = 1;
+	ctl->sample_rate = output_samplerate;
+	ctl->max_samples = max_process_frames;
 
 	/* Tell the JACK server that we are ready to roll.  Our
 	 * process() callback will start running now. */
