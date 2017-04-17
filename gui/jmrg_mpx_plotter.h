@@ -24,15 +24,14 @@ struct mpx_plotter {
 	GLint	in_gp_idx;
 	GLuint	vbos[3];
 	GLuint	vao;
-	fftw_complex *complex_buff;
-	double	*real_buff;
-	fftw_plan dft_plan;
+	fftwf_complex *complex_buff;
+	float	*real_buff;
+	fftwf_plan dft_plan;
 	uint32_t sample_rate;
 	uint16_t num_bins;
 	uint16_t max_samples;
 	uint16_t half_bins;
 	uint16_t drawable_bins;
-	float	*period;
 	int	avg;
 	int	max_hold;
 	char	sockpath[32];

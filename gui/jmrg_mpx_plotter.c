@@ -56,11 +56,10 @@ jmrg_mpxp_create_grid_points(struct mpx_plotter *mpxp)
 static void
 jmrg_mpxp_update_y_vals(struct mpx_plotter *mpxp)
 {
-	double norm = 1.0L / mpxp->num_bins;
-	double mag = 0.0L;
-	double db = 0.0L;
-	double scaled = 0.0L;
-	float fscaled = 0.0;
+	float norm = 1.0 / (float) mpxp->num_bins;
+	float mag = 0.0;
+	float db = 0.0;
+	float scaled = 0.0;
 	float out = -1.0;
 	int i = 0;
 	int ret = 0;
@@ -80,7 +79,7 @@ jmrg_mpxp_update_y_vals(struct mpx_plotter *mpxp)
 		return;
 	}
 
-	ret = fread((void*) mpxp->period, sizeof(float),
+	ret = fread((void*) mpxp->real_buff, sizeof(float),
 		    mpxp->max_samples, sock);
 	if(ret != mpxp->max_samples) {
 		perror("fread()");
@@ -90,16 +89,13 @@ jmrg_mpxp_update_y_vals(struct mpx_plotter *mpxp)
 
 	fclose(sock);
 
-	for(i = 0; i < mpxp->max_samples; i++)
-		mpxp->real_buff[i] = (double) mpxp->period[i];
-
-	fftw_execute(mpxp->dft_plan);
+	fftwf_execute(mpxp->dft_plan);
 
 	for(i = 0; i < mpxp->drawable_bins; i++) {
-		mag = pow(mpxp->complex_buff[i][0], 2) +
-		      pow(mpxp->complex_buff[i][1], 2);
-		mag = sqrt(mag) * norm;
-		db = 20 * log10(mag);
+		mag = powf(mpxp->complex_buff[i][0], 2) +
+		      powf(mpxp->complex_buff[i][1], 2);
+		mag = sqrtf(mag) * norm;
+		db = 20 * log10f(mag);
 		/* We want a range from -60 to 0, so -60 -> -1, 0 -> 1 */
 		if(db <= -60)
 			scaled = -1;
@@ -108,17 +104,15 @@ jmrg_mpxp_update_y_vals(struct mpx_plotter *mpxp)
 		else
 			scaled = (db + 30.0L) / 30.0L;
 
-		fscaled = (float) scaled;
-
 		if(mpxp->avg) {
 			mpxp->y_vals[i] -= 0.008;
-			if(fscaled > mpxp->y_vals[i])
-				mpxp->y_vals[i] = fscaled;
+			if(scaled > mpxp->y_vals[i])
+				mpxp->y_vals[i] = scaled;
 		} else
-			mpxp->y_vals[i] = fscaled;
+			mpxp->y_vals[i] = scaled;
 
-		if(fscaled > mpxp->y_peak_vals[i])
-			mpxp->y_peak_vals[i] = fscaled;
+		if(scaled > mpxp->y_peak_vals[i])
+			mpxp->y_peak_vals[i] = scaled;
 	}
 	return;
 }
@@ -191,11 +185,9 @@ jmrg_mpxp_destroy(GtkWidget *container, struct mpx_plotter *mpxp)
 	if(mpxp->points)
 		free(mpxp->points);
 	if(mpxp->complex_buff)
-		fftw_free(mpxp->complex_buff);
+		fftwf_free(mpxp->complex_buff);
 	if(mpxp->real_buff)
-		fftw_free(mpxp->real_buff);
-	if(mpxp->period)
-		free(mpxp->period);
+		fftwf_free(mpxp->real_buff);
 	free(mpxp);
 
 	return;
@@ -252,19 +244,13 @@ jmrg_mpx_plotter_init(int sample_rate, int max_samples)
 	}
 
 	/* Allocate buffers */
-	mpxp->period = malloc(mpxp->max_samples * sizeof(float));
-	if(!mpxp->period) {
-		ret = -2;
-		goto cleanup;
-	}
-
-	mpxp->real_buff = fftw_alloc_real(mpxp->max_samples);
+	mpxp->real_buff = fftwf_alloc_real(mpxp->max_samples);
 	if(!mpxp->real_buff) {
 		ret = -3;
 		goto cleanup;
 	}
 
-	mpxp->complex_buff = fftw_alloc_complex(mpxp->half_bins);
+	mpxp->complex_buff = fftwf_alloc_complex(mpxp->half_bins);
 	if(!mpxp->complex_buff) {
 		ret = -4;
 		goto cleanup;
@@ -293,7 +279,7 @@ jmrg_mpx_plotter_init(int sample_rate, int max_samples)
 		mpxp->y_peak_vals[i] = -1.0;
 
 	/* Create DFT plan */
-	mpxp->dft_plan = fftw_plan_dft_r2c_1d(mpxp->num_bins, mpxp->real_buff,
+	mpxp->dft_plan = fftwf_plan_dft_r2c_1d(mpxp->num_bins, mpxp->real_buff,
 					     mpxp->complex_buff, FFTW_MEASURE);
 	if(!mpxp->dft_plan) {
 		ret = -8;

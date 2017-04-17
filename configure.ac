@@ -96,6 +96,9 @@ AS_IF([test "x$with_gtk" != xno],
 			   [
 				AC_MSG_ERROR([Could not find libepoxy >= 1.3.0])
 			   ])
+	 AC_CHECK_LIB([fftw3f], [fftwf_execute], [LIBFFTW3F=-lfftw3f],
+	     AC_MSG_ERROR([Could not find libfftw3f]))
+	 AC_SUBST([LIBFFTW3F])
 	],
 	[
 	 AC_DEFINE([DISABLE_GUI], [1],

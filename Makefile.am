@@ -26,7 +26,7 @@ jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_cbox_text.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_fmmod_panel.c @srcdir@/gui/jmrg_rdsenc_panel.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/rds_codes.c @srcdir@/gui/jmpxrds_gui.c
 
-jmpxrds_gui_LDADD = $(LIBM) $(LIBRT) $(LIBFFTW3) $(GTK_LIBS) $(Epoxy_LIBS)
+jmpxrds_gui_LDADD = $(LIBM) $(LIBRT) $(LIBFFTW3F) $(GTK_LIBS) $(Epoxy_LIBS)
 jmpxrds_gui_CFLAGS = $(CFLAGS) $(GTK_CFLAGS) $(Epoxy_CFLAGS)
 jmpxrds_gui_CFLAGS += -DDATA_PATH='"@datarootdir@/jmpxrds_gui/"'
 
