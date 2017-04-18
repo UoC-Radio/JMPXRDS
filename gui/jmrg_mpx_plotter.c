@@ -75,14 +75,14 @@ jmrg_mpxp_update_y_vals(struct mpx_plotter *mpxp)
 
 	sock = fopen(mpxp->sockpath, "rb");
 	if(sock == NULL) {
-		perror("fopen()");
+		utils_perr("[MPX PLOTTER] Could not open socket");
 		return;
 	}
 
 	ret = fread((void*) mpxp->real_buff, sizeof(float),
 		    mpxp->max_samples, sock);
 	if(ret != mpxp->max_samples) {
-		perror("fread()");
+		utils_perr("[MPX PLOTTER] Could not read from socket");
 		skip = 1;
 		return;
 	}
