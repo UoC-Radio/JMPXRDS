@@ -461,25 +461,19 @@ _rtp_server_init(void *data)
 	}
 	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpbin);
 
-	/* Initialize the UDP sink for outgoing RTP messages and add localhost
-	 * to the list of receivers */
+	/* Initialize the UDP sink for outgoing RTP messages */
 	rtpsrv->rtpsink = gst_element_factory_make("multiudpsink", "rtpsink");
 	if (!rtpsrv->rtpsink) {
 		ret = -10;
 		goto cleanup;
 	}
-	g_signal_emit_by_name(rtpsrv->rtpsink, "add", "127.0.0.1",
-			      rtpsrv->baseport, NULL);
 
-	/* Initialize the UDP sink for outgoing RTCP messages and add localhost
-	 * to the list of receivers */
+	/* Initialize the UDP sink for outgoing RTCP messages */
 	rtpsrv->rtcpsink = gst_element_factory_make("multiudpsink", "rtcpsink");
 	if (!rtpsrv->rtcpsink) {
 		ret = -11;
 		goto cleanup;
 	}
-	g_signal_emit_by_name(rtpsrv->rtcpsink, "add", "127.0.0.1",
-			      rtpsrv->baseport + 1, NULL);
 
 	/* no need for synchronisation or preroll on the RTCP sink */
 	g_object_set(rtpsrv->rtcpsink, "async", FALSE, "sync", FALSE, NULL);

@@ -16,13 +16,12 @@ const char css_style[] = ".gain_bar block.empty, block.filled  {"\
 				"background: #669999;"\
 				"min-height: 50px;"\
 				"color: black;"\
-				"font-weight: bold;"
-				"font-family: monospace;"
+				"font-weight: bold;"\
+				"font-family: monospace;"\
 				"text-shadow: 1px 1px 5px black;"\
 				"box-shadow: inset 0px 0px 5px black;"\
 				"border: 1px solid black;"\
 			"}";
-
 
 /************************\
 * COMMON SIGNAL HANDLERS *
@@ -38,6 +37,10 @@ jmrg_free_vmap(GtkWidget *widget, gpointer data)
 		/* Give it some time for the polling loop to run
 		 * and terminate */
 		nanosleep(&tv, NULL);
+	}
+	if(vmap->iplstore) {
+		g_list_store_remove_all(vmap->iplstore);
+		g_object_unref(vmap->iplstore);
 	}
 	free(vmap);
 	return;
@@ -61,6 +64,7 @@ main(int argc, char *argv[])
 	GdkScreen *screen = NULL;
 	struct control_page *fmmod_panel = NULL;
 	struct control_page *rdsenc_panel = NULL;
+	struct control_page *rtpserv_panel = NULL;
 	int ret = 0;
 
 	/* Initialize gtk */
@@ -126,6 +130,20 @@ main(int argc, char *argv[])
 	}
 	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), rdsenc_panel->container,
 				 rdsenc_panel->label);
+
+	/* Initialize RTPServer control panel */
+	rtpserv_panel = malloc(sizeof(struct control_page));
+	if(!rtpserv_panel) {
+		ret = -7;
+		goto cleanup;
+	}
+	ret = jmrg_rtpserv_panel_init(rtpserv_panel);
+	if(ret < 0) {
+		ret = -7;
+		goto cleanup;
+	}
+	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), rtpserv_panel->container,
+				 rtpserv_panel->label);
 
 	gtk_widget_show_all(window);
 

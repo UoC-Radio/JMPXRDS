@@ -22,7 +22,8 @@ jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_level_bar.c @srcdir@/gui/jmrg_vscale.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_mpx_plotter.c @srcdir@/gui/jmrg_mpx_plotter_gl.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_checkbox.c @srcdir@/gui/jmrg_set_button.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_display_field.c @srcdir@/gui/jmrg_acentry.c
-jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_cbox_text.c
+jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_cbox_text.c @srcdir@/gui/jmrg_iplist.c
+jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_rtpstats.c @srcdir@/gui/jmrg_rtpserv_panel.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_fmmod_panel.c @srcdir@/gui/jmrg_rdsenc_panel.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/rds_codes.c @srcdir@/gui/jmpxrds_gui.c
 

@@ -1,5 +1,5 @@
 #include <gtk/gtk.h>	/* For GTK+ support */
-#include "fmmod.h"	/* Also brings in rds_encoder.h */
+#include "fmmod.h"	/* Also brings in rds_encoder.h and rtp_server.h */
 #include "utils.h"
 
 struct control_page {
@@ -9,38 +9,47 @@ struct control_page {
 };
 
 struct value_map {
-	/* The widget that polling function will update */
+	/* The widgets that polling function will update */
 	GtkWidget *target;
+	GtkWidget *target2;
 
-	/* Widget from which to get value to set (for set button) */
+	/* Widget from which to get value to set (for buttons) */
 	GtkWidget *entry;
 
-	/* Checkbox widget used for setting A/B flag on RT */
-	GtkWidget *flag;
+	/* Pointer of value to read/write to */
+	void *val_ptr;
 
+	/* Value associated with this mapping */
+	int val;
+
+	/* Event source id, used to remove
+	 * polling loop from main loop */
+	guint	esid;
+
+	/* -== RTP-SPECIFIC ==- */
+	struct rtp_server_control *rtp_ctl;
+	GListStore *iplstore;
+
+	/*-== RDS-SPECIFIC ==-*/
 	struct rds_encoder_state *st;
-	/* Field type associated with this widget */
+
+	/* RDS field type associated with this widget */
 	int type;
 
 	/* Function pointers to bit field getters/setters
 	 * used by checkboxes on RDSEnc panel */
 	rds_bf_getter getter;
 	rds_bf_setter setter;
+
 	/* Bitmask to use when setting bitfields
 	 * used when setting the various DI fields */
 	int mask;
 
-	/* Pointer of value to read/write to */
-	void *val_ptr;
+	/* Checkbox widget used for setting A/B flag on RT */
+	GtkWidget *flag;
 
-	/* Value associated with this widget */
-	int val;
 	/* Autocomplete entry match index */
 	int acentry_match_idx;
-
-	/* Event source id, used to remove
-	 * polling loop from main loop */
-	guint	esid;
 };
 
 
@@ -58,10 +67,14 @@ GtkWidget* jmrg_checkbox_init(struct rds_encoder_state*, const char*,
 GtkWidget* jmrg_display_field_init(struct rds_encoder_state*, const char*, int);
 GtkWidget* jmrg_cbox_text_init(struct rds_encoder_state*, const char*, int);
 GtkWidget* jmrg_acentry_init(struct rds_encoder_state*, const char*, int);
+/* Widgets on RTPServ panel */
+GtkWidget* jmrg_iplist_init(struct rtp_server_control *ctl);
+GtkWidget* jmrg_rtpstats_init(struct rtp_server_control *ctl);
 
 /* Panels */
 int jmrg_fmmod_panel_init(struct control_page*);
 int jmrg_rdsenc_panel_init(struct control_page*);
+int jmrg_rtpserv_panel_init(struct control_page *ctl_page);
 
 /* Common signal handlers */
 void jmrg_free_vmap(GtkWidget*, gpointer);
