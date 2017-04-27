@@ -163,7 +163,7 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
 	vmap->flag = flag_check;
 
 	/* Add the set button */
-	set_button = jmrg_set_button_init(st, "Set", vmap);
+	set_button = jmrg_set_button_init("Set", vmap);
 	if(!set_button)
 		goto cleanup;
 	gtk_box_pack_start(GTK_BOX(hbox), set_button, 0, 0, 6);

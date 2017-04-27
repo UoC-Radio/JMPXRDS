@@ -60,8 +60,7 @@ GtkWidget* jmrg_vscale_init(const char*, float*, gdouble);
 GtkWidget* jmrg_level_bar_init(const char*, float*);
 GtkWidget* jmrg_radio_button_init(const char*, int *, int, GtkRadioButton*);
 /* Widgets on RDSEnc panel */
-GtkWidget* jmrg_set_button_init(struct rds_encoder_state*,
-				const char*, struct value_map*);
+GtkWidget* jmrg_set_button_init(const char*, struct value_map*);
 GtkWidget* jmrg_checkbox_init(struct rds_encoder_state*, const char*,
 			      int, int, int);
 GtkWidget* jmrg_display_field_init(struct rds_encoder_state*, const char*, int);

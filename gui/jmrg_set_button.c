@@ -71,8 +71,7 @@ jmrg_set_button_clicked(GtkButton *button, gpointer data)
 \*************/
 
 GtkWidget*
-jmrg_set_button_init(struct rds_encoder_state *st, const char* label,
-		     struct value_map *vmap)
+jmrg_set_button_init(const char* label, struct value_map *vmap)
 {
 	GtkWidget *button = NULL;
 
