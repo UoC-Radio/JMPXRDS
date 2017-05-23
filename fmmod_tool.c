@@ -40,7 +40,8 @@ usage(char *name)
 		"\t-c   <int>\tSet stereo carrier gain percentage (default is 100%%)\n"
 		"\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley),\n"
 				"\t\t\t2-> SSB (Weaver), 3-> SSB (LP Filter), 4-> Mono\n"
-		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n");
+		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n"
+		"\t-e	<int>\tSet FM Pre-emphasis tau (0-> 50us, 1->75us, 2->Disabled)\n");
 }
 
 
@@ -62,7 +63,7 @@ main(int argc, char *argv[])
 	}
 	ctl = (struct fmmod_control*) shmem->mem;
 
-	while ((opt = getopt(argc, argv, "ga:m:p:r:c:s:f:")) != -1)
+	while ((opt = getopt(argc, argv, "ga:m:p:r:c:s:f:e:")) != -1)
 		switch (opt) {
 		case 'g':
 			utils_info("Current config:\n"
@@ -73,6 +74,7 @@ main(int argc, char *argv[])
 				"\tStereo gain: %i%%\n"
 				"\tStereo mode: %s\n"
 				"\tAudio LPF: %s\n"
+				"\tFM Pre-emph tau: %s\n"
 				"Current gains:\n"
 				"\tAudio Left:  %f\n"
 				"\tAudio Right: %f\n"
@@ -91,6 +93,9 @@ main(int argc, char *argv[])
 					FMMOD_SSB_LPF ? "SSB (LP Filter)" :
 				"DSBSC",
 				ctl->use_audio_lpf ? "Enabled" : "Disabled",
+				(ctl->preemph_tau == 0) ? "50us (World)" :
+				(ctl->preemph_tau == 1) ? "75us (U.S.A.)" :
+				"Disabled",
 				ctl->peak_audio_in_l, ctl->peak_audio_in_r,
 				ctl->peak_mpx_out);
 			break;
@@ -138,7 +143,7 @@ main(int argc, char *argv[])
 
 		case 's':
 			memset(temp, 0, TEMP_BUF_LEN);
-			snprintf(temp, 4, "%s", optarg);
+			snprintf(temp, 2, "%s", optarg);
 			ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x7;
 			if(ctl->stereo_modulation > FMMOD_MONO)
 				ctl->stereo_modulation = FMMOD_DSB;
@@ -156,10 +161,19 @@ main(int argc, char *argv[])
 
 		case 'f':
 			memset(temp, 0, TEMP_BUF_LEN);
-			snprintf(temp, 4, "%s", optarg);
+			snprintf(temp, 2, "%s", optarg);
 			ctl->use_audio_lpf = strtol(temp, NULL, 10) & 0x1;
 			utils_info("Set Audio LPF status:  \t%i\n",
 				   ctl->use_audio_lpf);
+			break;
+		case 'e':
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 2, "%s", optarg);
+			ctl->preemph_tau = strtol(temp, NULL, 10) & 0x3;
+			if(ctl->preemph_tau > 2)
+				ctl->preemph_tau = 2;
+			utils_info("Set FM Pre-emphasis tau:  \t%i\n",
+				   ctl->preemph_tau);
 			break;
 		default:
 			usage(argv[0]);

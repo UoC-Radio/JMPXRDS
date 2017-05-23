@@ -106,7 +106,7 @@ main(int argc, char *argv[])
 	if (sched_setscheduler(0, SCHED_FIFO, &sched) != 0)
 		utils_perr("[MAIN] Unable to set real time scheduling:");
 
-	ret = fmmod_initialize(&fmmod_instance, FMMOD_REGION_EU);
+	ret = fmmod_initialize(&fmmod_instance);
 	if (ret < 0)
 		exit(ret);
 

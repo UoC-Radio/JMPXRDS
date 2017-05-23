@@ -20,11 +20,14 @@
 #include <stdint.h>		/* For typed integers */
 #include <fftw3.h>		/* For FFTW support */
 
-/* A generic FFT low pass filter */
+/* A generic FFT low pass filter with optional pre-emphasis */
 struct lpf_filter_data {
 	uint16_t num_bins;
+	uint16_t middle_bin;
 	uint16_t cutoff_bin;
+	double variance;
 	uint32_t sample_rate;
+	double	 bin_bw;
 	double *filter_curve;
 	fftw_complex *complex_buff;
 	double *real_buff;
@@ -32,31 +35,26 @@ struct lpf_filter_data {
 	fftw_plan ift_plan;
 };
 
+enum lpf_preemph_mode {
+	LPF_PREEMPH_50US = 0,	/* E.U. / WORLD */
+	LPF_PREEMPH_75US = 1,	/* U.S. */
+	LPF_PREEMPH_NONE = 2,
+};
+
 void lpf_filter_destroy(struct lpf_filter_data *);
 int lpf_filter_init(struct lpf_filter_data *, uint32_t, uint32_t, uint16_t);
-int lpf_filter_apply(struct lpf_filter_data *, float*, float*, uint16_t, float);
-
-/* FM Preemphasis IIR filter
- * Only used as part of the combined audio filter- */
-struct fmpreemph_filter_data {
-	float iir_inbuff_l[2];
-	float iir_outbuff_l[2];
-	float iir_inbuff_r[2];
-	float iir_outbuff_r[2];
-	float iir_ataps[3];
-	float iir_btaps[2];
-};
+int lpf_filter_apply(struct lpf_filter_data *, float*, float*, uint16_t, float, uint8_t);
 
 /* Combined audio filter */
 struct audio_filter {
-	struct lpf_filter_data audio_lpf;
-	struct fmpreemph_filter_data fm_preemph;
+	struct lpf_filter_data audio_lpf_l;
+	struct lpf_filter_data audio_lpf_r;
 };
 
 void audio_filter_destroy(struct audio_filter *aflt);
-int audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint16_t, uint8_t);
+int audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint16_t);
 int audio_filter_apply(struct audio_filter *, float*, float *, float *, float *,
-			uint16_t, float, uint8_t);
+			uint16_t, float, uint8_t, uint8_t);
 
 /* IIR filter for the Weaver modulator (SSB) */
 #define WEAVER_FILTER_TAPS 10

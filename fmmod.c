@@ -232,7 +232,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 
 	/* Apply the lpf filter to suppres the USB */
 	lpf_filter_apply(&fmmod->ssb_lpf, out, out,
-		    num_samples, ctl->stereo_carrier_gain);
+		    num_samples, ctl->stereo_carrier_gain, LPF_PREEMPH_NONE);
 
 	/* Now restore the oscilator's phase and add the rest */
 	sin_osc->current_phase = saved_phase;
@@ -452,7 +452,8 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	 * channels to prepare the buffer for upsampling */
 	audio_filter_apply(aflt, left_in, fmmod->inbuf_l,
 			   right_in, fmmod->inbuf_r, nframes,
-			   ctl->audio_gain, ctl->use_audio_lpf);
+			   ctl->audio_gain, ctl->use_audio_lpf,
+			   ctl->preemph_tau);
 
 	/* Update audio peak levels */
 	for(i = 0; i < nframes; i++) {
@@ -469,7 +470,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 						    upsampled_audio_l,
 						    upsampled_audio_r,
 						    nframes,
-						    fmmod->upsampled_buf_len);
+						    fmmod->upsampled_num_samples);
 	if (frames_generated < 0)
 		return FMMOD_ERR_RESAMPLER_ERR;
 
@@ -543,7 +544,7 @@ fmmod_shutdown(void *arg)
 \****************/
 
 int
-fmmod_initialize(struct fmmod_instance *fmmod, int region)
+fmmod_initialize(struct fmmod_instance *fmmod)
 {
 	int ret = 0;
 	struct fmmod_control *ctl = NULL;
@@ -689,23 +690,11 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	}
 
 	/* Initialize audio filter */
-	switch (region) {
-	case FMMOD_REGION_US:
-		preemph_usecs = 75;
-		break;
-	case FMMOD_REGION_EU:
-	case FMMOD_REGION_WORLD:
-		preemph_usecs = 50;
-		break;
-	default:
-		preemph_usecs = 50;
-		break;
-	}
 
 	/* The cutoff frequency is set so that the filter's
 	 * maximum drop is at 19KHz (the pilot tone) */
 	ret = audio_filter_init(&fmmod->aflt, 16500, jack_samplerate,
-				max_process_frames, preemph_usecs);
+				max_process_frames);
 	if (ret < 0) {
 		utils_err("[AFLT] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;
@@ -811,6 +800,7 @@ fmmod_initialize(struct fmmod_instance *fmmod, int region)
 	ctl->mpx_gain = 1.0;
 	ctl->stereo_modulation = FMMOD_DSB;
 	ctl->use_audio_lpf = 1;
+	ctl->preemph_tau = LPF_PREEMPH_50US;
 	ctl->sample_rate = output_samplerate;
 	ctl->max_samples = max_process_frames;
 

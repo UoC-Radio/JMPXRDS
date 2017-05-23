@@ -6,8 +6,12 @@
 struct rbutton_group {
 	struct fmmod_control *ctl;
 	GtkWidget *rbuttons[5];
+	int type;
 	guint	esid;
 };
+
+#define RBG_TYPE_MODULATION	0
+#define	RBG_TYPE_FMPREEMPH	1
 
 /*********\
 * HELPERS *
@@ -19,23 +23,31 @@ jmrg_fmmodp_radio_buttons_update(gpointer data)
 {
 	struct rbutton_group *rbgrp = (struct rbutton_group*) data;
 	float scgain = rbgrp->ctl->stereo_carrier_gain;
-	int mode = rbgrp->ctl->stereo_modulation;
-	static int old_mode = 0;
+	int mode = 0;
+	int i = 0;
+	static int old_mod_mode = 0;
+	static int old_pe_mode = 0;
+	static int alpf_state = 0;
 	static int doubled = 0;
 	gboolean active = FALSE;
-
-	if(mode > 4)
-		mode = FMMOD_DSB;
-
-	if(mode == old_mode)
-		return TRUE;
 
 	if(!gtk_widget_is_visible(rbgrp->rbuttons[0]))
 		return TRUE;
 
+	if(rbgrp->type == RBG_TYPE_FMPREEMPH)
+		goto preemph;
+
+	mode = rbgrp->ctl->stereo_modulation;
+	if(mode > 4)
+		mode = FMMOD_DSB;
+
+	if(mode == old_mod_mode)
+		return TRUE;
+
 	active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]));
 	if(active == FALSE)
-		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]), TRUE);
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]),
+					     TRUE);
 
 	/* When switching to Weaver and LP filter-based SSB, double
 	 * the stereo carrier gain */
@@ -52,7 +64,34 @@ jmrg_fmmodp_radio_buttons_update(gpointer data)
 		doubled = 0;
 	}
 
-	old_mode = mode;
+	old_mod_mode = mode;
+
+	return TRUE;
+
+ preemph:
+	mode = rbgrp->ctl->preemph_tau;
+	if(mode > 2)
+		mode = LPF_PREEMPH_NONE;
+
+	if(alpf_state != rbgrp->ctl->use_audio_lpf) {
+		if(!rbgrp->ctl->use_audio_lpf)
+			for(i = 0; i < 3; i++)
+				gtk_widget_set_sensitive(rbgrp->rbuttons[i], 0);
+		else
+			for(i = 0; i < 3; i++)
+				gtk_widget_set_sensitive(rbgrp->rbuttons[i], 1);
+	}
+	alpf_state = rbgrp->ctl->use_audio_lpf;
+
+	if(mode == old_pe_mode)
+		return TRUE;
+
+	active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]));
+	if(active == FALSE)
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]),
+					     TRUE);
+
+	old_pe_mode = mode;
 
 	return TRUE;
 }
@@ -167,6 +206,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 
 	/* Register polling function and signal handlers */
 	rbgrp->esid = g_timeout_add(200, jmrg_fmmodp_radio_buttons_update, rbgrp);
+	rbgrp->type = RBG_TYPE_MODULATION;
 
 	g_signal_connect(container, "unrealize",
 			 G_CALLBACK(jmrg_fmmodp_free_rbutton_group),
@@ -197,24 +237,101 @@ static GtkWidget*
 jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
 {
 	GtkWidget *container = NULL;
+	GtkWidget *vbox = NULL;
+	GtkWidget *pe_frame = NULL;
+	GtkWidget *pe_vbox = NULL;
 	GtkWidget *lpf_sw = NULL;
+	struct rbutton_group *rbgrp = NULL;
+	int i = 0;
 	int ret = 0;
+
+	rbgrp = malloc(sizeof(struct rbutton_group));
+	if(!rbgrp) {
+		ret = -1;
+		goto cleanup;
+	}
+	memset(rbgrp, 0, sizeof(struct rbutton_group));
+	rbgrp->ctl = ctl;
 
 	container = gtk_frame_new("Audio Filter Controls");
 	if(!container) {
-		ret = -1;
+		ret = -2;
 		goto cleanup;
 	}
 	gtk_frame_set_label_align(GTK_FRAME(container), 0.1, 0.6);
 	gtk_frame_set_shadow_type(GTK_FRAME(container),
 				  GTK_SHADOW_ETCHED_IN);
 
-	lpf_sw = jmrg_switch_init("Low pass filter", &ctl->use_audio_lpf);
-	if(!lpf_sw) {
-		ret = -2;
+	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	if(!vbox) {
+		ret = -3;
 		goto cleanup;
 	}
-	gtk_container_add(GTK_CONTAINER(container), lpf_sw);
+	gtk_container_add(GTK_CONTAINER(container), vbox);
+
+	lpf_sw = jmrg_switch_init("Low pass filter", &ctl->use_audio_lpf);
+	if(!lpf_sw) {
+		ret = -4;
+		goto cleanup;
+	}
+	gtk_box_pack_start(GTK_BOX(vbox), lpf_sw, 0, 0, 6);
+
+	pe_frame = gtk_frame_new("FM Pre-emphasis");
+	if(!container) {
+		ret = -5;
+		goto cleanup;
+	}
+	gtk_frame_set_label_align(GTK_FRAME(pe_frame), 0.5, 0.6);
+	gtk_frame_set_shadow_type(GTK_FRAME(pe_frame),
+				  GTK_SHADOW_ETCHED_IN);
+	gtk_box_pack_start(GTK_BOX(vbox), pe_frame, 0, 0, 6);
+
+	pe_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	if(!pe_vbox) {
+		ret = -6;
+		goto cleanup;
+	}
+	gtk_container_add(GTK_CONTAINER(pe_frame), pe_vbox);
+
+	/* Initialize radio button group */
+	rbgrp->rbuttons[0] = jmrg_radio_button_init("50μsec (World)",
+					    &ctl->preemph_tau,
+					    LPF_PREEMPH_50US, NULL);
+	if(!rbgrp->rbuttons[0]) {
+		ret = -7;
+		goto cleanup;
+	}
+
+	rbgrp->rbuttons[1] = jmrg_radio_button_init("75μsec (U.S.A.)",
+					    &ctl->preemph_tau,
+					    LPF_PREEMPH_75US,
+					    GTK_RADIO_BUTTON(rbgrp->rbuttons[0]));
+	if(!rbgrp->rbuttons[1]) {
+		ret = -8;
+		goto cleanup;
+	}
+
+	rbgrp->rbuttons[2] = jmrg_radio_button_init("No pre-emphasis",
+					    &ctl->preemph_tau,
+					    LPF_PREEMPH_NONE,
+					    GTK_RADIO_BUTTON(rbgrp->rbuttons[1]));
+	if(!rbgrp->rbuttons[2]) {
+		ret = -9;
+		goto cleanup;
+	}
+
+	/* Now put them on the box */
+	for(i = 0; i < 3; i++)
+		gtk_box_pack_start(GTK_BOX(pe_vbox), rbgrp->rbuttons[i],
+				   TRUE, TRUE, 2);
+
+	/* Register polling function and signal handlers */
+	rbgrp->esid = g_timeout_add(200, jmrg_fmmodp_radio_buttons_update, rbgrp);
+	rbgrp->type = RBG_TYPE_FMPREEMPH;
+
+	g_signal_connect(container, "unrealize",
+			 G_CALLBACK(jmrg_fmmodp_free_rbutton_group),
+			 rbgrp);
 
 	return container;
  cleanup:

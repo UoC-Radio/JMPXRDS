@@ -56,14 +56,6 @@ enum fmmod_output {
 	FMMOD_OUT_NOJACK = 2
 };
 
-/* FM pre-emphasis filter parameters (tau)
- * are different for EU and US */
-enum fmmod_region {
-	FMMOD_REGION_US = 0,
-	FMMOD_REGION_EU = 1,
-	FMMOD_REGION_WORLD = 2
-};
-
 /* Stereo signal (L-R) encoding:
  * DSB -> Double side band (default)
  * SSB HARTLEY -> Single Side Band Hartley modulator
@@ -86,6 +78,7 @@ struct fmmod_control {
 	float mpx_gain;
 	int stereo_modulation;
 	int use_audio_lpf;
+	int preemph_tau;
 	float peak_mpx_out;
 	float peak_audio_in_l;
 	float peak_audio_in_r;
@@ -141,5 +134,5 @@ struct fmmod_instance {
 
 typedef int (*mpx_generator) (struct fmmod_instance *, float*, float*, int, float*);
 
-int fmmod_initialize(struct fmmod_instance *fmmod, int region);
+int fmmod_initialize(struct fmmod_instance *fmmod);
 void fmmod_destroy(struct fmmod_instance *fmmod, int shutdown);

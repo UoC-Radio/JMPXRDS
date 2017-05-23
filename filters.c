@@ -29,18 +29,39 @@
 /* Note that we don't use the normalization factor
  * here so that it always starts at 1.0 -exp(0)-. */
 static double
-gaussian(uint16_t bin, uint16_t variance)
+gaussian(uint16_t bin, double variance)
 {
-	double c = (double) variance;
-	/* Cutoff bin is at 0 */
-	uint32_t tmp = bin;
-	tmp *= tmp;
-	return exp(-(double)tmp / c);
+	return exp(-1.0L * pow((double) bin, 2) / (2.0L * variance));
 }
 
-/*****************************\
-* GENERIC FFT LOW-PASS FILTER *
-\*****************************/
+static double
+bin2freq(struct lpf_filter_data *lpf, uint16_t bin)
+{
+	double bratio = 0;
+	double freq = 0;
+	double nyquist_freq = 0;
+	nyquist_freq = (double) lpf->sample_rate / 2.0L;
+	bratio = (double) bin / (double) lpf->middle_bin;
+	freq = bratio * nyquist_freq;
+	return freq;
+}
+
+static uint16_t
+freq2bin(struct lpf_filter_data *lpf, double freq)
+{
+	double fratio = 0;
+	double nyquist_freq = 0;
+	uint16_t bin = 0;
+	nyquist_freq = (double) lpf->sample_rate / 2.0L;
+	fratio = freq / nyquist_freq;
+	bin = (uint16_t) (fratio * (double) lpf->middle_bin);
+	return bin;
+}
+
+
+/********************************************************\
+* GENERIC FFT LOW-PASS FILTER WITH OPTIONAL PRE-EMPHASIS *
+\********************************************************/
 
 void
 lpf_filter_destroy(struct lpf_filter_data *lpf)
@@ -63,14 +84,15 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 {
 	int i = 0;
 	int ret = 0;
-	uint32_t nyquist_freq = 0;
-	double passband_ratio = 0.0L;
 	double trans_bw = 0.0L;
-	double trans_ratio = 0.0L;
-	uint16_t variance = 0;
-	lpf->num_bins = max_frames;
-	uint16_t half_bins = (lpf->num_bins / 2) + 1;
 	uint16_t remaining_bins = 0;
+	double nyquist_freq = 0.0L;
+
+	lpf->num_bins = max_frames;
+	lpf->sample_rate = sample_rate;
+	lpf->middle_bin = (lpf->num_bins / 2) + 1;
+	nyquist_freq = (double) lpf->sample_rate / 2.0L;
+	lpf->bin_bw = (nyquist_freq / (double) lpf->num_bins);
 
 	/*
 	 * Calculate the frequency bin after which we 'll start
@@ -85,9 +107,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	 * use half of it (positive frequencies) plus the point in the middle).
 	 * That's why we have half_bins here and below.
 	 */
-	nyquist_freq = sample_rate / 2.0;
-	passband_ratio = (double) cutoff_freq / (double) nyquist_freq;
-	lpf->cutoff_bin = (uint16_t) (passband_ratio * (double) (half_bins));
+	lpf->cutoff_bin = freq2bin(lpf, cutoff_freq);
 
 	/*
 	 * We don't want the filter to bee too steep (like a sinc filter which
@@ -99,13 +119,12 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	 * a given transition bandwidth, in bins, the same way we did it above
 	 * for the cutoff frequency bin.
 	 */
-	trans_bw = 2500.0L; /* 2.5KHz should be enough */
-	trans_ratio = trans_bw / (double) nyquist_freq;
-	variance = 2 * (uint16_t) (trans_ratio * (double) (half_bins));
+	trans_bw = 2500.0L / lpf->bin_bw; /* 2.5KHz should be enough */
+	lpf->variance = 2.0L * trans_bw;
 
 	/* Calculate and store the filter's FFT curve from cutoff_bin
 	 * to the end of the spectrum */
-	remaining_bins = half_bins - lpf->cutoff_bin;
+	remaining_bins = lpf->middle_bin - lpf->cutoff_bin;
 	lpf->filter_curve = (double*) malloc(remaining_bins * sizeof(double));
 	if(!lpf->filter_curve) {
 		ret = -1;
@@ -113,7 +132,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	}
 
 	for(i = 0; i < remaining_bins; i++)
-		lpf->filter_curve[i] = gaussian(i, variance);
+		lpf->filter_curve[i] = gaussian(i, lpf->variance);
 
 
 	/* Allocate buffers for DFT/IFT */
@@ -124,12 +143,13 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	}
 	memset(lpf->real_buff, 0, sizeof(double) * max_frames);
 
-	lpf->complex_buff = fftw_alloc_complex(half_bins);
+	lpf->complex_buff = fftw_alloc_complex(lpf->middle_bin - 0);
 	if(!lpf->complex_buff) {
 		ret = -3;
 		goto cleanup;
 	}
-	memset(lpf->complex_buff, 0, sizeof(fftw_complex) * half_bins);
+	memset(lpf->complex_buff, 0, sizeof(fftw_complex) *
+					(lpf->middle_bin - 0));
 
 
 	/* Create DFT plan */
@@ -156,10 +176,14 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 
 int
 lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
-		 uint16_t num_samples, float gain)
+		 uint16_t num_samples, float gain, uint8_t preemph_tau)
 {
+	double tau = 0.0L;
 	float ratio = 0.0;
-	int middle_bin = lpf->num_bins / 2 + 1;
+	double fc = 0.0;
+	uint16_t preemph_start_bin = 0;
+	double pe_resp = 0.0L;
+	double bin_bw_scaled = 0.0L;
 	int i = 0;
 	int c = 0;
 
@@ -173,11 +197,63 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * analytical) representation of the signal */
 	fftw_execute(lpf->dft_plan);
 
-	/* Now signal is on the complex buffer, filter-out
-	 * all frequency bins above the cutoff_bin */
-	for(i = lpf->cutoff_bin; i < middle_bin; i++, c++) {
+	/* Now signal is on the complex buffer, apply pre-emphasis
+	 * if requested and / or filter-out all frequency bins above
+	 * the cutoff_bin */
+
+	/* The FM Pre-emphasis filter is an RC high-pass filter with
+	 * a single pole depending on the region. After the pole, the
+	 * filter's Bode diagram gives a 20dB/decade which means that
+	 * when the frequency is multiplied by 10 the gain is increased
+	 * by 20dB. If we make this mapping between amplitude and frequency
+	 * we'll get (1, 10^(0/20)), (10, 10^(20/20)), (100, 10^(40/20)),
+	 * (1000, 10^(60/20))... This becomes (1,1), (10,10), (100, 100),
+	 * (1000, 1000)... which is a straight line, so the response is a
+	 * linear function of the frequency. Amplitude is sqrt(Re^2 + Im^2),
+	 * so it becomes freq * sqrt((Re^2 + Im^2)) and finaly (freq * Re,
+	 * freq * Im). */
+
+	/* Different regions have different tau, which translates to
+	 * a different cutoff frequency for the filter */
+	switch(preemph_tau) {
+		/* t = R*C = 1 / 2*pi*fc */
+		/* fc = 1 / 2*pi*t */
+		case LPF_PREEMPH_50US:
+			tau = 0.000001 * (double)50;
+			bin_bw_scaled = lpf->bin_bw * 0.00076L;
+			break;
+		case LPF_PREEMPH_75US:
+			tau = 0.000001 * (double)75;
+			bin_bw_scaled = lpf->bin_bw * 0.00115L;
+			break;
+		case LPF_PREEMPH_NONE:
+		default:
+			goto skip_preemph;
+	};
+	fc = 1.0 / (2.0 * M_PI * tau);
+	preemph_start_bin = freq2bin(lpf, fc);
+
+	/* Since we want to make this a pre-emphasis filter instead of a
+	 * high-pass filter, we add + 1 below so it starts from the original
+	 * gain. Also since we have bins on x axis we need to multiply by
+	 * bin_bw. The scale factor (slope) above is something I came up with
+	 * durring testing, to be within spec */
+	for(i = preemph_start_bin, c = 0; i < lpf->cutoff_bin; i++, c++) {
+		pe_resp = 1 + (double) c * bin_bw_scaled;
+		lpf->complex_buff[i][0] *= pe_resp;
+		lpf->complex_buff[i][1] *= pe_resp;
+	}
+
+	for(; i < lpf->middle_bin; i++) {
+		lpf->complex_buff[i][0] *= pe_resp;
+		lpf->complex_buff[i][1] *= pe_resp;
+	}
+
+ skip_preemph:
+
+	for(i = lpf->cutoff_bin, c = 0; i < lpf->middle_bin; i++, c++) {
 		lpf->complex_buff[i][0] *= lpf->filter_curve[c];
-		lpf->complex_buff[i][1] = 0;
+		lpf->complex_buff[i][1] *= lpf->filter_curve[c];
 	}
 
 	/* Switch the signal back to the time domain */
@@ -198,118 +274,6 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 }
 
 
-/******************************\
-* FM PRE-EMPHASIS AUDIO FILTER *
-\******************************/
-
-/*
- * This is a high-shelf biquad IIR filter that boosts frequencies
- * above its cutoff frequency by 20db/octave. The cutoff
- * frequency is calculated from the time constant of the analog
- * RC filter and is different on US (75us) and EU (50us)
- * radios.
- */
-
-static int
-fmpreemph_filter_init(struct fmpreemph_filter_data *iir,
-		      uint32_t sample_rate,
-		      uint8_t preemph_tau_usecs)
-{
-	double tau = 0.0;
-	double fc = 0.0;
-	double cutoff_freq = 0.0;
-	double pre_warped_fc = 0.0;
-	double re = 0.0;
-	double im = 0.0;
-	double gain = 0.0;
-	double slope = 0.0;
-	double A = 0.0;
-	double alpha = 0.0;
-	double a[3] = { 0 };
-	double b[3] = { 0 };
-
-	tau = 0.000001 * (double)preemph_tau_usecs;
-
-	/* t = R*C = 1 / 2*pi*fc */
-	/* fc = 1 / 2*pi*t */
-	cutoff_freq = 1.0 / (2.0 * M_PI * tau);
-	fc = cutoff_freq / (double)sample_rate;
-
-	pre_warped_fc = 2.0 * M_PI * fc;
-	re = cos(pre_warped_fc);
-	im = sin(pre_warped_fc);
-
-	/* This implementation comes from Audio EQ Coockbook
-	 * from Robert Bristow-Johnson. You can read it online
-	 * at http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
-	 * The gain and slope values come from SoX's CD de emphasis
-	 * filter (the pre empasis is the same as in FM at 50us) */
-	gain = 9.477;
-	slope = 0.4845;
-
-	/* Work in log scale to avoid calculating 10 ^ (gain/40) */
-	A = exp(gain / 40.0 * log(10.0));
-
-	alpha = im / 2 * sqrt((A + 1 / A) * (1 / slope - 1) + 2);
-
-	b[0] = A * ((A + 1) + (A - 1) * re + 2 * sqrt(A) * alpha);
-	b[1] = -2 * A * ((A - 1) + (A + 1) * re);
-	b[2] = A * ((A + 1) + (A - 1) * re - 2 * sqrt(A) * alpha);
-	a[0] = (A + 1) - (A - 1) * re + 2 * sqrt(A) * alpha;
-	a[1] = 2 * ((A - 1) - (A + 1) * re);
-	a[2] = (A + 1) - (A - 1) * re - 2 * sqrt(A) * alpha;
-
-	iir->iir_ataps[0] = (float)(b[0] / a[0]);
-	iir->iir_ataps[1] = (float)(b[1] / a[0]);
-	iir->iir_ataps[2] = (float)(b[2] / a[0]);
-	iir->iir_btaps[0] = (float)(a[1] / a[0]);
-	iir->iir_btaps[1] = (float)(a[2] / a[0]);
-
-	return 0;
-}
-
-/*
- * Apply the IIR FM Pre-emphasis filter to increase the
- * gain as the frequency gets higher and compensate for
- * the increased noise on higher frequencies. A de-emphasis
- * filter is used on the receiver to undo that.
- */
-static float
-fmpreemph_filter_apply(struct fmpreemph_filter_data *iir,
-		       float sample, uint8_t chan_idx)
-{
-	float out = 0.0;
-	float *iir_inbuf = NULL;
-	float *iir_outbuf = NULL;
-
-	if (chan_idx == 0) {
-		iir_inbuf = iir->iir_inbuff_l;
-		iir_outbuf = iir->iir_outbuff_l;
-	} else if (chan_idx == 1) {
-		iir_inbuf = iir->iir_inbuff_r;
-		iir_outbuf = iir->iir_outbuff_r;
-	} else
-		return 0.0;
-
-	/* y = a0*in + a1*(in-1) + a2*(in-2) - b0*(out-1) - b1*(out -2) */
-	out = iir->iir_ataps[0] * sample +
-	    iir->iir_ataps[1] * iir_inbuf[1] +
-	    iir->iir_ataps[2] * iir_inbuf[0] -
-	    iir->iir_btaps[0] * iir_outbuf[1] -
-	    iir->iir_btaps[1] * iir_outbuf[0];
-
-	/* update in-2 and in-1 */
-	iir_inbuf[0] = iir_inbuf[1];
-	iir_inbuf[1] = sample;
-
-	/* update out-1 and out-2 */
-	iir_outbuf[0] = iir_outbuf[1];
-	iir_outbuf[1] = out;
-
-	return out;
-}
-
-
 /***********************************************\
 * COMBINED AUDIO FILTER (FM PRE-EMPHASIS + LPF) *
 \***********************************************/
@@ -317,58 +281,52 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *iir,
 void
 audio_filter_destroy(struct audio_filter *aflt)
 {
-	lpf_filter_destroy(&aflt->audio_lpf);
+	lpf_filter_destroy(&aflt->audio_lpf_l);
+	lpf_filter_destroy(&aflt->audio_lpf_r);
 }
 
 int
 audio_filter_init(struct audio_filter *aflt, uint32_t cutoff_freq,
-		  uint32_t sample_rate, uint16_t max_samples,
-		  uint8_t preemph_tau_usecs)
+		  uint32_t sample_rate, uint16_t max_samples)
 {
 	int ret = 0;
 
-	ret = lpf_filter_init(&aflt->audio_lpf, cutoff_freq,
+	ret = lpf_filter_init(&aflt->audio_lpf_l, cutoff_freq,
 			      sample_rate, max_samples);
-	if (ret < 0)
+	if(ret < 0)
 		return ret;
 
-	fmpreemph_filter_init(&aflt->fm_preemph, sample_rate,
-			      preemph_tau_usecs);
-	return 0;
+	ret = lpf_filter_init(&aflt->audio_lpf_r, cutoff_freq,
+			      sample_rate, max_samples);
+	return ret;
 }
 
 int
 audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 		   float *samples_out_l, float *samples_in_r,
 		   float *samples_out_r, uint16_t num_samples,
-		   float gain_multiplier, uint8_t use_lp_filter)
+		   float gain_multiplier, uint8_t use_lp_filter,
+		   uint8_t preemph_tau)
 {
-	struct lpf_filter_data *lpf = &aflt->audio_lpf;
+	struct lpf_filter_data *lpf_l = &aflt->audio_lpf_l;
+	struct lpf_filter_data *lpf_r = &aflt->audio_lpf_r;
 	int i = 0;
-
-	/* First apply the FM pre-emphasis IIR filter */
-	for(i = 0; i < num_samples; i++) {
-		samples_out_l[i] = fmpreemph_filter_apply(&aflt->fm_preemph,
-							samples_in_l[i], 0);
-		samples_out_r[i] = fmpreemph_filter_apply(&aflt->fm_preemph,
-							samples_in_r[i], 1);
-	}
 
 	/* If Low Pass filter is enabled, apply it afterwards, else
 	 * just multiply with the gain multiplier and return */
 	if(!use_lp_filter) {
 		for(i = 0; i < num_samples; i++) {
-			samples_out_l[i] *= gain_multiplier;
-			samples_out_r[i] *= gain_multiplier;
+			samples_out_l[i] = samples_in_l[i] * gain_multiplier;
+			samples_out_r[i] = samples_in_r[i] * gain_multiplier;
 		}
 		return 0;
 	}
 
 	/* Frequency domain convolution */
-	lpf_filter_apply(lpf, samples_out_l, samples_out_l,
-			     num_samples, gain_multiplier);
-	lpf_filter_apply(lpf, samples_out_r, samples_out_r,
-			     num_samples, gain_multiplier);
+	lpf_filter_apply(lpf_l, samples_in_l, samples_out_l,
+			     num_samples, gain_multiplier, preemph_tau);
+	lpf_filter_apply(lpf_r, samples_in_r, samples_out_r,
+			     num_samples, gain_multiplier, preemph_tau);
 
 	return 0;
 }
