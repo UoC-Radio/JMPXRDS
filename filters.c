@@ -209,9 +209,7 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * we'll get (1, 10^(0/20)), (10, 10^(20/20)), (100, 10^(40/20)),
 	 * (1000, 10^(60/20))... This becomes (1,1), (10,10), (100, 100),
 	 * (1000, 1000)... which is a straight line, so the response is a
-	 * linear function of the frequency. Amplitude is sqrt(Re^2 + Im^2),
-	 * so it becomes freq * sqrt((Re^2 + Im^2)) and finaly (freq * Re,
-	 * freq * Im). */
+	 * linear function of the frequency. */
 
 	/* Different regions have different tau, which translates to
 	 * a different cutoff frequency for the filter */
@@ -237,23 +235,28 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * high-pass filter, we add + 1 below so it starts from the original
 	 * gain. Also since we have bins on x axis we need to multiply by
 	 * bin_bw. The scale factor (slope) above is something I came up with
-	 * durring testing, to be within spec */
+	 * durring testing, to be within spec. Note that we don't mess with the
+	 * imaginary part here since it encodes the phase and we don't want
+	 * to introduce any distortion there. */
 	for(i = preemph_start_bin, c = 0; i < lpf->cutoff_bin; i++, c++) {
 		pe_resp = 1 + (double) c * bin_bw_scaled;
 		lpf->complex_buff[i][0] *= pe_resp;
-		lpf->complex_buff[i][1] *= pe_resp;
 	}
 
-	for(; i < lpf->middle_bin; i++) {
+	/* Continue as a high-shelf filter, no need to keep on
+	 * increasing the amplitude */
+	for(; i < lpf->middle_bin; i++)
 		lpf->complex_buff[i][0] *= pe_resp;
-		lpf->complex_buff[i][1] *= pe_resp;
-	}
 
  skip_preemph:
 
+	/* Multiply the input signal -after the cutoff bin- with the filter's
+	 * response. Again there is no need to play with the imaginary part
+	 * in the stopband, we can just zero it out instead of doing extra
+	 * multiplications */
 	for(i = lpf->cutoff_bin, c = 0; i < lpf->middle_bin; i++, c++) {
 		lpf->complex_buff[i][0] *= lpf->filter_curve[c];
-		lpf->complex_buff[i][1] *= lpf->filter_curve[c];
+		lpf->complex_buff[i][1] = 0.0L;
 	}
 
 	/* Switch the signal back to the time domain */
