@@ -159,7 +159,6 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 		ret = -4;
 		goto cleanup;
 	}
-	fftw_execute(lpf->dft_plan);
 
 
 	/* Create IFT plan */
