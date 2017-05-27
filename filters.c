@@ -21,6 +21,7 @@
 #include <stdlib.h>		/* For NULL */
 #include <string.h>		/* For memset */
 #include <math.h>		/* For exp() */
+#include <jack/thread.h>	/* For thread handling through jack */
 
 /*********\
 * HELPERS *
@@ -58,6 +59,50 @@ freq2bin(struct lpf_filter_data *lpf, double freq)
 	return bin;
 }
 
+static void
+lpf_thread_run(struct lpf_thread_data *lpftd)
+{
+	int i = 0;
+	float tmp_gain = 0;
+
+	lpftd->result = lpf_filter_apply(lpftd->lpf, lpftd->in, lpftd->out,
+					lpftd->num_samples, lpftd->gain,
+					lpftd->preemph_tau);
+
+	/* Update audio peak levels */
+	for(i = 0, tmp_gain = 0; i < lpftd->num_samples; i++)
+		if(lpftd->out[i] > tmp_gain)
+			tmp_gain = lpftd->out[i];
+
+	lpftd->peak_gain = tmp_gain;
+}
+
+#ifdef JMPXRDS_MT
+static void*
+lpf_loop(void* arg)
+{
+	struct lpf_thread_data *lpftd = (struct lpf_thread_data*) arg;
+
+	while((*lpftd->active)) {
+		pthread_mutex_lock(&lpftd->proc_mutex);
+		while (pthread_cond_wait(&lpftd->proc_trigger, &lpftd->proc_mutex) != 0);
+
+		if(!(*lpftd->active))
+			break;
+
+		lpf_thread_run(lpftd);
+
+		pthread_mutex_unlock(&lpftd->proc_mutex);
+
+		/* Let the caller know we are done */
+		pthread_mutex_lock(&lpftd->done_mutex);
+		pthread_cond_signal(&lpftd->done_trigger);
+		pthread_mutex_unlock(&lpftd->done_mutex);
+	}
+
+	return arg;
+}
+#endif
 
 /********************************************************\
 * GENERIC FFT LOW-PASS FILTER WITH OPTIONAL PRE-EMPHASIS *
@@ -288,10 +333,15 @@ audio_filter_destroy(struct audio_filter *aflt)
 }
 
 int
-audio_filter_init(struct audio_filter *aflt, uint32_t cutoff_freq,
-		  uint32_t sample_rate, uint16_t max_samples)
+audio_filter_init(struct audio_filter *aflt, jack_client_t *fmmod_client,
+		  uint32_t cutoff_freq, uint32_t sample_rate,
+		  uint16_t max_samples)
 {
+	struct lpf_thread_data *lpftd_l = &aflt->lpftd_l;
+	struct lpf_thread_data *lpftd_r = &aflt->lpftd_r;
+	int rtprio = 0;
 	int ret = 0;
+	aflt->fmmod_client = fmmod_client;
 
 	ret = lpf_filter_init(&aflt->audio_lpf_l, cutoff_freq,
 			      sample_rate, max_samples);
@@ -300,6 +350,34 @@ audio_filter_init(struct audio_filter *aflt, uint32_t cutoff_freq,
 
 	ret = lpf_filter_init(&aflt->audio_lpf_r, cutoff_freq,
 			      sample_rate, max_samples);
+	if(ret < 0)
+		return ret;
+
+	lpftd_l->lpf = &aflt->audio_lpf_l;
+	lpftd_l->active = &aflt->active;
+
+	lpftd_r->lpf = &aflt->audio_lpf_r;
+	lpftd_r->active = &aflt->active;
+
+	aflt->active = 1;
+
+#ifdef JMPXRDS_MT
+	pthread_mutex_init(&lpftd_l->proc_mutex, NULL);
+	pthread_cond_init(&lpftd_l->proc_trigger, NULL);
+	pthread_mutex_init(&lpftd_l->done_mutex, NULL);
+	pthread_cond_init(&lpftd_l->done_trigger, NULL);
+
+	rtprio = jack_client_max_real_time_priority(aflt->fmmod_client);
+	if(rtprio < 0)
+		return ret;
+
+	ret = jack_client_create_thread(aflt->fmmod_client, &lpftd_l->tid,
+					rtprio, 1,
+					lpf_loop, (void *) lpftd_l);
+	if(ret < 0)
+		return ret;
+#endif
+
 	return ret;
 }
 
@@ -308,10 +386,11 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 		   float *samples_out_l, float *samples_in_r,
 		   float *samples_out_r, uint16_t num_samples,
 		   float gain_multiplier, uint8_t use_lp_filter,
-		   uint8_t preemph_tau)
+		   uint8_t preemph_tau, float* peak_l, float* peak_r)
 {
-	struct lpf_filter_data *lpf_l = &aflt->audio_lpf_l;
-	struct lpf_filter_data *lpf_r = &aflt->audio_lpf_r;
+	struct lpf_thread_data *lpftd_l = &aflt->lpftd_l;
+	struct lpf_thread_data *lpftd_r = &aflt->lpftd_r;
+	int ret = 0;
 	int i = 0;
 
 	/* If Low Pass filter is enabled, apply it afterwards, else
@@ -324,11 +403,52 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 		return 0;
 	}
 
-	/* Frequency domain convolution */
-	lpf_filter_apply(lpf_l, samples_in_l, samples_out_l,
-			     num_samples, gain_multiplier, preemph_tau);
-	lpf_filter_apply(lpf_r, samples_in_r, samples_out_r,
-			     num_samples, gain_multiplier, preemph_tau);
+#ifdef JMPXRDS_MT
+	pthread_mutex_lock(&lpftd_l->proc_mutex);
+	lpftd_l->in = samples_in_l;
+	lpftd_l->out = samples_out_l;
+	lpftd_l->gain = gain_multiplier;
+	lpftd_l->num_samples = num_samples;
+	pthread_mutex_unlock(&lpftd_l->proc_mutex);
+
+	lpftd_r->in = samples_in_r;
+	lpftd_r->out = samples_out_r;
+	lpftd_r->gain = gain_multiplier;
+	lpftd_r->num_samples = num_samples;
+
+	/* Signal the left channel thread to start
+	 * processing this chunk */
+	pthread_mutex_lock(&lpftd_l->proc_mutex);
+	pthread_cond_signal(&lpftd_l->proc_trigger);
+	pthread_mutex_unlock(&lpftd_l->proc_mutex);
+
+	/* Process right channel on current thread */
+	lpf_thread_run(lpftd_r);
+
+	/* Wait for the left channel thread to finish */
+	while (pthread_cond_wait(&lpftd_l->done_trigger, &lpftd_l->done_mutex) != 0);
+
+#else
+	lpftd_l->in = samples_in_l;
+	lpftd_l->out = samples_out_l;
+	lpftd_l->gain = gain_multiplier;
+	lpftd_l->num_samples = num_samples;
+
+	lpftd_r->in = samples_in_r;
+	lpftd_r->out = samples_out_r;
+	lpftd_r->gain = gain_multiplier;
+	lpftd_r->num_samples = num_samples;
+
+
+	lpf_thread_run(lpftd_l);
+	lpf_thread_run(lpftd_r);
+#endif
+
+	if (lpftd_l->result || lpftd_r->result)
+		return -1;
+
+	(*peak_l) = lpftd_l->peak_gain;
+	(*peak_r) = lpftd_r->peak_gain;
 
 	return 0;
 }

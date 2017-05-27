@@ -412,6 +412,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	struct audio_filter *aflt = &fmmod->aflt;
 	struct fmmod_control *ctl = fmmod->ctl;
 	mpx_generator get_mpx_samples;
+	int ret = 0;
 
 	/* FMmod is inactive, don't do any processing */
 	if (!fmmod->active)
@@ -450,19 +451,13 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 
 	/* Apply audio filter on input and merge the two
 	 * channels to prepare the buffer for upsampling */
-	audio_filter_apply(aflt, left_in, fmmod->inbuf_l,
-			   right_in, fmmod->inbuf_r, nframes,
-			   ctl->audio_gain, ctl->use_audio_lpf,
-			   ctl->preemph_tau);
-
-	/* Update audio peak levels */
-	for(i = 0; i < nframes; i++) {
-		if (fmmod->inbuf_l[i] > ctl->peak_audio_in_l)
-			ctl->peak_audio_in_l = fmmod->inbuf_l[i];
-
-		if (fmmod->inbuf_r[i] > ctl->peak_audio_in_r)
-			ctl->peak_audio_in_r = fmmod->inbuf_r[i];
-	}
+	ret = audio_filter_apply(aflt, left_in, fmmod->inbuf_l,
+				 right_in, fmmod->inbuf_r, nframes,
+				 ctl->audio_gain, ctl->use_audio_lpf,
+				 ctl->preemph_tau, &ctl->peak_audio_in_l,
+				 &ctl->peak_audio_in_r);
+	if(ret)
+		return 0;
 
 	/* Upsample to the sample rate of the main oscilator */
 	frames_generated = resampler_upsample_audio(rsmpl, fmmod->inbuf_l,
@@ -473,6 +468,8 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 						    fmmod->upsampled_num_samples);
 	if (frames_generated < 0)
 		return FMMOD_ERR_RESAMPLER_ERR;
+	else if(!frames_generated)
+		return 0;
 
 	/* Move L + R to buffer 0 and L - R to buffer 1 */
 	for (i = 0; i < frames_generated; i++) {
@@ -680,6 +677,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 
 	/* Initialize resampler */
 	ret = resampler_init(&fmmod->rsmpl, jack_samplerate,
+			     fmmod->client,
 			     osc_samplerate,
 			     RDS_SAMPLE_RATE,
 			     output_samplerate, max_process_frames);
@@ -693,8 +691,8 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 
 	/* The cutoff frequency is set so that the filter's
 	 * maximum drop is at 19KHz (the pilot tone) */
-	ret = audio_filter_init(&fmmod->aflt, 16500, jack_samplerate,
-				max_process_frames);
+	ret = audio_filter_init(&fmmod->aflt, fmmod->client, 16500,
+				jack_samplerate, max_process_frames);
 	if (ret < 0) {
 		utils_err("[AFLT] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;

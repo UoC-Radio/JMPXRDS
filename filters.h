@@ -19,6 +19,8 @@
  */
 #include <stdint.h>		/* For typed integers */
 #include <fftw3.h>		/* For FFTW support */
+#include <jack/jack.h>		/* For jack-related types */
+#include <pthread.h>		/* For pthread mutex / conditional */
 
 /* A generic FFT low pass filter with optional pre-emphasis */
 struct lpf_filter_data {
@@ -46,15 +48,37 @@ int lpf_filter_init(struct lpf_filter_data *, uint32_t, uint32_t, uint16_t);
 int lpf_filter_apply(struct lpf_filter_data *, float*, float*, uint16_t, float, uint8_t);
 
 /* Combined audio filter */
-struct audio_filter {
-	struct lpf_filter_data audio_lpf_l;
-	struct lpf_filter_data audio_lpf_r;
+struct lpf_thread_data {
+	struct lpf_filter_data *lpf;
+	int *active;
+	float *in;
+	float *out;
+	uint16_t num_samples;
+	float gain;
+	uint8_t preemph_tau;
+	float peak_gain;
+	pthread_mutex_t proc_mutex;
+	pthread_cond_t proc_trigger;
+	pthread_mutex_t done_mutex;
+	pthread_cond_t done_trigger;
+	jack_native_thread_t tid;
+	int result;
 };
 
-void audio_filter_destroy(struct audio_filter *aflt);
-int audio_filter_init(struct audio_filter *, uint32_t, uint32_t, uint16_t);
+struct audio_filter {
+	struct lpf_thread_data lpftd_l;
+	struct lpf_thread_data lpftd_r;
+	struct lpf_filter_data audio_lpf_l;
+	struct lpf_filter_data audio_lpf_r;
+	jack_client_t *fmmod_client;
+	int active;
+};
+
+void audio_filter_destroy(struct audio_filter *);
+int audio_filter_init(struct audio_filter *, jack_client_t *,
+		      uint32_t, uint32_t, uint16_t);
 int audio_filter_apply(struct audio_filter *, float*, float *, float *, float *,
-			uint16_t, float, uint8_t, uint8_t);
+			uint16_t, float, uint8_t, uint8_t, float*, float*);
 
 /* IIR filter for the Weaver modulator (SSB) */
 #define WEAVER_FILTER_TAPS 10

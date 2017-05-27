@@ -20,6 +20,82 @@
 #include "resampler.h"
 #include <stdlib.h>		/* For NULL */
 #include <string.h>		/* For memset/memcpy */
+#include <jack/thread.h>	/* For thread handling through jack */
+
+
+/*********\
+* HELPERS *
+\*********/
+
+static void
+resampler_thread_run(struct resampler_thread_data *rstd)
+{
+	rstd->result = soxr_process(rstd->resampler, &rstd->in, rstd->inframes,
+				    &rstd->frames_used, &rstd->out, rstd->outframes,
+				    &rstd->frames_generated);
+}
+
+#ifdef JMPXRDS_MT
+static void*
+resampler_loop(void *arg)
+{
+	struct resampler_thread_data *rstd = (struct resampler_thread_data*) arg;
+
+	while((*rstd->active)) {
+		pthread_mutex_lock(&rstd->proc_mutex);
+		while (pthread_cond_wait(&rstd->proc_trigger, &rstd->proc_mutex) != 0);
+
+		if(!(*rstd->active))
+			break;
+
+		resampler_thread_run(rstd);
+
+		pthread_mutex_unlock(&rstd->proc_mutex);
+
+		/* Let the caller know we are done */
+		pthread_mutex_lock(&rstd->done_mutex);
+		pthread_cond_signal(&rstd->done_trigger);
+		pthread_mutex_unlock(&rstd->done_mutex);
+	}
+
+	return arg;
+}
+#endif
+
+static int
+resampler_init_upsampler_threads(struct resampler_data *rsmpl)
+{
+	struct resampler_thread_data *rstd_l = &rsmpl->rstd_l;
+	struct resampler_thread_data *rstd_r = &rsmpl->rstd_r;
+	int rtprio = 0;
+	int ret = 0;
+
+	rstd_l->resampler = rsmpl->audio_upsampler_l;
+	rstd_l->active = &rsmpl->active;
+
+	rstd_r->resampler = rsmpl->audio_upsampler_r;
+	rstd_r->active = &rsmpl->active;
+
+#ifdef JMPXRDS_MT
+	pthread_mutex_init(&rstd_l->proc_mutex, NULL);
+	pthread_cond_init(&rstd_l->proc_trigger, NULL);
+	pthread_mutex_init(&rstd_l->done_mutex, NULL);
+	pthread_cond_init(&rstd_l->done_trigger, NULL);
+
+	rtprio = jack_client_max_real_time_priority(rsmpl->fmmod_client);
+	if(rtprio < 0)
+		return -1;
+
+	ret = jack_client_create_thread(rsmpl->fmmod_client, &rstd_l->tid,
+					rtprio, 1,
+					resampler_loop, (void *) rstd_l);
+	if(ret < 0)
+		return -1;
+#endif
+
+	return 0;
+}
+
 
 /**************\
 * ENTRY POINTS *
@@ -43,11 +119,11 @@ resampler_upsample_audio(struct resampler_data *rsmpl,
 			 float *out_l, float *out_r,
 			 uint32_t inframes, uint32_t outframes)
 {
+	struct resampler_thread_data *rstd_l = &rsmpl->rstd_l;
+	struct resampler_thread_data *rstd_r = &rsmpl->rstd_r;
 	soxr_error_t error;
 	size_t frames_used = 0;
 	size_t frames_generated = 0;
-	soxr_cbuf_t in[2];
-	soxr_buf_t out[2];
 
 	/* No need to upsample anything, just copy the buffers.
 	 * Note: This is here for debugging mostly */
@@ -56,22 +132,52 @@ resampler_upsample_audio(struct resampler_data *rsmpl,
 		memcpy(out_r, in_r, inframes * sizeof(float));
 		frames_generated = inframes;
 		return frames_generated;
-	} else {
-
-		in[0] = in_l;
-		in[1] = in_r;
-
-		out[0] = out_l;
-		out[1] = out_r;
-		error = soxr_process(rsmpl->audio_upsampler, in, inframes,
-				     &frames_used, out, outframes,
-				     &frames_generated);
 	}
 
-	if (error)
+#ifdef JMPXRDS_MT
+	pthread_mutex_lock(&rstd_l->proc_mutex);
+	rstd_l->inframes = inframes;
+	rstd_l->in = in_l;
+	rstd_l->out = out_l;
+	rstd_l->outframes = outframes;
+	pthread_mutex_unlock(&rstd_l->proc_mutex);
+
+	rstd_r->inframes = inframes;
+	rstd_r->in = in_r;
+	rstd_r->out = out_r;
+	rstd_r->outframes = outframes;
+
+	/* Signal the left channel thread to start
+	 * processing this chunk */
+	pthread_mutex_lock(&rstd_l->proc_mutex);
+	pthread_cond_signal(&rstd_l->proc_trigger);
+	pthread_mutex_unlock(&rstd_l->proc_mutex);
+
+	/* Process right channel on current thread */
+	resampler_thread_run(rstd_r);
+
+	/* Wait for the left channel thread to finish */
+	while(pthread_cond_wait(&rstd_l->done_trigger, &rstd_l->done_mutex) != 0);
+
+#else
+	rstd_l->inframes = inframes;
+	rstd_l->in = in_l;
+	rstd_l->out = out_l;
+	rstd_l->outframes = outframes;
+
+	resampler_thread_run(rstd_l);
+
+	rstd_r->inframes = inframes;
+	rstd_r->in = in_r;
+	rstd_r->out = out_r;
+	rstd_r->outframes = outframes;
+
+	resampler_thread_run(rstd_r);
+#endif
+	if(rstd_l->result || rstd_r->result)
 		return -1;
 	else
-		return frames_generated;
+		return rstd_l->frames_generated;
 }
 
 /* Upsample RDS waveform to the main oscilator's sampling rate */
@@ -124,8 +230,9 @@ resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
 
 int
 resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
-	       uint32_t osc_samplerate, uint32_t rds_samplerate,
-	       uint32_t output_samplerate, uint32_t max_process_frames)
+		jack_client_t *fmmod_client, uint32_t osc_samplerate,
+		uint32_t rds_samplerate, uint32_t output_samplerate,
+		uint32_t max_process_frames)
 {
 	int ret = 0;
 	soxr_error_t error;
@@ -141,6 +248,8 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	/* So that RDS encoder can calculate its buffer lengths */
 	rsmpl->osc_samplerate = osc_samplerate;
 
+	rsmpl->fmmod_client = fmmod_client;
+
 	/* AUDIO UPSAMPLER */
 
 	if (jack_samplerate == osc_samplerate) {
@@ -150,15 +259,27 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 
 	/* Initialize upsampler's parameters */
 	io_spec = soxr_io_spec(SOXR_FLOAT32_S, SOXR_FLOAT32_S);
-	runtime_spec = soxr_runtime_spec(2);
-	q_spec = soxr_quality_spec(SOXR_QQ, SOXR_HI_PREC_CLOCK);
-	rsmpl->audio_upsampler = soxr_create(jack_samplerate, osc_samplerate, 2,
-					     &error, &io_spec, &q_spec,
-					     &runtime_spec);
+	runtime_spec = soxr_runtime_spec(1);
+	q_spec = soxr_quality_spec(SOXR_QQ, 0);
+
+	rsmpl->audio_upsampler_l = soxr_create(jack_samplerate, osc_samplerate, 1,
+						&error, &io_spec, &q_spec,
+						&runtime_spec);
 	if (error) {
 		ret = -2;
 		goto cleanup;
 	}
+
+	rsmpl->audio_upsampler_r = soxr_create(jack_samplerate, osc_samplerate, 1,
+						&error, &io_spec, &q_spec,
+						&runtime_spec);
+	if (error) {
+		ret = -2;
+		goto cleanup;
+	}
+
+	rsmpl->active = 1;
+	resampler_init_upsampler_threads(rsmpl);
 
  audio_upsampler_bypass:
 
@@ -167,7 +288,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	/* Initialize upsampler's parameters */
 	io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
 	runtime_spec = soxr_runtime_spec(1);
-	q_spec = soxr_quality_spec(SOXR_QQ, SOXR_HI_PREC_CLOCK);
+	q_spec = soxr_quality_spec(SOXR_QQ, 0);
 	rsmpl->rds_upsampler = soxr_create(rds_samplerate, osc_samplerate, 1,
 					   &error, &io_spec, &q_spec,
 					   &runtime_spec);
@@ -187,9 +308,9 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 	/* Initialize downsampler's parameters */
 	io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
 	runtime_spec = soxr_runtime_spec(1);
-	q_spec = soxr_quality_spec(SOXR_32_BITQ, SOXR_HI_PREC_CLOCK);
+	q_spec = soxr_quality_spec(SOXR_HQ, 0);
 	q_spec.passband_end = ((double)60000 / (double)output_samplerate) * 2.0L;
-	q_spec.stopband_begin = ((double)65000 / (double)output_samplerate) * 2.0L;
+	q_spec.stopband_begin = ((double)62500 / (double)output_samplerate) * 2.0L;
 
 	rsmpl->mpx_downsampler = soxr_create(osc_samplerate, output_samplerate,
 					     1, &error, &io_spec, &q_spec,
@@ -210,8 +331,10 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 void
 resampler_destroy(struct resampler_data *rsmpl)
 {
+	rsmpl->active = 0;
 	/* SoXr checks if they are NULL or not */
-	soxr_delete(rsmpl->audio_upsampler);
+	soxr_delete(rsmpl->audio_upsampler_l);
+	soxr_delete(rsmpl->audio_upsampler_r);
 	soxr_delete(rsmpl->rds_upsampler);
 	soxr_delete(rsmpl->mpx_downsampler);
 }

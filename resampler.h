@@ -19,24 +19,44 @@
  */
 #include <stdint.h>		/* For typed integers */
 #include <soxr.h>		/* soxr types and macros */
+#include <jack/jack.h>		/* For jack-related types */
+#include <pthread.h>		/* For pthread mutex / conditional */
+
+struct resampler_thread_data {
+	soxr_t resampler;
+	float *in;
+	float *out;
+	uint32_t inframes;
+	uint32_t outframes;
+	size_t	frames_used;
+	size_t	frames_generated;
+	soxr_error_t result;
+	pthread_mutex_t proc_mutex;
+	pthread_cond_t proc_trigger;
+	pthread_mutex_t done_mutex;
+	pthread_cond_t done_trigger;
+	jack_native_thread_t tid;
+	int	*active;
+};
 
 struct resampler_data {
+	jack_client_t *fmmod_client;
 	uint32_t osc_samplerate;
-	soxr_t audio_upsampler;
+	soxr_t audio_upsampler_l;
+	soxr_t audio_upsampler_r;
 	int audio_upsampler_bypass;
-	soxr_buf_t audio_outbufs[2];
-	soxr_buf_t audio_outbuf_l;
-	soxr_buf_t audio_outbuf_r;
-	size_t audio_outbuf_len;
 	soxr_t rds_upsampler;
 	soxr_t mpx_downsampler;
 	int mpx_downsampler_bypass;
-
+	int active;
+	struct resampler_thread_data rstd_l;
+	struct resampler_thread_data rstd_r;
 };
 
 int resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
-		   uint32_t osc_samplerate, uint32_t rds_samplerate,
-		   uint32_t output_samplerate, uint32_t max_process_frames);
+		jack_client_t *fmmod_client, uint32_t osc_samplerate,
+		uint32_t rds_samplerate, uint32_t output_samplerate,
+		uint32_t max_process_frames);
 int resampler_upsample_audio(struct resampler_data *rsmpl, float *in_l,
 			     float *in_r, float *out_l, float *out_r,
 			     uint32_t inframes, uint32_t outframes);
