@@ -42,7 +42,8 @@ jmrg_acentry_poll(gpointer data)
 		return FALSE;
 	}
 
-	gtk_entry_set_text(GTK_ENTRY(vmap->target), name);
+	if(name)
+		gtk_entry_set_text(GTK_ENTRY(vmap->target), name);
 
 	return TRUE;
 }
