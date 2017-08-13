@@ -127,7 +127,6 @@ jmrg_level_bar_init(const char* label, float* val_ptr)
 	context = gtk_widget_get_style_context(level_bar);
 	gtk_style_context_add_class(context,"gain_bar");
 
-
 	/* Initialize value_map */
 	vmap = malloc(sizeof(struct value_map));
 	if(!vmap)
@@ -148,7 +147,7 @@ jmrg_level_bar_init(const char* label, float* val_ptr)
 			 vmap);
 
 	/* Only need the top level container */
-	return container;	
+	return container;
  cleanup:
 	if(level_bar)
 		gtk_widget_destroy(level_bar);

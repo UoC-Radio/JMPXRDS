@@ -441,9 +441,6 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		mpx_out = fmmod->sock_outbuf;
 		mpx_out_len = fmmod->sock_outbuf_len;
 	}
-	ctl->peak_audio_in_l = 0;
-	ctl->peak_audio_in_r = 0;
-	ctl->peak_mpx_out = 0;
 
 	/* No frames received */
 	if (!nframes)
@@ -510,6 +507,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 		return FMMOD_ERR_RESAMPLER_ERR;
 
 	/* Update mpx output peak gain */
+	ctl->peak_mpx_out = 0;
 	for (i = 0; i < frames_generated; i++) {
 		if (mpx_out[i] > ctl->peak_mpx_out)
 			ctl->peak_mpx_out = mpx_out[i];

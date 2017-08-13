@@ -150,8 +150,8 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 		ret = -3;
 		goto cleanup;
 	}
-	gtk_container_add(GTK_CONTAINER(container), vbox);
 	gtk_box_set_homogeneous(GTK_BOX(vbox), TRUE);
+	gtk_container_add(GTK_CONTAINER(container), vbox);
 
 
 	/* Initialize radio button group */
@@ -291,6 +291,7 @@ jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
 		ret = -6;
 		goto cleanup;
 	}
+	gtk_box_set_homogeneous(GTK_BOX(pe_vbox), TRUE);
 	gtk_container_add(GTK_CONTAINER(pe_frame), pe_vbox);
 
 	/* Initialize radio button group */
@@ -361,29 +362,32 @@ jmrg_fmmodp_audio_gain_ctls_init(struct fmmod_control *ctl)
 	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
 	gtk_frame_set_shadow_type(GTK_FRAME(container),
 				  GTK_SHADOW_ETCHED_IN);
+	gtk_widget_set_margin_bottom(container, 6);
 
 	/* Create sub-container */
 	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	if(!hbox)
 		goto cleanup;
+	gtk_box_set_homogeneous(GTK_BOX(hbox), TRUE);
+	gtk_container_add(GTK_CONTAINER(container), hbox);
 
 	/* Create Level bars for audio and audio gain control */
 	audl_lvl = jmrg_level_bar_init("L", &ctl->peak_audio_in_l);
 	if(!audl_lvl)
 		goto cleanup;
 	gtk_box_pack_start(GTK_BOX(hbox), audl_lvl, 1, 1, 6);
+	gtk_widget_set_margin_bottom(audl_lvl, 6);
 
 	augain_ctl = jmrg_vscale_init(NULL, &ctl->audio_gain, (gdouble) 100.0);
 	if(!augain_ctl)
 		goto cleanup;
 	gtk_box_set_center_widget(GTK_BOX(hbox), augain_ctl);
 
-	audr_lvl = jmrg_level_bar_init("R", &ctl->peak_audio_in_l);
+	audr_lvl = jmrg_level_bar_init("R", &ctl->peak_audio_in_r);
 	if(!audr_lvl)
 		goto cleanup;
 	gtk_box_pack_end(GTK_BOX(hbox), audr_lvl, 1, 1, 6);
-
-	gtk_container_add(GTK_CONTAINER(container), hbox);
+	gtk_widget_set_margin_bottom(audr_lvl, 6);
 
 	return container;
  cleanup:
@@ -412,11 +416,13 @@ jmrg_fmmodp_subcarrier_gain_ctls_init(struct fmmod_control *ctl)
 	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
 	gtk_frame_set_shadow_type(GTK_FRAME(container),
 				  GTK_SHADOW_ETCHED_IN);
+	gtk_widget_set_margin_bottom(container, 6);
 
 	/* Create sub-container */
 	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	if(!hbox)
 		goto cleanup;
+	gtk_box_set_homogeneous(GTK_BOX(hbox), TRUE);
 	gtk_container_add(GTK_CONTAINER(container), hbox);
 
 	/* Create sub-carrier gain controls */
@@ -457,11 +463,14 @@ jmrg_fmmodp_mpx_gain_ctl_init(struct fmmod_control *ctl)
 	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
 	gtk_frame_set_shadow_type(GTK_FRAME(container),
 				  GTK_SHADOW_ETCHED_IN);
+	gtk_widget_set_margin_bottom(container, 6);
 
 	/* Create sub-container */
 	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	if(!hbox)
 		goto cleanup;
+	gtk_box_set_homogeneous(GTK_BOX(hbox), TRUE);
+	gtk_container_add(GTK_CONTAINER(container), hbox);
 
 	/* A scale and a level bar for the whole MPX signal */
 	mpxgain_ctl = jmrg_vscale_init(NULL, &ctl->mpx_gain,
@@ -473,9 +482,8 @@ jmrg_fmmodp_mpx_gain_ctl_init(struct fmmod_control *ctl)
 	mpx_lvl = jmrg_level_bar_init(NULL, &ctl->peak_mpx_out);
 	if(!mpx_lvl)
 		goto cleanup;
-	gtk_box_pack_end(GTK_BOX(hbox), mpx_lvl, 1, 1, 1);
-
-	gtk_container_add(GTK_CONTAINER(container), hbox);
+	gtk_widget_set_margin_bottom(mpx_lvl, 6);
+	gtk_box_pack_end(GTK_BOX(hbox), mpx_lvl, 1, 1, 6);
 
 	return container;
  cleanup:
@@ -533,6 +541,7 @@ jmrg_fmmodp_mpxgc_init(struct fmmod_control *ctl)
 		ret = -4;
 		goto cleanup;
 	}
+	gtk_widget_set_margin_bottom(pgain_ctl, 6);
 	gtk_box_pack_start(GTK_BOX(hbox), pgain_ctl, 1, 1, 6);
 
 	/* Subcarrier gain control */
@@ -620,6 +629,7 @@ jmrg_fmmod_panel_init(struct control_page *ctl_page)
 		ret = -4;
 		goto cleanup;
 	}
+	gtk_widget_set_size_request(mpxp, 560, 366);
 	gtk_box_pack_start(GTK_BOX(lvbox), mpxp, TRUE, TRUE, 2);
 
 	/* Initialize mpx gain controls */
@@ -628,6 +638,7 @@ jmrg_fmmod_panel_init(struct control_page *ctl_page)
 		ret = -5;
 		goto cleanup;
 	}
+	gtk_widget_set_size_request(mpxgc, 560, 300);
 	gtk_box_pack_start(GTK_BOX(lvbox), mpxgc, FALSE, FALSE, 2);
 
 
