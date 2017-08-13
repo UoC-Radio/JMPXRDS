@@ -23,6 +23,25 @@ const char css_style[] = ".gain_bar block.empty, block.filled  {"\
 				"border: 1px solid black;"\
 			"}";
 
+/*********\
+* HELPERS *
+\*********/
+
+static void
+jmrg_hide_page_contents(struct control_page *page)
+{
+	GList *children = NULL;
+	GList *current_child = NULL;
+
+	children = gtk_container_get_children(GTK_CONTAINER(page->container));
+	for(current_child = children; current_child != NULL;
+	    current_child = g_list_next(current_child)) {
+		gtk_widget_hide(GTK_WIDGET(current_child->data));
+	}
+	g_list_free(children);
+}
+
+
 /************************\
 * COMMON SIGNAL HANDLERS *
 \************************/
@@ -54,10 +73,32 @@ jmrg_panel_destroy(GtkWidget *container, struct control_page *ctl_page)
 	return;
 }
 
+/* When switching to a page, hide the widgets of the rest of the pages
+ * so that we don't poll for their contents. Un-hide / show only the contents
+ * of the current page. */
+void
+jmrg_panel_switched(GtkNotebook *notebook, GtkWidget *panel, guint page_no,
+		    gpointer user_data)
+{
+	struct control_page **pages = (struct control_page **) user_data;
+	int i = 0;
+	gint no_pages = gtk_notebook_get_n_pages(notebook);
+
+	for(i = 0; i < no_pages; i++) {
+		if(i == page_no)
+			gtk_widget_show_all(pages[i]->container);
+		else
+			jmrg_hide_page_contents(pages[i]);
+	}
+
+	return;
+}
+
 
 int
 main(int argc, char *argv[])
 {
+	struct control_page *pages[3];
 	GtkWidget *window = NULL;
 	GtkWidget *notebook = NULL;
 	GtkCssProvider *provider = NULL;
@@ -65,6 +106,7 @@ main(int argc, char *argv[])
 	struct control_page *fmmod_panel = NULL;
 	struct control_page *rdsenc_panel = NULL;
 	struct control_page *rtpserv_panel = NULL;
+	int no_pages = 0;
 	int ret = 0;
 
 	/* Initialize gtk */
@@ -115,7 +157,7 @@ main(int argc, char *argv[])
 	}
 	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), fmmod_panel->container,
 				 fmmod_panel->label);
-
+	pages[no_pages++] = fmmod_panel;
 
 	/* Initialize RDSEncoder control panel */
 	rdsenc_panel = malloc(sizeof(struct control_page));
@@ -130,6 +172,7 @@ main(int argc, char *argv[])
 	}
 	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), rdsenc_panel->container,
 				 rdsenc_panel->label);
+	pages[no_pages++] = rdsenc_panel;
 
 	/* Initialize RTPServer control panel */
 	rtpserv_panel = malloc(sizeof(struct control_page));
@@ -144,8 +187,18 @@ main(int argc, char *argv[])
 	}
 	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), rtpserv_panel->container,
 				 rtpserv_panel->label);
+	pages[no_pages++] = rtpserv_panel;
+
+	/* Register the signal handler for switching pages */
+	g_signal_connect(notebook, "switch-page", G_CALLBACK(jmrg_panel_switched),
+                         pages);
 
 	gtk_widget_show_all(window);
+
+	/* Manualy call the signal handler after the call to show_all() to hide
+	 * the inactive pages. The currently displayed page is going to be the
+	 * first one (0). */
+	jmrg_panel_switched(GTK_NOTEBOOK(notebook), NULL, 0, pages);
 
 	/* Start the gtk main loop */
 	gtk_main();
