@@ -50,6 +50,13 @@ struct value_map {
 
 	/* Autocomplete entry match index */
 	int acentry_match_idx;
+
+	/* Dynamic PSN / RT infos */
+	struct rds_dynps_state dps;
+	struct rds_dynrt_state drt;
+
+	/* Switch for disabling Dynamic PSN / RT */
+	GtkWidget *sw;
 };
 
 
@@ -61,6 +68,7 @@ GtkWidget* jmrg_level_bar_init(const char*, float*);
 GtkWidget* jmrg_radio_button_init(const char*, int *, int, GtkRadioButton*);
 /* Widgets on RDSEnc panel */
 GtkWidget* jmrg_set_button_init(const char*, struct value_map*);
+GtkWidget* jmrg_file_chooser_init(struct value_map*);
 GtkWidget* jmrg_checkbox_init(struct rds_encoder_state*, const char*,
 			      int, int, int);
 GtkWidget* jmrg_display_field_init(struct rds_encoder_state*, const char*, int);

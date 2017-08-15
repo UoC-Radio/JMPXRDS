@@ -23,8 +23,10 @@
 #include <stdio.h>		/* For snprintf */
 #include <string.h>		/* For memset / strnlen / strncmp */
 #include <getopt.h>		/* For getopt_long_only() */
+#include <signal.h>		/* For signal handling / sig_atomic_t */
 
 #define TEMP_BUF_LEN	RDS_RT_LENGTH + 1
+
 void usage(char *name)
 {
 	utils_ann("RDS Configuration tool for JMPXRDS\n");
@@ -43,7 +45,9 @@ void usage(char *name)
 		"\t-tp   <bool>\tSet Traffic Programme flag (TP)\n"
 		"\t-ta   <bool>\tSet Traffic Announcement flag (TA)\n"
 		"\t-ms   <bool>\tSet Music/Speech flag (MS)\n"
-		"\t-di   <hex>\tSet Decoder Info (DI)\n");
+		"\t-di   <hex>\tSet Decoder Info (DI)\n"
+		"\t-dps  <filename>\tUpdate PSN from file (Dynamic PSN)\n"
+		"\t-drt  <filename>\tUpdate RT from file (Dynamic RT)\n");
 }
 
 static const struct option opts[] = {
@@ -58,10 +62,20 @@ static const struct option opts[] = {
 	{"ta",	required_argument,0,	9},
 	{"ms",	required_argument,0,	10},
 	{"di",	required_argument,0,	11},
+	{"dps",	required_argument,0,	12},
+	{"drt",	required_argument,0,	13},
 	{0,	0,		0,	0}
 };
 
-/* Yes it's ugly... */
+static volatile sig_atomic_t active;
+
+static void
+signal_handler(int sig, siginfo_t * info, void *context)
+{
+	active = 0;
+	return;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -79,6 +93,10 @@ main(int argc, char *argv[])
 	char temp[TEMP_BUF_LEN] = { 0 };
 	struct shm_mapping *shmem = NULL;
 	struct rds_encoder_state *st = NULL;
+	struct rds_dynps_state dps = {0};
+	struct rds_dynrt_state drt = {0};
+	struct sigaction sa = {0};
+	int loop = 0;
 	int opt = 0;
 	int opt_idx = 0;
 
@@ -248,6 +266,22 @@ main(int argc, char *argv[])
 			} else
 				utils_info("MS set:  \t0x%X\n", di);
 			break;
+		case 12: /* Dynamic PSN */
+			ret = rds_dynps_init(&dps, st, optarg);
+			if(ret < 0) {
+				utils_err("Failed to initialize Dynamic PSN mode !\n");
+				goto cleanup;
+			} else
+				loop = 1;
+			break;
+		case 13: /* Dynamic RT */
+			ret = rds_dynrt_init(&drt, st, optarg);
+			if(ret < 0) {
+				utils_err("Failed to initialize Dynamic RT mode !\n");
+				goto cleanup;
+			} else
+				loop = 1;
+			break;
 		default:
 			usage(argv[0]);
 			utils_shm_destroy(shmem, 0);
@@ -258,6 +292,20 @@ main(int argc, char *argv[])
 	if (argc < 2 || (argc > 1 && optind == 1)) {
 		usage(argv[0]);
 		ret = -1;
+	}
+
+	if(loop) {
+		/* Install a signal handler for graceful exit */
+		sigemptyset(&sa.sa_mask);
+		sa.sa_flags = SA_SIGINFO;
+		sa.sa_sigaction = signal_handler;
+		sigaction(SIGQUIT, &sa, NULL);
+		sigaction(SIGTERM, &sa, NULL);
+		sigaction(SIGINT, &sa, NULL);
+		active = 1;
+		while(active);
+		rds_dynps_destroy(&dps);
+		rds_dynrt_destroy(&drt);
 	}
 
  cleanup:

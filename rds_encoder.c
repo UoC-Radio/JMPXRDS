@@ -591,7 +591,7 @@ rds_get_next_group(struct rds_encoder *enc, struct rds_group *group)
 						 RDS_GROUP_VERSION_B);
 	}
 	/* Send a 1A group to update ECC / LIC on the receiver */
-	else if (groups_per_sec_counter < 6 && (st->ecc_set || st->lic_set)) {
+	else if (groups_per_sec_counter < 5 && (st->ecc_set || st->lic_set)) {
 		ret = rds_generate_group(enc, group, 1, RDS_GROUP_VERSION_A);
 	}
 	/* Send 2 10A groups for PTYN if available */

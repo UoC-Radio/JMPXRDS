@@ -56,6 +56,9 @@ void
 utils_info(const char* fmt,...);
 
 void
+utils_wrn(const char* fmt,...);
+
+void
 utils_err(const char* fmt,...);
 
 void

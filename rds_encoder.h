@@ -20,6 +20,8 @@
 #include <stdint.h>		/* For typed ints */
 #include <jack/jack.h>		/* For jack-related types */
 #include <pthread.h>		/* For pthread mutex / conditional */
+#include <sys/inotify.h>	/* For inotify_event */
+#include <linux/limits.h>	/* For NAME_MAX */
 
 /* RDS encoding takes a data stream of specialy formated data,
  * does a differential encoding on it and passes it through a
@@ -206,3 +208,73 @@ int rds_set_rt(struct rds_encoder_state *st, const char *rt, int flush);
 /* Abstract getter/setter for bit fields */
 typedef uint8_t (*rds_bf_getter) (struct rds_encoder_state *);
 typedef int (*rds_bf_setter) (struct rds_encoder_state *, uint8_t);
+
+/* Dynamic PS */
+
+#define EVENT_LEN (10 * (sizeof(struct inotify_event) + NAME_MAX + 1))
+
+/* We send PSN once every second, 3 secs should be enough to make sure
+ * that most recievers got the update, even if they lost the packet
+ * twice */
+#define	DYNPS_DELAY_SECS 3
+
+/* This is 8 segments, it'll take 24secs to show the title which is a lot
+ * of time already. I've seen some programs that support 255 characters, that's
+ * insane, it'll take more than 10mins to show the whole text. If you change this
+ * make sure it's a multiple of 8 + 1 for the null terminator */
+#define	DYNPS_MAX_CHARS	65
+
+struct rds_dynps_state {
+	struct rds_encoder_state *st;
+	char	string[DYNPS_MAX_CHARS];
+	char	fixed_ps[RDS_PS_LENGTH + 1];
+	int	curr_segment;
+	int	no_segments;
+	pthread_t	dynps_filemon_tid;
+	pthread_t	dynps_consumer_tid;
+	pthread_mutex_t	dynps_proc_mutex;
+	int	active;
+	int	opened;
+	int	inotify_fd;
+	int	watch_fd;
+	const char *filepath;
+	char	event_buf[EVENT_LEN];
+};
+
+int rds_dynps_init(struct rds_dynps_state *dps, struct rds_encoder_state *st,
+		   const char* filepath);
+void rds_dynps_destroy(struct rds_dynps_state *dps);
+
+/* Dynamic RT */
+
+/* We send a minimum of 5 2A groups per second to update RT on the receivers
+ * and each group contains 4 characters so we need 16 groups to transmit the
+ * full 64 char message. That's almost 3 seconds to get one RT messge out.
+ * To have the same reduntancy as with the PSN, we want to at least send
+ * the message out 3 times, so it's 9 seconds, make it 10 to be sure */
+#define	DYNRT_DELAY_SECS 10
+
+/* That's 3 RT messages plus the null terminator, it'll take almost 30
+ * seconds to send that in the worst case */
+#define	DYNRT_MAX_CHARS	193
+
+struct rds_dynrt_state {
+	struct rds_encoder_state *st;
+	char	string[DYNRT_MAX_CHARS];
+	char	fixed_rt[RDS_RT_LENGTH + 1];
+	int	curr_segment;
+	int	no_segments;
+	pthread_t	dynrt_filemon_tid;
+	pthread_t	dynrt_consumer_tid;
+	pthread_mutex_t	dynrt_proc_mutex;
+	int	active;
+	int	opened;
+	int	inotify_fd;
+	int	watch_fd;
+	const char *filepath;
+	char	event_buf[EVENT_LEN];
+};
+
+int rds_dynrt_init(struct rds_dynrt_state *drt, struct rds_encoder_state *st,
+	       const char* filepath);
+void rds_dynrt_destroy(struct rds_dynrt_state *drt);

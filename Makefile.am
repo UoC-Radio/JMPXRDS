@@ -5,7 +5,7 @@ jmpxrds_SOURCES = filters.c oscilator.c resampler.c rds_encoder.c \
 jmpxrds_LDADD = $(LIBM) $(LIBRT) $(LIBSAMPLERATE) $(LIBFFTW3) $(LIBJACK)
 jmpxrds_CFLAGS = $(CFLAGS)
 
-rds_tool_SOURCES = utils.c rds_config.c rds_tool.c
+rds_tool_SOURCES = utils.c rds_config.c rds_dynpsrt.c rds_tool.c
 rds_tool_LDADD = $(LIBRT)
 rds_tool_CFLAGS = $(CFLAGS)
 
@@ -17,6 +17,7 @@ if GUI
 bin_PROGRAMS += jmpxrds_gui
 
 jmpxrds_gui_SOURCES = utils.c rds_config.c
+jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_file_chooser.c @srcdir@/rds_dynpsrt.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_radio_button.c @srcdir@/gui/jmrg_switch.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_level_bar.c @srcdir@/gui/jmrg_vscale.c
 jmpxrds_gui_SOURCES += @srcdir@/gui/jmrg_mpx_plotter.c @srcdir@/gui/jmrg_mpx_plotter_gl.c

@@ -140,8 +140,8 @@ utils_shm_unlink_all()
 
 /****************\
 * CONSOLE OUTPUT *
-
 \****************/
+
 /* Some codes for prety output on the terminal */
 #define NORMAL	"\x1B[0m"
 #define	BRIGHT	"\x1B[1m"
@@ -172,6 +172,18 @@ utils_info(const char* fmt,...)
 	vprintf(fmt, args);
 	va_end(args);
 	printf(NORMAL);
+}
+
+void
+utils_wrn(const char* fmt,...)
+{
+	va_list args;
+
+	fprintf(stderr, YELLOW);
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+	fprintf(stderr, NORMAL);
 }
 
 void

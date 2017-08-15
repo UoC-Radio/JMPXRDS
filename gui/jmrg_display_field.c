@@ -31,12 +31,22 @@ jmrg_display_field_poll(gpointer data)
 		gtk_label_set_text(GTK_LABEL(vmap->target), pi);
 		return TRUE;
 	case RDS_FIELD_PS:
+		if(!st->ps_set)
+			return TRUE;
 		text = rds_get_ps(st);
+		if(gtk_widget_get_sensitive(vmap->target2) == FALSE)
+			gtk_widget_set_sensitive(vmap->target2, TRUE);
 		break;
 	case RDS_FIELD_RT:
+		if(!st->rt_set)
+			return TRUE;
 		text = rds_get_rt(st);
+		if(gtk_widget_get_sensitive(vmap->target2) == FALSE)
+			gtk_widget_set_sensitive(vmap->target2, TRUE);
 		break;
 	case RDS_FIELD_PTYN:
+		if(!st->ptyn_set)
+			return TRUE;
 		text = rds_get_ptyn(st);
 		if(!text) {
 			tmp = rds_get_pty(st);
@@ -49,7 +59,9 @@ jmrg_display_field_poll(gpointer data)
 		return FALSE;
 	}
 
-	gtk_label_set_text(GTK_LABEL(vmap->target), text);
+	if(text)
+		gtk_label_set_text(GTK_LABEL(vmap->target), text);
+
 	return TRUE;
 }
 
@@ -64,31 +76,32 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
 	GtkWidget *container = NULL;
 	GtkWidget *vbox = NULL;
 	GtkWidget *display = NULL;
-	GtkWidget *hbox = NULL;
+	GtkWidget *input_hbox = NULL;
 	GtkWidget *input = NULL;
 	GtkWidget *flag_check = NULL;
 	GtkWidget *set_button = NULL;
+	GtkWidget *file_chooser = NULL;
 	GtkStyleContext *context = NULL;
 	struct value_map *vmap = NULL;
-	int has_flag = 1;
+	int has_flag = 0;
+	int is_dynamic = 0;
 	int max_len = 1;
 
 	switch(type) {
 		case RDS_FIELD_PI:
 			max_len = 5;
-			has_flag = 0;
 			break;
 		case RDS_FIELD_PS:
 			max_len = RDS_PS_LENGTH;
-			has_flag = 0;
+			is_dynamic = 1;
 			break;
 		case RDS_FIELD_RT:
 			max_len = RDS_RT_LENGTH;
 			has_flag = 1;
+			is_dynamic = 1;
 			break;
 		case RDS_FIELD_PTYN:
 			max_len = RDS_PTYN_LENGTH;
-			has_flag = 0;
 			break;
 		default:
 			return NULL;
@@ -107,6 +120,7 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
 	else
 		gtk_frame_set_shadow_type(GTK_FRAME(container),
 					  GTK_SHADOW_NONE);
+	gtk_widget_set_valign(container, GTK_ALIGN_START);
 
 
 	/* Use a box to have better control */
@@ -115,12 +129,11 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
 		goto cleanup;
 	gtk_container_add(GTK_CONTAINER(container), vbox);
 
-
 	/* Create the display as a label widget */
 	display  = gtk_label_new(NULL);
 	if(!display)
 		goto cleanup;
-	gtk_box_pack_start(GTK_BOX(vbox), display, 1, 1, 6);
+	gtk_box_pack_start(GTK_BOX(vbox), display, 1, 0, 6);
 	gtk_label_set_max_width_chars(GTK_LABEL(display), max_len);
 
 	/* Register custom CSS */
@@ -130,15 +143,15 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
 
 	/* Create the input field with its set button and
 	 * an optional checkbox (flag) for the RT field */
-	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-	if(!hbox)
+	input_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	if(!input_hbox)
 		goto cleanup;
-	gtk_box_pack_end(GTK_BOX(vbox), hbox, 1, 1, 6);
+	gtk_box_pack_start(GTK_BOX(vbox), input_hbox, 1, 1, 6);
 
 	input = gtk_entry_new();
 	if(!input)
 		goto cleanup;
-	gtk_box_pack_start(GTK_BOX(hbox), input, 1, 1, 6);
+	gtk_box_pack_start(GTK_BOX(input_hbox), input, 1, 1, 6);
 	gtk_entry_set_max_width_chars(GTK_ENTRY(input), max_len);
 
 	if(has_flag) {
@@ -146,9 +159,8 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
 						0, 0, 1);
 		if(!flag_check)
 			goto cleanup;
-		gtk_box_pack_start(GTK_BOX(hbox), flag_check, 0, 0, 2);
+		gtk_box_pack_start(GTK_BOX(input_hbox), flag_check, 0, 0, 2);
 	}
-
 
 	/* Initialize value_map */	
 	vmap = malloc(sizeof(struct value_map));
@@ -166,8 +178,19 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
 	set_button = jmrg_set_button_init("Set", vmap);
 	if(!set_button)
 		goto cleanup;
-	gtk_box_pack_start(GTK_BOX(hbox), set_button, 0, 0, 6);
+	gtk_box_pack_start(GTK_BOX(input_hbox), set_button, 0, 0, 6);
 
+
+	/* If it's Dynamic PSN / RT, add the file chooser */
+	if(is_dynamic) {
+		file_chooser = jmrg_file_chooser_init(vmap);
+		if(!file_chooser)
+			goto cleanup;
+		gtk_box_pack_start(GTK_BOX(vbox), file_chooser, 1, 1, 6);
+		gtk_widget_set_halign(file_chooser, GTK_ALIGN_START);
+		gtk_widget_set_sensitive(file_chooser, FALSE);
+		vmap->target2 = file_chooser;
+	}
 
 	/* Register polling function and signal handlers */
 	vmap->esid = g_timeout_add(200, jmrg_display_field_poll, vmap);
@@ -179,10 +202,12 @@ jmrg_display_field_init(struct rds_encoder_state *st, const char* label, int typ
  cleanup:
 	if(vmap)
 		free(vmap);
+	if(set_button)
+		gtk_widget_destroy(set_button);
 	if(input)
 		gtk_widget_destroy(input);
-	if(hbox)
-		gtk_widget_destroy(hbox);
+	if(input_hbox)
+		gtk_widget_destroy(input_hbox);
 	if(display)
 		gtk_widget_destroy(display);
 	if(vbox)

@@ -195,8 +195,8 @@ rds_set_ps(struct rds_encoder_state *st, const char *ps)
 		return -1;
 
 	pslen = strnlen(ps, RDS_PS_LENGTH);
-	if (pslen > RDS_PS_LENGTH)
-		return -1;
+	if (!pslen || pslen > RDS_PS_LENGTH)
+		return -2;
 
 	memset(st->ps, 0, RDS_PS_LENGTH);
 
