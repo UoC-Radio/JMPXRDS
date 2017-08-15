@@ -61,6 +61,10 @@ jmrg_free_vmap(GtkWidget *widget, gpointer data)
 		g_list_store_remove_all(vmap->iplstore);
 		g_object_unref(vmap->iplstore);
 	}
+	if((&vmap->dps)->active)
+		rds_dynps_destroy(&vmap->dps);
+	if((&vmap->drt)->active)
+		rds_dynrt_destroy(&vmap->drt);
 	free(vmap);
 	return;
 }
