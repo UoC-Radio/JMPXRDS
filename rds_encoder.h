@@ -233,6 +233,8 @@ struct rds_dynps_state {
 	pthread_t	dynps_filemon_tid;
 	pthread_t	dynps_consumer_tid;
 	pthread_mutex_t	dynps_proc_mutex;
+	pthread_cond_t	sleep_trig;
+	pthread_mutex_t sleep_mutex;
 	int	active;
 	int	opened;
 	int	inotify_fd;
@@ -267,6 +269,8 @@ struct rds_dynrt_state {
 	pthread_t	dynrt_filemon_tid;
 	pthread_t	dynrt_consumer_tid;
 	pthread_mutex_t	dynrt_proc_mutex;
+	pthread_cond_t	sleep_trig;
+	pthread_mutex_t sleep_mutex;
 	int	active;
 	int	opened;
 	int	inotify_fd;

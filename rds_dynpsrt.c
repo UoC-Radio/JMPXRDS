@@ -21,10 +21,24 @@
 #include "utils.h"
 #include <stdio.h>		/* For fopen(), FILE etc */
 #include <string.h>		/* For memset/strnlen/strncpy etc */
+#include <unistd.h>		/* For read() / close() */
 #include <pthread.h>		/* For pthread support */
-#include <unistd.h>		/* For sleep() */
-#include <signal.h>		/* For SIGTERM */
+#include <time.h>		/* For clock_gettime() */
 
+/*********\
+* HELPERS *
+\*********/
+
+static void
+rds_dynpsrt_cond_sleep(pthread_cond_t *trig, pthread_mutex_t *mutex, int delay_secs)
+{
+	struct timespec ts = {0};
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += delay_secs;
+	pthread_mutex_lock(mutex);
+	while(!pthread_cond_timedwait(trig, mutex, &ts));
+	pthread_mutex_unlock(mutex);
+}
 
 /*************\
 * DYNAMIC PSN *
@@ -73,7 +87,7 @@ rds_dynps_get_next_str_segment(struct rds_dynps_state *dps)
 static void
 rds_dynps_sleep(struct rds_dynps_state *dps)
 {
-	sleep(DYNPS_DELAY_SECS);
+	rds_dynpsrt_cond_sleep(&dps->sleep_trig, &dps->sleep_mutex, DYNPS_DELAY_SECS);
 }
 
 static void
@@ -147,19 +161,22 @@ rds_dynps_destroy(struct rds_dynps_state *dps)
 {
 	struct rds_encoder_state *st = dps->st;
 	dps->active = 0;
+	pthread_mutex_lock(&dps->sleep_mutex);
+	pthread_cond_signal(&dps->sleep_trig);
+	pthread_mutex_unlock(&dps->sleep_mutex);
 	if(dps->inotify_fd && dps->watch_fd)
 		inotify_rm_watch(dps->inotify_fd, dps->watch_fd);
 	if(dps->inotify_fd)
 		close(dps->inotify_fd);
-	/* Give them some time to exit normaly */
-	rds_dynps_sleep(dps);
-	/* Now kill them */
 	if(dps->dynps_filemon_tid)
-		pthread_kill(dps->dynps_filemon_tid, SIGTERM);
+		pthread_cancel(dps->dynps_filemon_tid);
 	if(dps->dynps_consumer_tid)
-		pthread_kill(dps->dynps_consumer_tid, SIGTERM);
+		pthread_cancel(dps->dynps_consumer_tid);
 	if(dps->fixed_ps)
 		rds_set_ps(st, dps->fixed_ps);
+	pthread_mutex_destroy(&dps->dynps_proc_mutex);
+	pthread_mutex_destroy(&dps->sleep_mutex);
+	pthread_cond_destroy(&dps->sleep_trig);
 }
 
 int
@@ -176,6 +193,8 @@ rds_dynps_init(struct rds_dynps_state *dps, struct rds_encoder_state *st, const 
 
 	dps->st = st;
 	pthread_mutex_init(&dps->dynps_proc_mutex, NULL);
+	pthread_mutex_init(&dps->sleep_mutex, NULL);
+	pthread_cond_init(&dps->sleep_trig, NULL);
 
 	strncpy(dps->fixed_ps, st->ps, RDS_PS_LENGTH);
 
@@ -249,7 +268,7 @@ rds_dynrt_get_next_str_segment(struct rds_dynrt_state *drt)
 static void
 rds_dynrt_sleep(struct rds_dynrt_state *drt)
 {
-	sleep(DYNRT_DELAY_SECS);
+	rds_dynpsrt_cond_sleep(&drt->sleep_trig, &drt->sleep_mutex, DYNRT_DELAY_SECS);
 }
 
 static void
@@ -323,19 +342,22 @@ rds_dynrt_destroy(struct rds_dynrt_state *drt)
 {
 	struct rds_encoder_state *st = drt->st;
 	drt->active = 0;
+	pthread_mutex_lock(&drt->sleep_mutex);
+	pthread_cond_signal(&drt->sleep_trig);
+	pthread_mutex_unlock(&drt->sleep_mutex);
 	if(drt->inotify_fd && drt->watch_fd)
 		inotify_rm_watch(drt->inotify_fd, drt->watch_fd);
 	if(drt->inotify_fd)
 		close(drt->inotify_fd);
-	/* Give them some time to exit normaly */
-	rds_dynrt_sleep(drt);
-	/* Now kill them */
 	if(drt->dynrt_filemon_tid)
-		pthread_kill(drt->dynrt_filemon_tid, SIGTERM);
+		pthread_cancel(drt->dynrt_filemon_tid);
 	if(drt->dynrt_consumer_tid)
-		pthread_kill(drt->dynrt_consumer_tid, SIGTERM);
+		pthread_cancel(drt->dynrt_consumer_tid);
 	if(drt->fixed_rt)
 		rds_set_rt(st, drt->fixed_rt, 1);
+	pthread_mutex_destroy(&drt->dynrt_proc_mutex);
+	pthread_mutex_destroy(&drt->sleep_mutex);
+	pthread_cond_destroy(&drt->sleep_trig);
 }
 
 int
@@ -352,6 +374,8 @@ rds_dynrt_init(struct rds_dynrt_state *drt, struct rds_encoder_state *st, const 
 
 	drt->st = st;
 	pthread_mutex_init(&drt->dynrt_proc_mutex, NULL);
+	pthread_mutex_init(&drt->sleep_mutex, NULL);
+	pthread_cond_init(&drt->sleep_trig, NULL);
 
 	strncpy(drt->fixed_rt, st->rt, RDS_RT_LENGTH);
 
