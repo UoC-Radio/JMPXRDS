@@ -57,6 +57,7 @@ rtp_server_init(struct rtp_server *rtpsrv, int mpx_samplerate,
 #include <string.h>		/* For memset() and strstr() */
 #include <jack/thread.h>	/* For thread handling through jack */
 #include <gst/app/gstappsrc.h>	/* For gst_app_src_* functions */
+#include <gst/rtp/gstrtpdefs.h>	/* For GST_RTP_PROFILE_* */
 
 static gboolean
 rtp_server_update_stats(gpointer user_data)
@@ -337,6 +338,7 @@ _rtp_server_init(void *data)
 	int ret = 0;
 	GstCaps *audio_caps = NULL;
 	GstElement *audio_converter = NULL;
+	GstElement *queue2 = NULL;
 	GstElement *flac_encoder = NULL;
 	GstElement *rtp_payloader = NULL;
 	GstElement *rtcpsrc = NULL;
@@ -414,6 +416,16 @@ _rtp_server_init(void *data)
 		goto cleanup;
 	}
 
+	/* Initialize a queue2 element to buffer data between our
+	 * non-continuous appsrc and the rest of the pipeline */
+	queue2 = gst_element_factory_make("queue2", "queue");
+	if (!queue2) {
+		ret = -4;
+		goto cleanup;
+	}
+	g_object_set(queue2, "max-size-bytes",
+		     2 * rtpsrv->max_samples * sizeof(float), NULL);
+
 	/* Initialize FLAC encoder */
 	flac_encoder = gst_element_factory_make("flacenc", "flac_encoder");
 	if (!flac_encoder) {
@@ -442,10 +454,10 @@ _rtp_server_init(void *data)
 
 	/* Create the pipeline down to the rtprtxqueue */
 	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->appsrc,
-			 audio_converter, flac_encoder, rtp_payloader,
+			 audio_converter, queue2, flac_encoder, rtp_payloader,
 			 rtprtxqueue, NULL);
 
-	ret = gst_element_link_many(rtpsrv->appsrc, audio_converter,
+	ret = gst_element_link_many(rtpsrv->appsrc, audio_converter, queue2,
 				    flac_encoder, rtp_payloader, rtprtxqueue,
 				    NULL);
 	if (!ret) {
@@ -459,6 +471,8 @@ _rtp_server_init(void *data)
 		ret = -9;
 		goto cleanup;
 	}
+	/* Audio/Video profile with feedback (AVPF) */
+	g_object_set(rtpsrv->rtpbin, "rtp-profile", GST_RTP_PROFILE_AVPF, NULL);
 	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpbin);
 
 	/* Initialize the UDP sink for outgoing RTP messages */
