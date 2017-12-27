@@ -338,7 +338,6 @@ _rtp_server_init(void *data)
 	int ret = 0;
 	GstCaps *audio_caps = NULL;
 	GstElement *audio_converter = NULL;
-	GstElement *queue2 = NULL;
 	GstElement *flac_encoder = NULL;
 	GstElement *rtp_payloader = NULL;
 	GstElement *rtcpsrc = NULL;
@@ -416,16 +415,6 @@ _rtp_server_init(void *data)
 		goto cleanup;
 	}
 
-	/* Initialize a queue2 element to buffer data between our
-	 * non-continuous appsrc and the rest of the pipeline */
-	queue2 = gst_element_factory_make("queue2", "queue");
-	if (!queue2) {
-		ret = -4;
-		goto cleanup;
-	}
-	g_object_set(queue2, "max-size-bytes",
-		     2 * rtpsrv->max_samples * sizeof(float), NULL);
-
 	/* Initialize FLAC encoder */
 	flac_encoder = gst_element_factory_make("flacenc", "flac_encoder");
 	if (!flac_encoder) {
@@ -454,10 +443,10 @@ _rtp_server_init(void *data)
 
 	/* Create the pipeline down to the rtprtxqueue */
 	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->appsrc,
-			 audio_converter, queue2, flac_encoder, rtp_payloader,
+			 audio_converter, flac_encoder, rtp_payloader,
 			 rtprtxqueue, NULL);
 
-	ret = gst_element_link_many(rtpsrv->appsrc, audio_converter, queue2,
+	ret = gst_element_link_many(rtpsrv->appsrc, audio_converter,
 				    flac_encoder, rtp_payloader, rtprtxqueue,
 				    NULL);
 	if (!ret) {
