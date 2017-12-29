@@ -135,6 +135,37 @@ rtp_server_error_cb(GstBus * bus, GstMessage * msg, gpointer user_data)
 	return rtpsrv;
 }
 
+static GstElement *
+rtp_server_request_aux_sender_cb (GstElement *rtpbin, guint sessid, gpointer user_data)
+{
+	GstElement *rtx, *bin;
+	GstPad *pad;
+	gchar *name;
+	GstStructure *pt_map;
+
+	bin = gst_bin_new (NULL);
+	rtx = gst_element_factory_make ("rtprtxsend", NULL);
+	pt_map = gst_structure_new ("application/x-rtp-pt-map",
+		"96", G_TYPE_UINT, 97, NULL);
+	g_object_set (rtx, "payload-type-map", pt_map, NULL);
+	gst_structure_free (pt_map);
+	gst_bin_add (GST_BIN (bin), rtx);
+
+	pad = gst_element_get_static_pad (rtx, "src");
+	name = g_strdup_printf ("src_%u", sessid);
+	gst_element_add_pad (bin, gst_ghost_pad_new (name, pad));
+	g_free (name);
+	gst_object_unref (pad);
+
+	pad = gst_element_get_static_pad (rtx, "sink");
+	name = g_strdup_printf ("sink_%u", sessid);
+	gst_element_add_pad (bin, gst_ghost_pad_new (name, pad));
+	g_free (name);
+	gst_object_unref (pad);
+
+	return bin;
+}
+
 void
 rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 {
@@ -341,7 +372,6 @@ _rtp_server_init(void *data)
 	GstElement *flac_encoder = NULL;
 	GstElement *rtp_payloader = NULL;
 	GstElement *rtcpsrc = NULL;
-	GstElement *rtprtxqueue = NULL;
 	GstPad *srcpad = NULL;
 	GstPad *sinkpad = NULL;
 	GstAppSrcCallbacks gst_appsrc_cbs;
@@ -433,22 +463,12 @@ _rtp_server_init(void *data)
 	}
 	g_object_set(rtp_payloader, "config-interval", 3, NULL);
 
-	/* Initialize RTP rtx queue to support non-RFC compliant RTP
-	 * retransmissions */
-	rtprtxqueue = gst_element_factory_make("rtprtxqueue", "rtprtxqueue");
-	if (!rtprtxqueue) {
-		ret = -7;
-		goto cleanup;
-	}
-
-	/* Create the pipeline down to the rtprtxqueue */
+	/* Create the pipeline down to the rtp_payloader */
 	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->appsrc,
-			 audio_converter, flac_encoder, rtp_payloader,
-			 rtprtxqueue, NULL);
+			 audio_converter, flac_encoder, rtp_payloader, NULL);
 
 	ret = gst_element_link_many(rtpsrv->appsrc, audio_converter,
-				    flac_encoder, rtp_payloader, rtprtxqueue,
-				    NULL);
+				    flac_encoder, rtp_payloader, NULL);
 	if (!ret) {
 		ret = -8;
 		goto cleanup;
@@ -494,8 +514,8 @@ _rtp_server_init(void *data)
 			 rtpsrv->rtcpsink, rtcpsrc, NULL);
 
 	/* Set up an RTP sinkpad for session 0 from rtpbin and link it to the
-	 * rtprtxqueue */
-	srcpad = gst_element_get_static_pad(rtprtxqueue, "src");
+	 * rtp_payloader */
+	srcpad = gst_element_get_static_pad(rtp_payloader, "src");
 	sinkpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtp_sink_0");
 	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
 		ret = -13;
@@ -536,6 +556,9 @@ _rtp_server_init(void *data)
 	}
 	gst_object_unref(srcpad);
 	gst_object_unref(sinkpad);
+
+	g_signal_connect (rtpsrv->rtpbin, "request-aux-sender",
+			  G_CALLBACK (rtp_server_request_aux_sender_cb), NULL);
 
 	/* Update the stats every 1 sec */
 	g_timeout_add_seconds(1, rtp_server_update_stats, (gpointer) rtpsrv);
