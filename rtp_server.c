@@ -513,6 +513,11 @@ _rtp_server_init(void *data)
 	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpsink,
 			 rtpsrv->rtcpsink, rtcpsrc, NULL);
 
+	/* register callback to create "rtprtxsend".
+	 * This needs to be called before requesting the pads from rtpbin */
+	g_signal_connect (rtpsrv->rtpbin, "request-aux-sender",
+			  G_CALLBACK (rtp_server_request_aux_sender_cb), NULL);
+
 	/* Set up an RTP sinkpad for session 0 from rtpbin and link it to the
 	 * rtp_payloader */
 	srcpad = gst_element_get_static_pad(rtp_payloader, "src");
@@ -556,9 +561,6 @@ _rtp_server_init(void *data)
 	}
 	gst_object_unref(srcpad);
 	gst_object_unref(sinkpad);
-
-	g_signal_connect (rtpsrv->rtpbin, "request-aux-sender",
-			  G_CALLBACK (rtp_server_request_aux_sender_cb), NULL);
 
 	/* Update the stats every 1 sec */
 	g_timeout_add_seconds(1, rtp_server_update_stats, (gpointer) rtpsrv);

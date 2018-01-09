@@ -161,6 +161,7 @@ initialize(struct rtp_client *client, int *argc, char **argv[])
 	g_autoptr (GError) error = NULL;
 	g_autoptr (GstBus) bus = NULL;
 	g_autoptr (GstElement) rtpbin = NULL;
+	g_autoptr (GstElement) rtpsrc = NULL;
 
 	gint latency = DEFAULT_LATENCY;
 	gint rtp_port = DEFAULT_RTP_PORT;
@@ -197,7 +198,7 @@ initialize(struct rtp_client *client, int *argc, char **argv[])
 	}
 
 	if (!(client->pipeline = gst_parse_launch ("rtpbin name=rtpbin "
-		"udpsrc name=rtpsrc ! rtpbin.recv_rtp_sink_0 "
+		"udpsrc name=rtpsrc "
 		"udpsrc name=rtcpsrc ! rtpbin.recv_rtcp_sink_0 "
 		"rtpbin.send_rtcp_src_0 ! udpsink name=rtcpsink", &error)))
 	{
@@ -256,6 +257,14 @@ initialize(struct rtp_client *client, int *argc, char **argv[])
 		G_CALLBACK (rtpbin_pad_added), client);
 	g_signal_connect (rtpbin, "pad-removed",
 		G_CALLBACK (rtpbin_pad_removed), client);
+
+	/* This link needs to happen after we have connected the
+	 * "request-aux-receiver" signal, because rtpbin internally
+	 * calls our callback to create rtprtxreceive while it is
+	 * creating the "recv_rtp_sink_0" pad
+	 */
+	rtpsrc = gst_bin_get_by_name (GST_BIN (client->pipeline), "rtpsrc");
+	gst_element_link_pads (rtpsrc, "src", rtpbin, "recv_rtp_sink_0");
 
 	return TRUE;
 }
