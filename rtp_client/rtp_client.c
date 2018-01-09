@@ -35,6 +35,32 @@ struct rtp_client
 	GstCaps *recv_caps;
 };
 
+static void
+print_statistics (struct rtp_client *client)
+{
+	g_autoptr (GObject) rtpbin = NULL;
+	g_autoptr (GObject) session = NULL;
+	g_autoptr (GstStructure) stats = NULL;
+	g_autofree gchar *str = NULL;
+
+	rtpbin = gst_child_proxy_get_child_by_name (
+		GST_CHILD_PROXY (client->pipeline), "rtpbin");
+	g_signal_emit_by_name (rtpbin, "get-session", 0, &session);
+	g_object_get (session, "stats", &stats, NULL);
+
+	/* simply dump the stats structure */
+	str = gst_structure_to_string (stats);
+	g_print ("Statistics: %s\n", str);
+}
+
+static gboolean
+sigusr1_cb (gpointer user_data)
+{
+	struct rtp_client *client = user_data;
+	print_statistics (client);
+	return G_SOURCE_CONTINUE;
+}
+
 static gboolean
 signal_cb (gpointer user_data)
 {
@@ -248,6 +274,7 @@ main(int argc, char *argv[])
 	g_unix_signal_add (SIGHUP, signal_cb, &client);
 	g_unix_signal_add (SIGINT, signal_cb, &client);
 	g_unix_signal_add (SIGTERM, signal_cb, &client);
+	g_unix_signal_add (SIGUSR1, sigusr1_cb, &client);
 
 	/* run the pipeline */
 	gst_element_set_state (client.pipeline, GST_STATE_PLAYING);
