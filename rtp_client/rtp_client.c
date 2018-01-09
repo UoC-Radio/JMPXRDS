@@ -131,27 +131,31 @@ static void
 rtpbin_pad_added (GstElement *rtpbin, GstPad *src, gpointer user_data)
 {
 	struct rtp_client *client = user_data;
-	g_autoptr (GstPad) sink;
+	g_autoptr (GstPad) sink = NULL;
 
-	sink = gst_element_get_static_pad (client->sink_bin, "sink");
-	if (G_UNLIKELY (gst_pad_is_linked (sink))) {
-		g_autoptr (GstPad) old_src = gst_pad_get_peer (sink);
-		gst_pad_unlink (old_src, sink);
+	if (g_str_has_prefix (GST_PAD_NAME (src), "recv_rtp_src_")) {
+		sink = gst_element_get_static_pad (client->sink_bin, "sink");
+		if (G_UNLIKELY (gst_pad_is_linked (sink))) {
+			g_autoptr (GstPad) old_src = gst_pad_get_peer (sink);
+			gst_pad_unlink (old_src, sink);
+		}
+
+		gst_pad_link (src, sink);
+		gst_element_sync_state_with_parent (client->sink_bin);
 	}
-
-	gst_pad_link (src, sink);
-	gst_element_sync_state_with_parent (client->sink_bin);
 }
 
 static void
 rtpbin_pad_removed (GstElement *rtpbin, GstPad *src, gpointer user_data)
 {
 	struct rtp_client *client = user_data;
-	g_autoptr (GstPad) sink;
+	g_autoptr (GstPad) sink = NULL;
 
-	sink = gst_element_get_static_pad (client->sink_bin, "sink");
-	gst_pad_unlink (src, sink);
-	gst_element_set_state (client->sink_bin, GST_STATE_PAUSED);
+	if (g_str_has_prefix (GST_PAD_NAME (src), "recv_rtp_src_")) {
+		sink = gst_element_get_static_pad (client->sink_bin, "sink");
+		gst_pad_unlink (src, sink);
+		gst_element_set_state (client->sink_bin, GST_STATE_PAUSED);
+	}
 }
 
 static gboolean
