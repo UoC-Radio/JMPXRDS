@@ -448,6 +448,7 @@ _rtp_server_init(void *data)
 	gst_app_src_set_stream_type(GST_APP_SRC(rtpsrv->appsrc),
 				    GST_APP_STREAM_TYPE_STREAM);
 	gst_base_src_set_live(GST_BASE_SRC(rtpsrv->appsrc), TRUE);
+	gst_base_src_set_do_timestamp(GST_BASE_SRC(rtpsrv->appsrc), TRUE);
 	gst_app_src_set_size(GST_APP_SRC(rtpsrv->appsrc), -1);
 	g_object_set(G_OBJECT(rtpsrv->appsrc), "format", GST_FORMAT_TIME, NULL);
 
