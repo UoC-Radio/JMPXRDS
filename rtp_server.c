@@ -185,7 +185,7 @@ rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 
 	gst_buffer_map(gstbuff, &info, GST_MAP_WRITE);
 
-	if (G_UNLIKELY(info.size != num_samples * sizeof(float))) {
+	if (G_UNLIKELY(info.size < num_samples * sizeof(float))) {
 		gst_buffer_unmap(gstbuff, &info);
 		gst_object_unref(gstbuff);
 		utils_err("GstBufferPool buffer size does not match input");
@@ -193,8 +193,10 @@ rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 	}
 
 	/* Copy the data */
-	memcpy(info.data, buff, info.size);
+	memcpy(info.data, buff, num_samples * sizeof(float));
 	gst_buffer_unmap(gstbuff, &info);
+
+	gst_buffer_resize(gstbuff, 0, num_samples * sizeof(float));
 
 	/* Set the buffer's properties */
 	GST_BUFFER_TIMESTAMP(gstbuff) = GST_CLOCK_TIME_NONE;
