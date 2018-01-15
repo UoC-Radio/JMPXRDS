@@ -135,6 +135,16 @@ rtp_server_error_cb(GstBus * bus, GstMessage * msg, gpointer user_data)
 	return rtpsrv;
 }
 
+static GstCaps *
+request_pt_map_cb (GstElement *rtpbin, guint session, guint pt, gpointer user_data)
+{
+	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
+	GstCaps *caps = NULL;
+	if (pt == 96)
+		caps = gst_app_src_get_caps(GST_APP_SRC(rtpsrv->appsrc));
+	return caps;
+}
+
 static GstElement *
 rtp_server_request_aux_sender_cb (GstElement *rtpbin, guint sessid, gpointer user_data)
 {
@@ -533,6 +543,9 @@ _rtp_server_init(void *data)
 	/* Add the UDP sources and sinks to the pipeline */
 	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpsink,
 			 rtpsrv->rtcpsink, rtcpsrc, NULL);
+
+	g_signal_connect (rtpsrv->rtpbin, "request-pt-map",
+			  G_CALLBACK (request_pt_map_cb), rtpsrv);
 
 	/* register callback to create "rtprtxsend".
 	 * This needs to be called before requesting the pads from rtpbin */
