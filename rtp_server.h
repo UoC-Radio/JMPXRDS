@@ -54,6 +54,7 @@ struct rtp_server_control {
 struct rtp_server {
 	int state;
 	jack_client_t *fmmod_client;
+	GstBufferPool *pool;
 	GstElement *appsrc;
 	GstElement *pipeline;
 	GstElement *rtpbin;
@@ -62,6 +63,7 @@ struct rtp_server {
 	GstBus *msgbus;
 	GMainLoop *loop;
 	int init_res;
+	uint32_t buf_len;
 	int mpx_samplerate;
 	int max_samples;
 	int baseport;
@@ -76,5 +78,5 @@ int rtp_server_remove_receiver(int addr);
 void rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff,
 			    int num_samples);
 void rtp_server_destroy(struct rtp_server *rtpsrv);
-int rtp_server_init(struct rtp_server *rtpsrv, int mpx_samplerate,
-		    int max_samples, int baseport);
+int rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
+		    int mpx_samplerate, int max_samples, int baseport);

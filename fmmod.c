@@ -553,6 +553,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
 	uint32_t osc_samplerate = OSC_SAMPLE_RATE;
+	uint32_t output_buf_len = 0;
 
 	memset(fmmod, 0, sizeof(struct fmmod_instance));
 
@@ -742,6 +743,11 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 		goto cleanup;
 	}
 
+	output_buf_len = num_resampled_samples(osc_samplerate,
+					       output_samplerate,
+					       fmmod->upsampled_num_samples);
+	output_buf_len *= sizeof(float);
+
 	/* Register output port if possible, if not allocate
 	 * our own buffers since we can't use JACK's */
 	if (fmmod->output_type == FMMOD_OUT_JACK) {
@@ -755,10 +761,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 			goto cleanup;
 		}
 	} else {
-		fmmod->sock_outbuf_len = num_resampled_samples(osc_samplerate,
-							       output_samplerate,
-							       fmmod->upsampled_num_samples);
-		fmmod->sock_outbuf_len *= sizeof(float);
+		fmmod->sock_outbuf_len = output_buf_len;
 		fmmod->sock_outbuf = (float *)malloc(fmmod->sock_outbuf_len);
 		if (fmmod->sock_outbuf == NULL) {
 			ret = FMMOD_ERR_NOMEM;
@@ -770,7 +773,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	/* Initialize the RTP server for sending the FLAC-compressed
 	 * mpx signal to a remote host if needed */
 	fmmod->rtpsrv.fmmod_client = fmmod->client;
-	ret = rtp_server_init(&fmmod->rtpsrv, output_samplerate,
+	ret = rtp_server_init(&fmmod->rtpsrv, output_buf_len, output_samplerate,
 			      max_process_frames, 5000);
 	if (ret < 0) {
 		utils_err("[RTP] Init failed with code: %i\n", ret);

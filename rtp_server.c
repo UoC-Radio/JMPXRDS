@@ -172,17 +172,29 @@ rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 	GstBuffer *gstbuff = NULL;
 	guint gstbuff_len = 0;
 	GstFlowReturn ret = GST_FLOW_OK;
+	GstMapInfo info;
 
 	if (!buff || !num_samples || !rtpsrv ||
 	    rtpsrv->state != RTP_SERVER_ACTIVE)
 		return;
 
-	/* Wrap the output buffer to a GStreamer buffer */
-	gstbuff_len = num_samples * sizeof(float);
-	gstbuff = gst_buffer_new_wrapped_full((GstMemoryFlags) 0,
-					      (gpointer) buff,
-					      gstbuff_len, 0, gstbuff_len,
-					      NULL, NULL);
+	/* Get an empty buffer from the pool */
+	ret = gst_buffer_pool_acquire_buffer(rtpsrv->pool, &gstbuff, NULL);
+	if (ret != GST_FLOW_OK)
+		return;
+
+	gst_buffer_map(gstbuff, &info, GST_MAP_WRITE);
+
+	if (G_UNLIKELY(info.size != num_samples * sizeof(float))) {
+		gst_buffer_unmap(gstbuff, &info);
+		gst_object_unref(gstbuff);
+		utils_err("GstBufferPool buffer size does not match input");
+		return;
+	}
+
+	/* Copy the data */
+	memcpy(info.data, buff, info.size);
+	gst_buffer_unmap(gstbuff, &info);
 
 	/* Set the buffer's properties */
 	GST_BUFFER_TIMESTAMP(gstbuff) = GST_CLOCK_TIME_NONE;
@@ -356,6 +368,11 @@ rtp_server_destroy(struct rtp_server *rtpsrv)
 		gst_object_unref(rtpsrv->msgbus);
 	}
 
+	if (rtpsrv->pool) {
+		gst_buffer_pool_set_active(rtpsrv->pool, FALSE);
+		gst_object_unref(rtpsrv->pool);
+	}
+
 	/* Cleanup the shared memory map */
 	utils_shm_destroy(rtpsrv->ctl_map, 1);
 
@@ -368,6 +385,7 @@ _rtp_server_init(void *data)
 {
 	int ret = 0;
 	GstCaps *audio_caps = NULL;
+	GstStructure *config = NULL;
 	GstElement *audio_converter = NULL;
 	GstElement *flac_encoder = NULL;
 	GstElement *rtp_payloader = NULL;
@@ -562,6 +580,17 @@ _rtp_server_init(void *data)
 	gst_object_unref(srcpad);
 	gst_object_unref(sinkpad);
 
+	/* configure a buffer pool with a minimum of 3 buffers pre-allocated */
+	rtpsrv->pool = gst_buffer_pool_new();
+	config = gst_buffer_pool_get_config(rtpsrv->pool);
+	gst_buffer_pool_config_set_params(config, NULL,
+					  rtpsrv->buf_len, 3, 0);
+	if (!gst_buffer_pool_set_config(rtpsrv->pool, config) ||
+	    !gst_buffer_pool_set_active(rtpsrv->pool, TRUE)) {
+		ret = -18;
+		goto cleanup;
+	}
+
 	/* Update the stats every 1 sec */
 	g_timeout_add_seconds(1, rtp_server_update_stats, (gpointer) rtpsrv);
 
@@ -583,13 +612,14 @@ _rtp_server_init(void *data)
 }
 
 int
-rtp_server_init(struct rtp_server *rtpsrv, int mpx_samplerate, int max_samples,
-		int baseport)
+rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
+		int mpx_samplerate, int max_samples, int baseport)
 {
 	int ret = 0;
 	int rtprio = 0;
 	static jack_native_thread_t tid = 0;
 
+	rtpsrv->buf_len = buf_len;
 	rtpsrv->mpx_samplerate = mpx_samplerate;
 	rtpsrv->max_samples = max_samples;
 	rtpsrv->baseport = baseport;
