@@ -1,0 +1,14 @@
+[Unit]
+Description=JMPXRDS RTP Client
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/default/jmpxrds_rtp_client.env
+ExecStart=/usr/local/bin/jmpxrds_rtp_client -l $LATENCY -p $PORT -h $REMOTE_HOST -r $REMOTE_RTCP_PORT -d $DEVICE
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=99
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
