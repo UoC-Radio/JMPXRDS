@@ -409,12 +409,14 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 	lpftd_l->out = samples_out_l;
 	lpftd_l->gain = gain_multiplier;
 	lpftd_l->num_samples = num_samples;
+	lpftd_l->preemph_tau = preemph_tau;
 	pthread_mutex_unlock(&lpftd_l->proc_mutex);
 
 	lpftd_r->in = samples_in_r;
 	lpftd_r->out = samples_out_r;
 	lpftd_r->gain = gain_multiplier;
 	lpftd_r->num_samples = num_samples;
+	lpftd_r->preemph_tau = preemph_tau;
 
 	/* Signal the left channel thread to start
 	 * processing this chunk */
@@ -433,11 +435,13 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 	lpftd_l->out = samples_out_l;
 	lpftd_l->gain = gain_multiplier;
 	lpftd_l->num_samples = num_samples;
+	lpftd_l->preemph_tau = preemph_tau;
 
 	lpftd_r->in = samples_in_r;
 	lpftd_r->out = samples_out_r;
 	lpftd_r->gain = gain_multiplier;
 	lpftd_r->num_samples = num_samples;
+	lpftd_r->preemph_tau = preemph_tau;
 
 
 	lpf_thread_run(lpftd_l);
