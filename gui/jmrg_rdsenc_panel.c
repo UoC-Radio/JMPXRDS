@@ -367,8 +367,13 @@ jmrg_rdsenc_panel_init(struct control_page *ctl_page)
 						DATA_PATH"rds_logo.png",
 						162, 44, TRUE, NULL);
 	if(!pixbuf_rds_logo) {
-		ret = -13;
-		goto cleanup;
+		pixbuf_rds_logo = gdk_pixbuf_new_from_file_at_scale(
+						"gui/images/rds_logo.png",
+						162, 44, TRUE, NULL);
+		if(!pixbuf_rds_logo) {
+				ret = -13;
+			goto cleanup;
+		}
 	}
 
 	rds_logo = gtk_image_new_from_pixbuf(pixbuf_rds_logo);

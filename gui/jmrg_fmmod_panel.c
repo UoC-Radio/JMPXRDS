@@ -176,7 +176,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 	rbgrp->rbuttons[2] = jmrg_radio_button_init("SSB (LP Filter)",
 					    &ctl->stereo_modulation,
 					    FMMOD_SSB_LPF,
-					    GTK_RADIO_BUTTON(rbgrp->rbuttons[2]));
+					    GTK_RADIO_BUTTON(rbgrp->rbuttons[1]));
 	if(!rbgrp->rbuttons[2]) {
 		ret = -6;
 		goto cleanup;
@@ -185,7 +185,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 	rbgrp->rbuttons[3] = jmrg_radio_button_init("Mono",
 					    &ctl->stereo_modulation,
 					    FMMOD_MONO,
-					    GTK_RADIO_BUTTON(rbgrp->rbuttons[3]));
+					    GTK_RADIO_BUTTON(rbgrp->rbuttons[2]));
 	if(!rbgrp->rbuttons[3]) {
 		ret = -7;
 		goto cleanup;
@@ -664,8 +664,13 @@ jmrg_fmmod_panel_init(struct control_page *ctl_page)
 						DATA_PATH"uoc_radio_logo.png",
 						180, 180, TRUE, NULL);
 	if (!pixbuf_uocr_logo) {
-		ret = -9;
-		goto cleanup;
+		pixbuf_uocr_logo = gdk_pixbuf_new_from_file_at_scale(
+						"gui/images/uoc_radio_logo.png",
+						180, 180, TRUE, NULL);
+		if (!pixbuf_uocr_logo) {
+			ret = -9;
+			goto cleanup;
+		}
 	}
 
 	uocr_logo = gtk_image_new_from_pixbuf(pixbuf_uocr_logo);
