@@ -2,7 +2,7 @@ bin_PROGRAMS = jmpxrds rds_tool fmmod_tool
 
 jmpxrds_SOURCES = filters.c oscilator.c resampler.c rds_encoder.c \
 		  rtp_server.c fmmod.c utils.c main.c
-jmpxrds_LDADD = $(LIBM) $(LIBRT) $(LIBSAMPLERATE) $(LIBFFTW3) $(LIBJACK)
+jmpxrds_LDADD = $(LIBM) $(LIBRT) $(LIBSAMPLERATE) $(LIBFFTW3F) $(LIBJACK)
 jmpxrds_CFLAGS = $(CFLAGS)
 
 rds_tool_SOURCES = utils.c rds_config.c rds_dynpsrt.c rds_tool.c

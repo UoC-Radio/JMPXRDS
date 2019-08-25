@@ -41,9 +41,9 @@ AC_SUBST([LIBRT])
 AC_CHECK_LIB([soxr], [soxr_create], [LIBSAMPLERATE=-lsoxr],
 	     AC_MSG_ERROR([Could not find libsoxr]))
 AC_SUBST([LIBSAMPLERATE])
-AC_CHECK_LIB([fftw3], [fftw_execute], [LIBFFTW3=-lfftw3],
-	     AC_MSG_ERROR([Could not find libfftw3]))
-AC_SUBST([LIBFFTW3])
+AC_CHECK_LIB([fftw3f], [fftwf_execute], [LIBFFTW3F=-lfftw3f],
+	     AC_MSG_ERROR([Could not find libfftw3f]))
+AC_SUBST([LIBFFTW3F])
 AC_CHECK_LIB([jack], [jack_client_open], [LIBJACK=-ljack],
 	     AC_MSG_ERROR([Could not find jack libraries]))
 AC_SUBST([LIBJACK])
@@ -96,9 +96,6 @@ AS_IF([test "x$with_gtk" != xno],
 			   [
 				AC_MSG_ERROR([Could not find libepoxy >= 1.3.0])
 			   ])
-	 AC_CHECK_LIB([fftw3f], [fftwf_execute], [LIBFFTW3F=-lfftw3f],
-	     AC_MSG_ERROR([Could not find libfftw3f]))
-	 AC_SUBST([LIBFFTW3F])
 	],
 	[
 	 AC_DEFINE([DISABLE_GUI], [1],

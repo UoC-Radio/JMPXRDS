@@ -27,14 +27,14 @@ struct lpf_filter_data {
 	uint16_t num_bins;
 	uint16_t middle_bin;
 	uint16_t cutoff_bin;
-	double variance;
+	float variance;
 	uint32_t sample_rate;
-	double	 bin_bw;
-	double *filter_curve;
-	fftw_complex *complex_buff;
-	double *real_buff;
-	fftw_plan dft_plan;
-	fftw_plan ift_plan;
+	float bin_bw;
+	float *filter_curve;
+	fftwf_complex *complex_buff;
+	float *real_buff;
+	fftwf_plan dft_plan;
+	fftwf_plan ift_plan;
 };
 
 enum lpf_preemph_mode {
@@ -102,10 +102,10 @@ float iir_ssb_filter_apply(struct ssb_filter_data *, float, uint8_t);
 /* Hilbert transformer for the Hartley modulator (SSB) */
 struct hilbert_transformer_data {
 	uint16_t num_bins;
-	fftw_complex *complex_buff;
-	double *real_buff;
-	fftw_plan dft_plan;
-	fftw_plan ift_plan;
+	fftwf_complex *complex_buff;
+	float *real_buff;
+	fftwf_plan dft_plan;
+	fftwf_plan ift_plan;
 };
 
 int hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t);

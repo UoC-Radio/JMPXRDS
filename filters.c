@@ -29,33 +29,33 @@
 
 /* Note that we don't use the normalization factor
  * here so that it always starts at 1.0 -exp(0)-. */
-static double
-gaussian(uint16_t bin, double variance)
+static float
+gaussian(uint16_t bin, float variance)
 {
-	return exp(-1.0L * pow((double) bin, 2) / (2.0L * variance));
+	return expf(-1.0L * pow((float) bin, 2) / (2.0 * variance));
 }
 
-static double
+static float
 bin2freq(struct lpf_filter_data *lpf, uint16_t bin)
 {
-	double bratio = 0;
-	double freq = 0;
-	double nyquist_freq = 0;
-	nyquist_freq = (double) lpf->sample_rate / 2.0L;
-	bratio = (double) bin / (double) lpf->middle_bin;
+	float bratio = 0;
+	float freq = 0;
+	float nyquist_freq = 0;
+	nyquist_freq = (float) lpf->sample_rate / 2.0;
+	bratio = (float) bin / (float) lpf->middle_bin;
 	freq = bratio * nyquist_freq;
 	return freq;
 }
 
 static uint16_t
-freq2bin(struct lpf_filter_data *lpf, double freq)
+freq2bin(struct lpf_filter_data *lpf, float freq)
 {
-	double fratio = 0;
-	double nyquist_freq = 0;
+	float fratio = 0;
+	float nyquist_freq = 0;
 	uint16_t bin = 0;
-	nyquist_freq = (double) lpf->sample_rate / 2.0L;
+	nyquist_freq = (float) lpf->sample_rate / 2.0;
 	fratio = freq / nyquist_freq;
-	bin = (uint16_t) (fratio * (double) lpf->middle_bin);
+	bin = (uint16_t) (fratio * (float) lpf->middle_bin);
 	return bin;
 }
 
@@ -114,13 +114,13 @@ lpf_filter_destroy(struct lpf_filter_data *lpf)
 	if(lpf->filter_curve)
 		free(lpf->filter_curve);
 	if(lpf->real_buff)
-		fftw_free(lpf->real_buff);
+		fftwf_free(lpf->real_buff);
 	if(lpf->complex_buff)
-		fftw_free(lpf->complex_buff);
+		fftwf_free(lpf->complex_buff);
 	if(lpf->dft_plan)
-		fftw_destroy_plan(lpf->dft_plan);
+		fftwf_destroy_plan(lpf->dft_plan);
 	if(lpf->ift_plan)
-		fftw_destroy_plan(lpf->ift_plan);
+		fftwf_destroy_plan(lpf->ift_plan);
 }
 
 int
@@ -129,15 +129,15 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 {
 	int i = 0;
 	int ret = 0;
-	double trans_bw = 0.0L;
+	float trans_bw = 0.0;
 	uint16_t remaining_bins = 0;
-	double nyquist_freq = 0.0L;
+	float nyquist_freq = 0.0;
 
 	lpf->num_bins = max_frames;
 	lpf->sample_rate = sample_rate;
 	lpf->middle_bin = (lpf->num_bins / 2) + 1;
-	nyquist_freq = (double) lpf->sample_rate / 2.0L;
-	lpf->bin_bw = (nyquist_freq / (double) lpf->num_bins);
+	nyquist_freq = (float) lpf->sample_rate / 2.0;
+	lpf->bin_bw = (nyquist_freq / (float) lpf->num_bins);
 
 	/*
 	 * Calculate the frequency bin after which we 'll start
@@ -164,13 +164,13 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	 * a given transition bandwidth, in bins, the same way we did it above
 	 * for the cutoff frequency bin.
 	 */
-	trans_bw = 2500.0L / lpf->bin_bw; /* 2.5KHz should be enough */
-	lpf->variance = 2.0L * trans_bw;
+	trans_bw = 2500.0 / lpf->bin_bw; /* 2.5KHz should be enough */
+	lpf->variance = 2.0 * trans_bw;
 
 	/* Calculate and store the filter's FFT curve from cutoff_bin
 	 * to the end of the spectrum */
 	remaining_bins = lpf->middle_bin - lpf->cutoff_bin;
-	lpf->filter_curve = (double*) malloc(remaining_bins * sizeof(double));
+	lpf->filter_curve = (float*) malloc(remaining_bins * sizeof(float));
 	if(!lpf->filter_curve) {
 		ret = -1;
 		goto cleanup;
@@ -181,24 +181,24 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 
 
 	/* Allocate buffers for DFT/IFT */
-	lpf->real_buff = fftw_alloc_real(max_frames);
+	lpf->real_buff = fftwf_alloc_real(max_frames);
 	if(!lpf->real_buff) {
 		ret = -2;
 		goto cleanup;
 	}
-	memset(lpf->real_buff, 0, sizeof(double) * max_frames);
+	memset(lpf->real_buff, 0, max_frames * sizeof(float));
 
-	lpf->complex_buff = fftw_alloc_complex(lpf->middle_bin - 0);
+	lpf->complex_buff = fftwf_alloc_complex(lpf->middle_bin - 0);
 	if(!lpf->complex_buff) {
 		ret = -3;
 		goto cleanup;
 	}
-	memset(lpf->complex_buff, 0, sizeof(fftw_complex) *
+	memset(lpf->complex_buff, 0, sizeof(fftwf_complex) *
 					(lpf->middle_bin - 0));
 
 
 	/* Create DFT plan */
-	lpf->dft_plan = fftw_plan_dft_r2c_1d(lpf->num_bins, lpf->real_buff,
+	lpf->dft_plan = fftwf_plan_dft_r2c_1d(lpf->num_bins, lpf->real_buff,
 					     lpf->complex_buff, FFTW_MEASURE);
 	if(!lpf->dft_plan) {
 		ret = -4;
@@ -207,7 +207,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 
 
 	/* Create IFT plan */
-	lpf->ift_plan = fftw_plan_dft_c2r_1d(lpf->num_bins, lpf->complex_buff,
+	lpf->ift_plan = fftwf_plan_dft_c2r_1d(lpf->num_bins, lpf->complex_buff,
 					     lpf->real_buff, FFTW_MEASURE);
 	if(!lpf->ift_plan)
 		ret = -5;
@@ -222,24 +222,22 @@ int
 lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 		 uint16_t num_samples, float gain, uint8_t preemph_tau)
 {
-	double tau = 0.0L;
+	float tau = 0.0;
 	float ratio = 0.0;
-	double fc = 0.0;
+	float fc = 0.0;
 	uint16_t preemph_start_bin = 0;
-	double pe_resp = 0.0L;
-	double bin_bw_scaled = 0.0L;
+	float pe_resp = 0.0;
+	float bin_bw_scaled = 0.0;
 	int i = 0;
 	int c = 0;
 
-	/* Copy samples to the real buffer, converting them to
-	 * double on the way */
-	memset(lpf->real_buff, 0, sizeof(double) * num_samples);
-	for(i = 0; i < num_samples; i++)
-		lpf->real_buff[i] = (double) in[i];
+	/* Clear and fill the real buffer */
+	memset(lpf->real_buff, 0, lpf->num_bins * sizeof(float));
+	memcpy(lpf->real_buff, in, num_samples * sizeof(float));
 
 	/* Run the DFT plan to get the freq domain (complex or
 	 * analytical) representation of the signal */
-	fftw_execute(lpf->dft_plan);
+	fftwf_execute(lpf->dft_plan);
 
 	/* Now signal is on the complex buffer, apply pre-emphasis
 	 * if requested and / or filter-out all frequency bins above
@@ -261,12 +259,12 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 		/* t = R*C = 1 / 2*pi*fc */
 		/* fc = 1 / 2*pi*t */
 		case LPF_PREEMPH_50US:
-			tau = 0.000001 * (double)50;
-			bin_bw_scaled = lpf->bin_bw * 0.00076L;
+			tau = 0.000001 * 50.0;
+			bin_bw_scaled = lpf->bin_bw * 0.00076;
 			break;
 		case LPF_PREEMPH_75US:
-			tau = 0.000001 * (double)75;
-			bin_bw_scaled = lpf->bin_bw * 0.00115L;
+			tau = 0.000001 * 75.0;
+			bin_bw_scaled = lpf->bin_bw * 0.00115;
 			break;
 		case LPF_PREEMPH_NONE:
 		default:
@@ -283,8 +281,8 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * imaginary part here since it encodes the phase and we don't want
 	 * to introduce any distortion there. */
 	for(i = preemph_start_bin, c = 0; i < lpf->cutoff_bin; i++, c++) {
-		pe_resp = 1 + (double) c * bin_bw_scaled;
-		lpf->complex_buff[i][0] *= pe_resp;
+		pe_resp = 1 + (float) c * bin_bw_scaled;
+		lpf->complex_buff[i][0] *= (float) pe_resp;
 	}
 
 	/* Continue as a high-shelf filter, no need to keep on
@@ -300,11 +298,11 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * multiplications */
 	for(i = lpf->cutoff_bin, c = 0; i < lpf->middle_bin; i++, c++) {
 		lpf->complex_buff[i][0] *= lpf->filter_curve[c];
-		lpf->complex_buff[i][1] = 0.0L;
+		lpf->complex_buff[i][1] = 0.0;
 	}
 
 	/* Switch the signal back to the time domain */
-	fftw_execute(lpf->ift_plan);
+	fftwf_execute(lpf->ift_plan);
 
 	/* Note that FFTW returns unnormalized data so the IFT output
 	 * is multiplied with the product of the logical dimentions
@@ -315,7 +313,7 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	ratio = (float) gain / (float) lpf->num_bins;
 
 	for(i = 0; i < num_samples; i++)
-		out[i] = ((float) lpf->real_buff[i]) * ratio;
+		out[i] = lpf->real_buff[i] * ratio;
 
 	return 0;
 }
@@ -571,13 +569,13 @@ void
 hilbert_transformer_destroy(struct hilbert_transformer_data *ht)
 {
 	if(ht->real_buff)
-		fftw_free(ht->real_buff);
+		fftwf_free(ht->real_buff);
 	if(ht->complex_buff)
-		fftw_free(ht->complex_buff);
+		fftwf_free(ht->complex_buff);
 	if(ht->dft_plan)
-		fftw_destroy_plan(ht->dft_plan);
+		fftwf_destroy_plan(ht->dft_plan);
 	if(ht->ift_plan)
-		fftw_destroy_plan(ht->ift_plan);
+		fftwf_destroy_plan(ht->ift_plan);
 }
 
 int
@@ -588,27 +586,27 @@ hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 	ht->num_bins = num_bins;
 
 	/* Allocate buffers */
-	ht->real_buff = fftw_alloc_real(num_bins);
+	ht->real_buff = fftwf_alloc_real(num_bins);
 	if(!ht->real_buff) {
 		ret = -1;
 		goto cleanup;
 	}
-	memset(ht->real_buff, 0, sizeof(double) * num_bins);
+	memset(ht->real_buff, 0, num_bins * sizeof(float));
 
 
 	/* Note: Instead of allocating bins / 2 + 1 as we did with
 	 * the FIR filter, we allocate the full thing to get the mirroring
 	 * effect. */
-	ht->complex_buff = fftw_alloc_complex(num_bins);
+	ht->complex_buff = fftwf_alloc_complex(num_bins);
 	if(!ht->complex_buff) {
 		ret = -2;
 		goto cleanup;
 	}
-	memset(ht->complex_buff, 0, sizeof(fftw_complex) * num_bins);
+	memset(ht->complex_buff, 0, num_bins * sizeof(fftwf_complex));
 
 
 	/* Create DFT plan */
-	ht->dft_plan = fftw_plan_dft_r2c_1d(num_bins, ht->real_buff,
+	ht->dft_plan = fftwf_plan_dft_r2c_1d(num_bins, ht->real_buff,
 					     ht->complex_buff, FFTW_MEASURE);
 	if(!ht->dft_plan) {
 		ret = -3;
@@ -617,7 +615,7 @@ hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 
 
 	/* Create IFT plan */
-	ht->ift_plan = fftw_plan_dft_c2r_1d(num_bins, ht->complex_buff,
+	ht->ift_plan = fftwf_plan_dft_c2r_1d(num_bins, ht->complex_buff,
 					    ht->real_buff, FFTW_MEASURE);
 	if(!ht->ift_plan)
 		ret = -4;
@@ -633,18 +631,16 @@ hilbert_transformer_apply(struct hilbert_transformer_data *ht, float *in,
 			  uint16_t num_samples)
 {
 	float ratio = 0.0;
-	double tmp = 0.0L;
+	float tmp = 0.0L;
 	int middle_point = 0;
 	int i = 0;
 
-	/* Copy samples to the real buffer, converting them to
-	 * double on the way */
-	memset(ht->real_buff, 0, sizeof(double) * ht->num_bins);
-	for(i = 0; i < num_samples; i++)
-		ht->real_buff[i] = (double) in[i];
+	/* Clear and fill the real buffer */
+	memset(ht->real_buff, 0, ht->num_bins * sizeof(float));
+	memcpy(ht->real_buff, in, num_samples * sizeof(float));
 
 	/* Run the DFT plan to transform signal */
-	fftw_execute(ht->dft_plan);
+	fftwf_execute(ht->dft_plan);
 
 	/* Now signal is on the complex buffer. */
 
@@ -672,12 +668,12 @@ hilbert_transformer_apply(struct hilbert_transformer_data *ht, float *in,
 	}
 
 	/* Switch the signal back to the time domain */
-	fftw_execute(ht->ift_plan);
+	fftwf_execute(ht->ift_plan);
 
 	/* Note that FFTW returns unnormalized data so the IFT output
 	 * is multiplied with the product of the logical dimentions
 	 * which in our case is num_bins.*/
-	ratio = (double) 1.0 / (double) ht->num_bins;
+	ratio = 1.0 / (float) ht->num_bins;
 
 	for(i = 0; i < num_samples; i++)
 		ht->real_buff[i] *= ratio;
