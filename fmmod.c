@@ -274,7 +274,7 @@ fmmod_ssb_weaver_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 	float in_phase = 0.0;
 	float quadrature = 0.0;
 	float tmp = 0.0;
-	int frequency_shift = 0;
+	float frequency_shift = 0;
 	int i = 0;
 
 	for(i = 0; i < num_samples; i++) {
@@ -302,9 +302,9 @@ fmmod_ssb_weaver_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 
 		/* Shift it to the carrier frequency and combine in_phase
 		 * and quadrature to create the LSB signal we want */
-		frequency_shift = (sin_osc->sample_rate / 4) - 38000;
+		frequency_shift = (float) (sin_osc->sample_rate / 4) - 38000.0;
 		in_phase *= osc_get_sample_for_freq(sin_osc, frequency_shift);
-		frequency_shift = (cos_osc->sample_rate / 4) - 38000;
+		frequency_shift = (float) (cos_osc->sample_rate / 4) - 38000.0;
 		quadrature *= osc_get_sample_for_freq(cos_osc, frequency_shift);
 
 		tmp = in_phase + quadrature;
@@ -339,7 +339,7 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 	struct osc_state *cos_osc = &fmmod->cos_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
 	struct hilbert_transformer_data *ht = &fmmod->ht;
-	int carrier_freq = 38000;
+	float carrier_freq = 38000.0;
 	int i = 0;
 
 	/* Phase shift L-R by 90deg using the Hilbert transformer */
@@ -358,8 +358,8 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 		 * -to preserve the phase difference also on the carrier-. Then
 		 * add them to get the lower sideband (the upper sideband will
 		 * be canceled-out) */
-		out[i] =  (float) (ht->real_buff[i] *
-			  osc_get_sample_for_freq(cos_osc, carrier_freq));
+		out[i] =  ht->real_buff[i] *
+			  osc_get_sample_for_freq(cos_osc, carrier_freq);
 		out[i] += lmr[i] *
 			  osc_get_sample_for_freq(sin_osc, carrier_freq);
 
@@ -430,12 +430,12 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	lmr_buf = fmmod->uaudio_buf_1;
 
 	/* Input */
-	left_in = (float *)jack_port_get_buffer(fmmod->inL, nframes);
-	right_in = (float *)jack_port_get_buffer(fmmod->inR, nframes);
+	left_in = (float *) jack_port_get_buffer(fmmod->inL, nframes);
+	right_in = (float *) jack_port_get_buffer(fmmod->inR, nframes);
 
 	/* Output */
 	if (fmmod->output_type == FMMOD_OUT_JACK) {
-		mpx_out = (float *)jack_port_get_buffer(fmmod->outMPX, nframes);
+		mpx_out = (float *) jack_port_get_buffer(fmmod->outMPX, nframes);
 		mpx_out_len = nframes;
 	} else {
 		mpx_out = fmmod->sock_outbuf;

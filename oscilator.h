@@ -42,17 +42,8 @@
 /* That's the RDS carrier, we won't get any further than this */
 #define MAX_FREQUENCY		57000
 
-#ifdef USE_WAVE_TABLE
-	/* On my experiments 64 was enough to get a decent
-	 * sine wave for all 3 frequencies. I used powers of
-	 * two so that % ONE_PERIOD changes to an & operator
-	 * -the compiler does that automaticaly- which greatly
-	 * improves performance */
-#define WAVE_TABLE_SIZE		63
-#define ONE_PERIOD		WAVE_TABLE_SIZE
-#else
-#define ONE_PERIOD		2 * M_PI
-#endif
+#define ONE_PERIOD		2.0 * M_PI
+
 
 enum osc_type {
 	OSC_TYPE_SINE = 0,
@@ -60,19 +51,6 @@ enum osc_type {
 };
 
 struct osc_state {
-#ifdef	USE_WAVE_TABLE
-	double wave_table[WAVE_TABLE_SIZE];
-
-	/* For cubic interpolation we need to know not only the
-	 * values of f(xi) but also the values of f'(xi). Since we
-	 * know that f(x) is sin(x) or cos(x) we can just create a
-	 * lookup table to store the values of f(x)' and be
-	 * more accurate and fast. */
-#ifdef	USE_CUBIC_INTERPOLATION
-	double fdx[WAVE_TABLE_SIZE];
-#endif
-
-#endif
 	double phase_step;
 	double current_phase;
 	uint32_t sample_rate;
@@ -82,7 +60,7 @@ struct osc_state {
 int osc_initialize(struct osc_state *, uint32_t, int);
 void osc_increase_phase(struct osc_state *);
 void osc_shift_90deg(struct osc_state *sinwg);
-double osc_get_sample_for_freq(struct osc_state *osc, double freq);
-double osc_get_19Khz_sample(struct osc_state *);
-double osc_get_38Khz_sample(struct osc_state *);
-double osc_get_57Khz_sample(struct osc_state *);
+float osc_get_sample_for_freq(struct osc_state *osc, float freq);
+float osc_get_19Khz_sample(struct osc_state *);
+float osc_get_38Khz_sample(struct osc_state *);
+float osc_get_57Khz_sample(struct osc_state *);

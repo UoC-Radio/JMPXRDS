@@ -5,17 +5,6 @@ AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign subdir-objects -Wall -Werror dist-bzip2])
 
 #Configuration / define macros
-AC_ARG_WITH([wave-table],
-	    AS_HELP_STRING([--with-wave-table],
-			   [Use a wave table for the oscilators]),
-	    AC_DEFINE([USE_WAVE_TABLE],[1],
-		      [Define this to use wave table for the oscilators]),
-	    [])
-AC_DEFINE([USE_CUBIC_INTERPOLATION],[1],
-	  [Define this to use cubic interpolation on the wave table(default)])
-
-#AC_DEFINE([USE_LINEAR_INTERPOLATION], [0],
-#	  [Define this to use linear interpolation on the wave table (not good)])
 AC_ARG_WITH([rtp-server],
 	    AS_HELP_STRING([--without-rtp-server],
 			   [Don 't build the embedded RTP server]),
