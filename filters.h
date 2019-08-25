@@ -80,25 +80,6 @@ int audio_filter_init(struct audio_filter *, jack_client_t *,
 int audio_filter_apply(struct audio_filter *, float*, float *, float *, float *,
 			uint16_t, float, uint8_t, uint8_t, float*, float*);
 
-/* IIR filter for the Weaver modulator (SSB) */
-#define WEAVER_FILTER_TAPS 10
-#define	WEAVER_FILTER_SIZE WEAVER_FILTER_TAPS + 1
-#define WEAVER_FILTER_REVERSE_MAX_GAIN (1.0 / 5.279294303e+02)
-
-struct ssb_filter_data {
-	float iir_inbuff_l[WEAVER_FILTER_SIZE];
-	float iir_outbuff_l[WEAVER_FILTER_SIZE];
-	float iir_inbuff_r[WEAVER_FILTER_SIZE];
-	float iir_outbuff_r[WEAVER_FILTER_SIZE];
-	/* ataps are symmetric, store the bottom
-	 * half part */
-	float iir_ataps[WEAVER_FILTER_TAPS / 2 + 1];
-	float iir_btaps[WEAVER_FILTER_TAPS];
-};
-
-int iir_ssb_filter_init(struct ssb_filter_data *);
-float iir_ssb_filter_apply(struct ssb_filter_data *, float, uint8_t);
-
 /* Hilbert transformer for the Hartley modulator (SSB) */
 struct hilbert_transformer_data {
 	uint16_t num_bins;

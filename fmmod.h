@@ -59,14 +59,13 @@ enum fmmod_output {
 /* Stereo signal (L-R) encoding:
  * DSB -> Double side band (default)
  * SSB HARTLEY -> Single Side Band Hartley modulator
- * SSB WEAVER -> Single Side Band Weaver modulator
+ * SSB LPF -> LPF-Based Single Side Band modulator
  * For more infos check out fmmod.c */
 enum fmmod_stereo_modulation {
 	FMMOD_DSB = 0,
 	FMMOD_SSB_HARTLEY = 1,
-	FMMOD_SSB_WEAVER = 2,
-	FMMOD_SSB_LPF = 3,
-	FMMOD_MONO = 4
+	FMMOD_SSB_LPF = 2,
+	FMMOD_MONO = 3
 };
 
 /* Control I/O channel */
@@ -125,7 +124,6 @@ struct fmmod_instance {
 	/* SSB modulators */
 	struct osc_state cos_osc;
 	struct lpf_filter_data ssb_lpf;
-	struct ssb_filter_data weaver_lpf;
 	struct hilbert_transformer_data ht;
 	/* Control */
 	struct shm_mapping *ctl_map;

@@ -5,7 +5,7 @@
 
 struct rbutton_group {
 	struct fmmod_control *ctl;
-	GtkWidget *rbuttons[5];
+	GtkWidget *rbuttons[4];
 	int type;
 	guint	esid;
 };
@@ -49,16 +49,16 @@ jmrg_fmmodp_radio_buttons_update(gpointer data)
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]),
 					     TRUE);
 
-	/* When switching to Weaver and LP filter-based SSB, double
+	/* When switching to LP filter-based SSB, double
 	 * the stereo carrier gain */
-	if((mode == FMMOD_SSB_WEAVER || mode == FMMOD_SSB_LPF) && !doubled) {
+	if((mode == FMMOD_SSB_LPF) && !doubled) {
 		if(scgain > 1.0)
 			scgain = 2.0;
 		else
 			scgain *= 2.0;
 		rbgrp->ctl->stereo_carrier_gain = scgain;
 		doubled = 1;
-	} else if((mode != FMMOD_SSB_WEAVER && mode != FMMOD_SSB_LPF) && doubled) {
+	} else if((mode != FMMOD_SSB_LPF) && doubled) {
 		scgain *= 0.5;
 		rbgrp->ctl->stereo_carrier_gain = scgain;
 		doubled = 0;
@@ -172,35 +172,27 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 		goto cleanup;
 	}
 
-	rbgrp->rbuttons[2] = jmrg_radio_button_init("SSB (Weaver)",
+
+	rbgrp->rbuttons[2] = jmrg_radio_button_init("SSB (LP Filter)",
 					    &ctl->stereo_modulation,
-					    FMMOD_SSB_WEAVER,
-					    GTK_RADIO_BUTTON(rbgrp->rbuttons[1]));
+					    FMMOD_SSB_LPF,
+					    GTK_RADIO_BUTTON(rbgrp->rbuttons[2]));
 	if(!rbgrp->rbuttons[2]) {
 		ret = -6;
 		goto cleanup;
 	}
 
-	rbgrp->rbuttons[3] = jmrg_radio_button_init("SSB (LP Filter)",
+	rbgrp->rbuttons[3] = jmrg_radio_button_init("Mono",
 					    &ctl->stereo_modulation,
-					    FMMOD_SSB_LPF,
-					    GTK_RADIO_BUTTON(rbgrp->rbuttons[2]));
+					    FMMOD_MONO,
+					    GTK_RADIO_BUTTON(rbgrp->rbuttons[3]));
 	if(!rbgrp->rbuttons[3]) {
 		ret = -7;
 		goto cleanup;
 	}
 
-	rbgrp->rbuttons[4] = jmrg_radio_button_init("Mono",
-					    &ctl->stereo_modulation,
-					    FMMOD_MONO,
-					    GTK_RADIO_BUTTON(rbgrp->rbuttons[3]));
-	if(!rbgrp->rbuttons[4]) {
-		ret = -8;
-		goto cleanup;
-	}
-
 	/* Now put them on the box */
-	for(i = 0; i < 5; i++)
+	for(i = 0; i < 4; i++)
 		gtk_box_pack_start(GTK_BOX(vbox), rbgrp->rbuttons[i],
 				   TRUE, TRUE, 2);
 
@@ -215,7 +207,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 	return container;
  cleanup:
 	if(rbgrp) {
-		for(i = 0; i < 5; i++)
+		for(i = 0; i < 4; i++)
 			if(rbgrp->rbuttons[i])
 				gtk_widget_destroy(rbgrp->rbuttons[i]);
 		free(rbgrp);

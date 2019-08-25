@@ -39,7 +39,7 @@ usage(char *name)
 		"\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
 		"\t-c   <int>\tSet stereo carrier gain percentage (default is 100%%)\n"
 		"\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley),\n"
-				"\t\t\t2-> SSB (Weaver), 3-> SSB (LP Filter), 4-> Mono\n"
+				"\t\t\t\t\t2-> SSB (LP Filter), 3-> Mono\n"
 		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n"
 		"\t-e	<int>\tSet FM Pre-emphasis tau (0-> 50us, 1->75us, 2->Disabled)\n");
 }
@@ -87,8 +87,6 @@ main(int argc, char *argv[])
 				ctl->stereo_modulation == FMMOD_MONO ? "Mono" :
 				ctl->stereo_modulation ==
 					FMMOD_SSB_HARTLEY ? "SSB (Hartley)" :
-				ctl->stereo_modulation ==
-					FMMOD_SSB_WEAVER ? "SSB (Weaver)" :
 				ctl->stereo_modulation ==
 					FMMOD_SSB_LPF ? "SSB (LP Filter)" :
 				"DSBSC",
@@ -147,11 +145,10 @@ main(int argc, char *argv[])
 			ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x7;
 			if(ctl->stereo_modulation > FMMOD_MONO)
 				ctl->stereo_modulation = FMMOD_DSB;
-			/* Weaver and LP modulators eliminate USB but
-			 * they don't increase the gain of the LSB
+			/* LP modulator eliminates USB but
+			 * doesn't increase the gain of the LSB
 			 * so do it here when switching. */
-			if (ctl->stereo_modulation == FMMOD_SSB_WEAVER ||
-			    ctl->stereo_modulation == FMMOD_SSB_LPF)
+			if (ctl->stereo_modulation == FMMOD_SSB_LPF)
 				ctl->stereo_carrier_gain = 2;
 			else
 				ctl->stereo_carrier_gain = 1;

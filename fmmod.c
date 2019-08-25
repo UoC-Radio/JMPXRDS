@@ -256,72 +256,6 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 	return 0;
 }
 
-/************************\
-* WEAVER MODULATOR (SSB) *
-\************************/
-
-/*
- * For more infos on the Weaver SSB modulator visit
- * http://dp.nonoo.hu/projects/ham-dsp-tutorial/11-ssb-weaver/
- */
-static int
-fmmod_ssb_weaver_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-			   int num_samples, float* out)
-{
-	struct osc_state *sin_osc = &fmmod->sin_osc;
-	struct osc_state *cos_osc = &fmmod->cos_osc;
-	struct fmmod_control *ctl = fmmod->ctl;
-	float in_phase = 0.0;
-	float quadrature = 0.0;
-	float tmp = 0.0;
-	float frequency_shift = 0;
-	int i = 0;
-
-	for(i = 0; i < num_samples; i++) {
-		/* Delayed L + R */
-		out[i] = get_delayed_lpr_sample(fmmod, lpr, num_samples,
-					     WEAVER_FILTER_TAPS, i);
-
-		/* Stereo pilot at 19KHz */
-		out[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
-
-		/* Phase-lock the SSB oscilator to the master
-		 * oscilator */
-		cos_osc->current_phase = sin_osc->current_phase;
-
-		/* Create a quadrature version of the input signal */
-		in_phase = lmr[i] * osc_get_sample_for_freq(sin_osc,
-					   sin_osc->sample_rate / 4);
-
-		quadrature = lmr[i] * osc_get_sample_for_freq(cos_osc,
-					     cos_osc->sample_rate / 4);
-
-		/* Apply the low pass filter */
-		in_phase = iir_ssb_filter_apply(&fmmod->weaver_lpf, in_phase, 0);
-		quadrature = iir_ssb_filter_apply(&fmmod->weaver_lpf, quadrature, 1);
-
-		/* Shift it to the carrier frequency and combine in_phase
-		 * and quadrature to create the LSB signal we want */
-		frequency_shift = (float) (sin_osc->sample_rate / 4) - 38000.0;
-		in_phase *= osc_get_sample_for_freq(sin_osc, frequency_shift);
-		frequency_shift = (float) (cos_osc->sample_rate / 4) - 38000.0;
-		quadrature *= osc_get_sample_for_freq(cos_osc, frequency_shift);
-
-		tmp = in_phase + quadrature;
-		out[i] += tmp * ctl->stereo_carrier_gain;
-
-		/* RDS symbols modulated by the 57KHz carrier (3 x Pilot) */
-		out[i] += ctl->rds_gain * osc_get_57Khz_sample(sin_osc) *
-					  rds_get_next_sample(&fmmod->rds_enc);
-
-		/* Set mpx gain percentage */
-		out[i] *= ctl->mpx_gain;
-
-		osc_increase_phase(sin_osc);
-	}
-
-	return 0;
-}
 
 /*************************\
 * HARTLEY MODULATOR (SSB) *
@@ -484,9 +418,6 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	case FMMOD_SSB_HARTLEY:
 		get_mpx_samples = fmmod_ssb_hartley_generator;
 		break;
-	case FMMOD_SSB_WEAVER:
-		get_mpx_samples = fmmod_ssb_weaver_generator;
-		break;
 	case FMMOD_SSB_LPF:
 		get_mpx_samples = fmmod_ssb_lpf_generator;
 		break;
@@ -647,7 +578,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 		goto cleanup;
 	}
 
-	/* Initialize the cosine oscilator of the weaver modulator */
+	/* Initialize the cosine oscilator of the Hartley modulator */
 	ret = osc_initialize(&fmmod->cos_osc, osc_samplerate, OSC_TYPE_COSINE);
 	if (ret < 0) {
 		utils_err("[OSC] Init for cosine osc failed with code: %i\n", ret);
@@ -663,8 +594,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 		ret = FMMOD_ERR_LPF;
 		goto cleanup;
 	}
-	/* Initialize the low pass filters of the Weaver modulator */
-	iir_ssb_filter_init(&fmmod->weaver_lpf);
+
 	/* Initialize the Hilbert transformer for the Hartley modulator */
 	ret = hilbert_transformer_init(&fmmod->ht, fmmod->upsampled_num_samples);
 	if (ret < 0) {
