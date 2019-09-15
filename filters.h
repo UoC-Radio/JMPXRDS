@@ -22,7 +22,17 @@
 #include <jack/jack.h>		/* For jack-related types */
 #include <pthread.h>		/* For pthread mutex / conditional */
 
-/* A generic FFT low pass filter with optional pre-emphasis */
+/* FM Preemphasis IIR filter */
+struct fmpreemph_filter_data {
+	float last_in;
+	float last_out[2];
+	float ataps_50[2];
+	float btaps_50[2];
+	float ataps_75[2];
+	float btaps_75[2];
+};
+
+/* A generic FFT low pass filter */
 struct lpf_filter_data {
 	uint16_t num_bins;
 	uint16_t middle_bin;
@@ -45,17 +55,18 @@ enum lpf_preemph_mode {
 
 void lpf_filter_destroy(struct lpf_filter_data *);
 int lpf_filter_init(struct lpf_filter_data *, uint32_t, uint32_t, uint16_t);
-int lpf_filter_apply(struct lpf_filter_data *, float*, float*, uint16_t, float, uint8_t);
+int lpf_filter_apply(struct lpf_filter_data *, float*, float*, uint16_t, float);
 
 /* Combined audio filter */
-struct lpf_thread_data {
+struct aflt_thread_data {
 	struct lpf_filter_data *lpf;
+	struct fmpreemph_filter_data *fmprf;
 	int *active;
 	float *in;
 	float *out;
 	uint16_t num_samples;
 	float gain;
-	uint8_t preemph_tau;
+	enum lpf_preemph_mode preemph_tau_mode;
 	float peak_gain;
 	pthread_mutex_t proc_mutex;
 	pthread_cond_t proc_trigger;
@@ -66,10 +77,12 @@ struct lpf_thread_data {
 };
 
 struct audio_filter {
-	struct lpf_thread_data lpftd_l;
-	struct lpf_thread_data lpftd_r;
+	struct aflt_thread_data afltd_l;
+	struct aflt_thread_data afltd_r;
 	struct lpf_filter_data audio_lpf_l;
 	struct lpf_filter_data audio_lpf_r;
+	struct fmpreemph_filter_data fmprf_l;
+	struct fmpreemph_filter_data fmprf_r;
 	jack_client_t *fmmod_client;
 	int active;
 };
@@ -78,7 +91,7 @@ void audio_filter_destroy(struct audio_filter *);
 int audio_filter_init(struct audio_filter *, jack_client_t *,
 		      uint32_t, uint32_t, uint16_t);
 int audio_filter_apply(struct audio_filter *, float*, float *, float *, float *,
-			uint16_t, float, uint8_t, uint8_t, float*, float*);
+			uint16_t, float, uint8_t, enum lpf_preemph_mode, float*, float*);
 
 /* Hilbert transformer for the Hartley modulator (SSB) */
 struct hilbert_transformer_data {

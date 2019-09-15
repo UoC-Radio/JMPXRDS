@@ -232,7 +232,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 
 	/* Apply the lpf filter to suppres the USB */
 	lpf_filter_apply(&fmmod->ssb_lpf, out, out,
-		    num_samples, ctl->stereo_carrier_gain, LPF_PREEMPH_NONE);
+		    num_samples, ctl->stereo_carrier_gain);
 
 	/* Now restore the oscilator's phase and add the rest */
 	sin_osc->current_phase = saved_phase;

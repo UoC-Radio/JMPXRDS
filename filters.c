@@ -59,54 +59,160 @@ freq2bin(struct lpf_filter_data *lpf, float freq)
 	return bin;
 }
 
-static void
-lpf_thread_run(struct lpf_thread_data *lpftd)
+
+/******************************\
+* FM PRE-EMPHASIS AUDIO FILTER *
+\******************************/
+
+/*
+ * The FM Pre-emphasis filter is an RC high-shelf filter with
+ * one pole tap and one zero tap. After the zero, the filter's Bode diagram
+ * gives a 20dB/decade until we reach the pole, which means that when the
+ * frequency is multiplied by 10 the gain is increased by 20dB. If we make
+ * this mapping between amplitude and frequency we'll get (1, 10^(0/20)),
+ * (10, 10^(20/20)), (100, 10^(40/20)), (1000, 10^(60/20))...
+ * This becomes (1,1), (10,10), (100, 100), (1000, 1000)... which is a
+ * straight line, so the response is a linear function of the frequency.
+ *
+ * The cutoff frequency is calculated from the time constant of the analog
+ * RC filter (tau) and is different on US (75us) and EU (50us) radios.
+ *
+ * For more information check out:
+ * https://www.radiomuseum.org/forum/fm_pre_emphasis_and_de_emphasis.html
+ */
+
+
+static int
+fmpreemph_filter_init_mode(struct fmpreemph_filter_data *fmprf,
+			   float sample_rate,
+			   float high_corner_freq,
+			   uint8_t preemph_tau_usecs)
 {
-	int i = 0;
-	float tmp_gain = 0;
+	double tau = 0.000001 * (double) preemph_tau_usecs;
 
-	lpftd->result = lpf_filter_apply(lpftd->lpf, lpftd->in, lpftd->out,
-					lpftd->num_samples, lpftd->gain,
-					lpftd->preemph_tau);
+	/* Corner angular frequencies (w -> omega) */
+	/* t = R*C = 1 / wc
+	 * wc = 1 / t */
+	double cutoff_w_low = 1.0L / tau;
+	double cutoff_w_high = 2.0L * M_PI * (double) high_corner_freq;
 
-	/* Update audio peak levels */
-	for(i = 0, tmp_gain = 0; i < lpftd->num_samples; i++)
-		if(lpftd->out[i] > tmp_gain)
-			tmp_gain = lpftd->out[i];
+	/* Corner angular frequencies relative to the sampling rate */
+	double pre_warped_wc = tan(cutoff_w_low /  (2.0L * (double) sample_rate));
+	double pre_warped_wh = tan(cutoff_w_high / (2.0L * (double) sample_rate));
 
-	lpftd->peak_gain = tmp_gain;
-}
+	/* V0 = 10^gain/20, however as we saw above that
+	 * increases proportionaly with the frequency so
+	 * for a given high corner frequency we are going
+	 * to get an increase in gain of high_corner / low_corner */
+	double V0 = log10(cutoff_w_high / cutoff_w_low);
+	double H0 = V0 - 1;
 
-#ifdef JMPXRDS_MT
-static void*
-lpf_loop(void* arg)
-{
-	struct lpf_thread_data *lpftd = (struct lpf_thread_data*) arg;
+	double B = V0 * pre_warped_wc;
 
-	while((*lpftd->active)) {
-		pthread_mutex_lock(&lpftd->proc_mutex);
-		while (pthread_cond_wait(&lpftd->proc_trigger, &lpftd->proc_mutex) != 0);
+	/* Forward taps */
+	double ataps_0 = 1.0L;
+	double ataps_1 = (B - 1) / (B + 1);
 
-		if(!(*lpftd->active))
+	/* Backwards taps */
+	double btaps_0 = (1.0L + (1.0L - ataps_1) * H0 / 2.0L);
+	double btaps_1 = (ataps_1 + (ataps_1 - 1.0L) * H0 / 2.0L);
+
+	switch (preemph_tau_usecs) {
+		case 50:
+			fmprf->ataps_50[0] = (float) ataps_0;
+			fmprf->ataps_50[1] = (float) ataps_1;
+
+			fmprf->btaps_50[0] = (float) btaps_0;
+			fmprf->btaps_50[1] = (float) btaps_1;
 			break;
+		case 75:
+			fmprf->ataps_75[0] = (float) ataps_0;
+			fmprf->ataps_75[1] = (float) ataps_1;
 
-		lpf_thread_run(lpftd);
-
-		pthread_mutex_unlock(&lpftd->proc_mutex);
-
-		/* Let the caller know we are done */
-		pthread_mutex_lock(&lpftd->done_mutex);
-		pthread_cond_signal(&lpftd->done_trigger);
-		pthread_mutex_unlock(&lpftd->done_mutex);
+			fmprf->btaps_75[0] = (float) btaps_0;
+			fmprf->btaps_75[1] = (float) btaps_1;
+			break;
+		default:
+			return -1;
 	}
 
-	return arg;
+	return 0;
 }
-#endif
 
-/********************************************************\
-* GENERIC FFT LOW-PASS FILTER WITH OPTIONAL PRE-EMPHASIS *
-\********************************************************/
+static int
+fmpreemph_filter_init(struct fmpreemph_filter_data *fmprf,
+		      float sample_rate,
+		      float high_corner_freq)
+{
+	int ret = 0;
+
+	ret = fmpreemph_filter_init_mode(fmprf,
+			   sample_rate,
+			   high_corner_freq,
+			   50);
+	if (ret < 0)
+		return ret;
+
+	ret = fmpreemph_filter_init_mode(fmprf,
+			   sample_rate,
+			   high_corner_freq,
+			   75);
+	if (ret < 0)
+		return ret;
+}
+
+static float
+fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
+		       float sample, enum lpf_preemph_mode tau_mode)
+{
+	float out = 0.0;
+	float *ataps = NULL;
+	float *btaps = NULL;
+	static int prev_tau_mode = LPF_PREEMPH_NONE;
+
+	switch (tau_mode) {
+		case LPF_PREEMPH_NONE:
+			return sample;
+
+		case LPF_PREEMPH_75US:
+			ataps = fmprf->ataps_75;
+			btaps = fmprf->btaps_75;
+			break;
+
+		case LPF_PREEMPH_50US:
+		default:
+			ataps = fmprf->ataps_50;
+			btaps = fmprf->btaps_50;
+			break;
+	};
+
+	out += ataps[0] * sample;
+
+	/* When switching modes don't use the previous
+	 * input/output. */
+	if (prev_tau_mode != tau_mode) {
+		fmprf->last_in = sample;
+		fmprf->last_out[0] = out;
+		prev_tau_mode = tau_mode;
+		return out;
+	}
+
+	out += ataps[1] * fmprf->last_in;
+
+	fmprf->last_in = sample;
+
+	out += btaps[0] * fmprf->last_out[0];
+	out += btaps[1] * fmprf->last_out[1];
+
+	fmprf->last_out[1] = fmprf->last_out[0];
+	fmprf->last_out[0] = out;
+
+	return out;
+}
+
+/*****************************\
+* GENERIC FFT LOW-PASS FILTER *
+\*****************************/
 
 void
 lpf_filter_destroy(struct lpf_filter_data *lpf)
@@ -140,25 +246,13 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	lpf->bin_bw = (nyquist_freq / (float) lpf->num_bins);
 
 	/*
-	 * Calculate the frequency bin after which we 'll start
-	 * filtering out the remaining bins. The frequency bins will cover
-	 * frequencies from 0 to Nyquist frequency so we have
-	 * to calculate what portion of that spectrum is our passband
-	 * (below the cutoff frequency), relative to the Nyquist
-	 * frequency.
-	 *
-	 * Note: Because the signal is purely real, the FFT spectrum will
-	 * be "mirrored" -conjugate symmetric-, so we only need to
-	 * use half of it (positive frequencies) plus the point in the middle).
-	 * That's why we have half_bins here and below.
-	 */
-	lpf->cutoff_bin = freq2bin(lpf, cutoff_freq);
-
-	/*
 	 * We don't want the filter to bee too steep (like a sinc filter which
 	 * zeroes out everything after the cutoff bin) to avoid the "ringing"
 	 * noise. Instead use a Gaussian curve (the second half part of the
-	 * "bell") to make the transition smooth.
+	 * "bell") to make the transition smooth. As a bonus, the gausian
+	 * remains the same when switching to the frequency domain and back
+	 * and is real in both cases, which means we don't have to store
+	 * the filter's responce in complex form.
 	 *
 	 * We calculate the Gaussian's variance -the witdh of the bell- for
 	 * a given transition bandwidth, in bins, the same way we did it above
@@ -166,6 +260,20 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	 */
 	trans_bw = 2500.0 / lpf->bin_bw; /* 2.5KHz should be enough */
 	lpf->variance = 2.0 * trans_bw;
+
+	/*
+	 * Calculate the frequency bin after which we 'll start filtering out
+	 * the remaining bins. The frequency bins will cover frequencies from
+	 * 0 to Nyquist frequency so we have to calculate what portion of that
+	 * spectrum is our passband (below the cutoff frequency), relative to
+	 * the Nyquist frequency.
+	 *
+	 * Note: Because the signal is purely real, the FFT be "mirrored"
+	 * -conjugate symmetric-, so we only need to use half of it (positive
+	 * frequencies) plus the point in the middle. That's why we have half
+	 * the bins (lpf->middle_bin - 0) here and below.
+	 */
+	lpf->cutoff_bin = freq2bin(lpf, cutoff_freq);
 
 	/* Calculate and store the filter's FFT curve from cutoff_bin
 	 * to the end of the spectrum */
@@ -220,7 +328,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 
 int
 lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
-		 uint16_t num_samples, float gain, uint8_t preemph_tau)
+		 uint16_t num_samples, float gain)
 {
 	float tau = 0.0;
 	float ratio = 0.0;
@@ -239,58 +347,8 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * analytical) representation of the signal */
 	fftwf_execute(lpf->dft_plan);
 
-	/* Now signal is on the complex buffer, apply pre-emphasis
-	 * if requested and / or filter-out all frequency bins above
-	 * the cutoff_bin */
-
-	/* The FM Pre-emphasis filter is an RC high-pass filter with
-	 * a single pole depending on the region. After the pole, the
-	 * filter's Bode diagram gives a 20dB/decade which means that
-	 * when the frequency is multiplied by 10 the gain is increased
-	 * by 20dB. If we make this mapping between amplitude and frequency
-	 * we'll get (1, 10^(0/20)), (10, 10^(20/20)), (100, 10^(40/20)),
-	 * (1000, 10^(60/20))... This becomes (1,1), (10,10), (100, 100),
-	 * (1000, 1000)... which is a straight line, so the response is a
-	 * linear function of the frequency. */
-
-	/* Different regions have different tau, which translates to
-	 * a different cutoff frequency for the filter */
-	switch(preemph_tau) {
-		/* t = R*C = 1 / 2*pi*fc */
-		/* fc = 1 / 2*pi*t */
-		case LPF_PREEMPH_50US:
-			tau = 0.000001 * 50.0;
-			bin_bw_scaled = lpf->bin_bw * 0.00076;
-			break;
-		case LPF_PREEMPH_75US:
-			tau = 0.000001 * 75.0;
-			bin_bw_scaled = lpf->bin_bw * 0.00115;
-			break;
-		case LPF_PREEMPH_NONE:
-		default:
-			goto skip_preemph;
-	};
-	fc = 1.0 / (2.0 * M_PI * tau);
-	preemph_start_bin = freq2bin(lpf, fc);
-
-	/* Since we want to make this a pre-emphasis filter instead of a
-	 * high-pass filter, we add + 1 below so it starts from the original
-	 * gain. Also since we have bins on x axis we need to multiply by
-	 * bin_bw. The scale factor (slope) above is something I came up with
-	 * durring testing, to be within spec. Note that we don't mess with the
-	 * imaginary part here since it encodes the phase and we don't want
-	 * to introduce any distortion there. */
-	for(i = preemph_start_bin, c = 0; i < lpf->cutoff_bin; i++, c++) {
-		pe_resp = 1 + (float) c * bin_bw_scaled;
-		lpf->complex_buff[i][0] *= (float) pe_resp;
-	}
-
-	/* Continue as a high-shelf filter, no need to keep on
-	 * increasing the amplitude */
-	for(; i < lpf->middle_bin; i++)
-		lpf->complex_buff[i][0] *= pe_resp;
-
- skip_preemph:
+	/* Now signal is on the complex buffer and filter-out all
+	 * frequency bins above cutoff_bin */
 
 	/* Multiply the input signal -after the cutoff bin- with the filter's
 	 * response. Again there is no need to play with the imaginary part
@@ -323,6 +381,62 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 * COMBINED AUDIO FILTER (FM PRE-EMPHASIS + LPF) *
 \***********************************************/
 
+static void
+audio_filter_thread_run(struct aflt_thread_data *afltd)
+{
+	int i = 0;
+	float tmp_gain = 0;
+
+	/* If pre-emphasis is requested, run the input buffer through
+	 * the pre-emphasis filter in the time domain before feeding
+	 * it to the lpf. Re-use the output buffer. */
+	if (afltd->preemph_tau_mode != LPF_PREEMPH_NONE) {
+		for(i = 0; i < afltd->num_samples; i++)
+			afltd->out[i] = fmpreemph_filter_apply(afltd->fmprf,
+							afltd->in[i],
+							afltd->preemph_tau_mode) * 8.0;
+
+		afltd->result = lpf_filter_apply(afltd->lpf, afltd->out, afltd->out,
+						afltd->num_samples, afltd->gain);
+	} else
+		afltd->result = lpf_filter_apply(afltd->lpf, afltd->in, afltd->out,
+						afltd->num_samples, afltd->gain);
+
+	/* Update audio peak levels */
+	for(i = 0, tmp_gain = 0; i < afltd->num_samples; i++)
+		if(afltd->out[i] > tmp_gain)
+			tmp_gain = afltd->out[i];
+
+	afltd->peak_gain = tmp_gain;
+}
+
+#ifdef JMPXRDS_MT
+static void*
+audio_filter_loop(void* arg)
+{
+	struct aflt_thread_data *afltd = (struct aflt_thread_data*) arg;
+
+	while((*afltd->active)) {
+		pthread_mutex_lock(&afltd->proc_mutex);
+		while (pthread_cond_wait(&afltd->proc_trigger, &afltd->proc_mutex) != 0);
+
+		if(!(*afltd->active))
+			break;
+
+		audio_filter_thread_run(afltd);
+
+		pthread_mutex_unlock(&afltd->proc_mutex);
+
+		/* Let the caller know we are done */
+		pthread_mutex_lock(&afltd->done_mutex);
+		pthread_cond_signal(&afltd->done_trigger);
+		pthread_mutex_unlock(&afltd->done_mutex);
+	}
+
+	return arg;
+}
+#endif
+
 void
 audio_filter_destroy(struct audio_filter *aflt)
 {
@@ -335,8 +449,8 @@ audio_filter_init(struct audio_filter *aflt, jack_client_t *fmmod_client,
 		  uint32_t cutoff_freq, uint32_t sample_rate,
 		  uint16_t max_samples)
 {
-	struct lpf_thread_data *lpftd_l = &aflt->lpftd_l;
-	struct lpf_thread_data *lpftd_r = &aflt->lpftd_r;
+	struct aflt_thread_data *afltd_l = &aflt->afltd_l;
+	struct aflt_thread_data *afltd_r = &aflt->afltd_r;
 	int rtprio = 0;
 	int ret = 0;
 	aflt->fmmod_client = fmmod_client;
@@ -351,27 +465,39 @@ audio_filter_init(struct audio_filter *aflt, jack_client_t *fmmod_client,
 	if(ret < 0)
 		return ret;
 
-	lpftd_l->lpf = &aflt->audio_lpf_l;
-	lpftd_l->active = &aflt->active;
+	ret = fmpreemph_filter_init(&aflt->fmprf_l, (float) sample_rate,
+			      (float) cutoff_freq);
+	if(ret < 0)
+		return ret;
 
-	lpftd_r->lpf = &aflt->audio_lpf_r;
-	lpftd_r->active = &aflt->active;
+	ret = fmpreemph_filter_init(&aflt->fmprf_r, (float) sample_rate,
+			      (float) cutoff_freq);
+	if(ret < 0)
+		return ret;
+
+	afltd_l->lpf = &aflt->audio_lpf_l;
+	afltd_l->fmprf = &aflt->fmprf_l;
+	afltd_l->active = &aflt->active;
+
+	afltd_r->lpf = &aflt->audio_lpf_r;
+	afltd_r->fmprf = &aflt->fmprf_r;
+	afltd_r->active = &aflt->active;
 
 	aflt->active = 1;
 
 #ifdef JMPXRDS_MT
-	pthread_mutex_init(&lpftd_l->proc_mutex, NULL);
-	pthread_cond_init(&lpftd_l->proc_trigger, NULL);
-	pthread_mutex_init(&lpftd_l->done_mutex, NULL);
-	pthread_cond_init(&lpftd_l->done_trigger, NULL);
+	pthread_mutex_init(&afltd_l->proc_mutex, NULL);
+	pthread_cond_init(&afltd_l->proc_trigger, NULL);
+	pthread_mutex_init(&afltd_l->done_mutex, NULL);
+	pthread_cond_init(&afltd_l->done_trigger, NULL);
 
 	rtprio = jack_client_max_real_time_priority(aflt->fmmod_client);
 	if(rtprio < 0)
 		return ret;
 
-	ret = jack_client_create_thread(aflt->fmmod_client, &lpftd_l->tid,
+	ret = jack_client_create_thread(aflt->fmmod_client, &afltd_l->tid,
 					rtprio, 1,
-					lpf_loop, (void *) lpftd_l);
+					lpf_loop, (void *) afltd_l);
 	if(ret < 0)
 		return ret;
 #endif
@@ -384,10 +510,11 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 		   float *samples_out_l, float *samples_in_r,
 		   float *samples_out_r, uint16_t num_samples,
 		   float gain_multiplier, uint8_t use_lp_filter,
-		   uint8_t preemph_tau, float* peak_l, float* peak_r)
+		   enum lpf_preemph_mode preemph_tau_mode,
+		   float* peak_l, float* peak_r)
 {
-	struct lpf_thread_data *lpftd_l = &aflt->lpftd_l;
-	struct lpf_thread_data *lpftd_r = &aflt->lpftd_r;
+	struct aflt_thread_data *afltd_l = &aflt->afltd_l;
+	struct aflt_thread_data *afltd_r = &aflt->afltd_r;
 	int ret = 0;
 	int i = 0;
 
@@ -402,55 +529,55 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 	}
 
 #ifdef JMPXRDS_MT
-	pthread_mutex_lock(&lpftd_l->proc_mutex);
-	lpftd_l->in = samples_in_l;
-	lpftd_l->out = samples_out_l;
-	lpftd_l->gain = gain_multiplier;
-	lpftd_l->num_samples = num_samples;
-	lpftd_l->preemph_tau = preemph_tau;
-	pthread_mutex_unlock(&lpftd_l->proc_mutex);
+	pthread_mutex_lock(&afltd_l->proc_mutex);
+	afltd_l->in = samples_in_l;
+	afltd_l->out = samples_out_l;
+	afltd_l->gain = gain_multiplier;
+	afltd_l->num_samples = num_samples;
+	afltd_l->preemph_tau_mode = preemph_tau_mode;
+	pthread_mutex_unlock(&afltd_l->proc_mutex);
 
-	lpftd_r->in = samples_in_r;
-	lpftd_r->out = samples_out_r;
-	lpftd_r->gain = gain_multiplier;
-	lpftd_r->num_samples = num_samples;
-	lpftd_r->preemph_tau = preemph_tau;
+	afltd_r->in = samples_in_r;
+	afltd_r->out = samples_out_r;
+	afltd_r->gain = gain_multiplier;
+	afltd_r->num_samples = num_samples;
+	afltd_r->preemph_tau_mode = preemph_tau_mode;
 
 	/* Signal the left channel thread to start
 	 * processing this chunk */
-	pthread_mutex_lock(&lpftd_l->proc_mutex);
-	pthread_cond_signal(&lpftd_l->proc_trigger);
-	pthread_mutex_unlock(&lpftd_l->proc_mutex);
+	pthread_mutex_lock(&afltd_l->proc_mutex);
+	pthread_cond_signal(&afltd_l->proc_trigger);
+	pthread_mutex_unlock(&afltd_l->proc_mutex);
 
 	/* Process right channel on current thread */
-	lpf_thread_run(lpftd_r);
+	audio_filter_thread_run(afltd_r);
 
 	/* Wait for the left channel thread to finish */
-	while (pthread_cond_wait(&lpftd_l->done_trigger, &lpftd_l->done_mutex) != 0);
+	while (pthread_cond_wait(&afltd_l->done_trigger, &afltd_l->done_mutex) != 0);
 
 #else
-	lpftd_l->in = samples_in_l;
-	lpftd_l->out = samples_out_l;
-	lpftd_l->gain = gain_multiplier;
-	lpftd_l->num_samples = num_samples;
-	lpftd_l->preemph_tau = preemph_tau;
+	afltd_l->in = samples_in_l;
+	afltd_l->out = samples_out_l;
+	afltd_l->gain = gain_multiplier;
+	afltd_l->num_samples = num_samples;
+	afltd_l->preemph_tau_mode = preemph_tau_mode;
 
-	lpftd_r->in = samples_in_r;
-	lpftd_r->out = samples_out_r;
-	lpftd_r->gain = gain_multiplier;
-	lpftd_r->num_samples = num_samples;
-	lpftd_r->preemph_tau = preemph_tau;
+	afltd_r->in = samples_in_r;
+	afltd_r->out = samples_out_r;
+	afltd_r->gain = gain_multiplier;
+	afltd_r->num_samples = num_samples;
+	afltd_r->preemph_tau_mode = preemph_tau_mode;
 
 
-	lpf_thread_run(lpftd_l);
-	lpf_thread_run(lpftd_r);
+	audio_filter_thread_run(afltd_l);
+	audio_filter_thread_run(afltd_r);
 #endif
 
-	if (lpftd_l->result || lpftd_r->result)
+	if (afltd_l->result || afltd_r->result)
 		return -1;
 
-	(*peak_l) = lpftd_l->peak_gain;
-	(*peak_r) = lpftd_r->peak_gain;
+	(*peak_l) = afltd_l->peak_gain;
+	(*peak_r) = afltd_r->peak_gain;
 
 	return 0;
 }

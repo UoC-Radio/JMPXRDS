@@ -77,7 +77,7 @@ struct fmmod_control {
 	float mpx_gain;
 	int stereo_modulation;
 	int use_audio_lpf;
-	int preemph_tau;
+	enum lpf_preemph_mode preemph_tau;
 	float peak_mpx_out;
 	float peak_audio_in_l;
 	float peak_audio_in_r;
