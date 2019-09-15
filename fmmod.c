@@ -581,7 +581,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 
 	fmmod->ssb_lpf_delay_buf_len = fmmod->upsampled_num_samples * SSB_LPF_OVERLAP_FACTOR;
 	fmmod->ssb_lpf_overlap_len = fmmod->ssb_lpf_delay_buf_len - fmmod->upsampled_num_samples;
-	fmmod->ssb_lpf_delay_buf = malloc(fmmod->ssb_lpf_delay_buf_len * sizeof(float));
+	fmmod->ssb_lpf_delay_buf = (float *) malloc(fmmod->ssb_lpf_delay_buf_len * sizeof(float));
 	if (!fmmod->ssb_lpf_delay_buf)  {
 		utils_err("[SSB LPF] Could not allocate delay buffer\n");
 		ret = FMMOD_ERR_LPF;

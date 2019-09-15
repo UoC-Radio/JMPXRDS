@@ -232,8 +232,8 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
 void
 lpf_filter_destroy(struct lpf_filter_data *lpf)
 {
-	if(lpf->filter_curve)
-		free(lpf->filter_curve);
+	if(lpf->filter_resp)
+		fftwf_free(lpf->filter_resp);
 	if(lpf->real_in)
 		fftwf_free(lpf->real_in);
 	if(lpf->real_out)
