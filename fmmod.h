@@ -24,7 +24,6 @@
 #include "rds_encoder.h"
 #include "rtp_server.h"
 
-
 /* We need something big enough to output the MPX
  * signal. 96KHz should be enough for the audio part
  * with SSB enabled but for proper stereo imaging and
@@ -97,7 +96,6 @@ struct fmmod_instance {
 	/* Upsampled audio buffers */
 	float *uaudio_buf_0;
 	float *uaudio_buf_1;
-	float *delay_buf;
 	/* MPX Output buffer */
 	float *mpxbuf;
 	int output_type;
@@ -124,6 +122,9 @@ struct fmmod_instance {
 	/* SSB modulators */
 	struct osc_state cos_osc;
 	struct lpf_filter_data ssb_lpf;
+	float *ssb_lpf_delay_buf;
+	uint16_t ssb_lpf_delay_buf_len;
+	uint16_t ssb_lpf_overlap_len;
 	struct hilbert_transformer_data ht;
 	/* Control */
 	struct shm_mapping *ctl_map;

@@ -83,36 +83,6 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
 	return 0;
 }
 
-static float
-get_delayed_lpr_sample(struct fmmod_instance *fmmod, float* lpr, int num_samples, int delay, int idx)
-{
-	float *previous = fmmod->delay_buf;
-	static int previous_num_samples = 0;
-
-	if (num_samples == 0)
-		return 0.0;
-
-	/* Called for the first time, initialize tmp buffer */
-	if (fmmod->delay_buf == NULL) {
-		fmmod->delay_buf = (float*) malloc(fmmod->upsampled_buf_len);
-		memset(fmmod->delay_buf, 0, fmmod->upsampled_buf_len);
-		previous = fmmod->delay_buf;
-		previous_num_samples = delay;
-	/* Done with current period, save it to tmp buffer */
-	} else if (idx == (num_samples - 1)) {
-		memcpy(fmmod->delay_buf, lpr, num_samples * sizeof(float));
-		previous = fmmod->delay_buf;
-		previous_num_samples = num_samples;
-	}
-
-	/* Grab delayed sample from previous period */
-	if (idx < delay) {
-		idx += (previous_num_samples - delay);
-		return previous[idx];
-	/* Grab delayed sample from current period */
-	} else
-		return lpr[idx - delay];
-}
 
 /************************\
 * FM MPX STEREO ENCODING *
@@ -230,15 +200,29 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 		osc_increase_phase(sin_osc);
 	}
 
-	/* Apply the lpf filter to suppres the USB */
+	/* Apply the lpf filter to suppres the USB, re-use the output
+	 * buffer. */
 	lpf_filter_apply(&fmmod->ssb_lpf, out, out,
 		    num_samples, ctl->stereo_carrier_gain);
+
+	/* L-R is behind max_samples * SSB_LPF_OVERLAP_FACTOR due to the filter's
+	 * overlap so delay L+R by the same amount of samples to keep them in sync
+	 * and not mess up the stereo image */
+
+	/* Shift the buffer's content to make room for the new
+	 * period on its end and then put the new data there. */
+	memmove(fmmod->ssb_lpf_delay_buf,
+		fmmod->ssb_lpf_delay_buf + fmmod->upsampled_num_samples,
+		fmmod->ssb_lpf_overlap_len * sizeof(float));
+	memcpy(fmmod->ssb_lpf_delay_buf + fmmod->ssb_lpf_overlap_len, lpr,
+		num_samples * sizeof(float));
+
 
 	/* Now restore the oscilator's phase and add the rest */
 	sin_osc->current_phase = saved_phase;
 	for(i = 0; i < num_samples; i++) {
 		/* L + R */
-		out[i] += lpr[i];
+		out[i] += fmmod->ssb_lpf_delay_buf[i];
 
 		/* Stereo Pilot at 19KHz */
 		out[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
@@ -588,12 +572,23 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 
 	/* Initialize the low pass FFT filter for the filter-based SSB modulator */
 	ret = lpf_filter_init(&fmmod->ssb_lpf, 38000, osc_samplerate,
-			      fmmod->upsampled_num_samples);
+			      fmmod->upsampled_num_samples, SSB_LPF_OVERLAP_FACTOR);
 	if (ret < 0) {
-		utils_err("[LPF] Init failed with code: %i\n", ret);
+		utils_err("[SSB LPF] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_LPF;
 		goto cleanup;
 	}
+
+	fmmod->ssb_lpf_delay_buf_len = fmmod->upsampled_num_samples * SSB_LPF_OVERLAP_FACTOR;
+	fmmod->ssb_lpf_overlap_len = fmmod->ssb_lpf_delay_buf_len - fmmod->upsampled_num_samples;
+	fmmod->ssb_lpf_delay_buf = malloc(fmmod->ssb_lpf_delay_buf_len * sizeof(float));
+	if (!fmmod->ssb_lpf_delay_buf)  {
+		utils_err("[SSB LPF] Could not allocate delay buffer\n");
+		ret = FMMOD_ERR_LPF;
+		goto cleanup;
+	}
+	memset(fmmod->ssb_lpf_delay_buf, 0, fmmod->ssb_lpf_delay_buf_len * sizeof(float));
+
 
 	/* Initialize the Hilbert transformer for the Hartley modulator */
 	ret = hilbert_transformer_init(&fmmod->ht, fmmod->upsampled_num_samples);
@@ -797,8 +792,8 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 		free(fmmod->uaudio_buf_0);
 	if (fmmod->uaudio_buf_1 != NULL)
 		free(fmmod->uaudio_buf_1);
-	if (fmmod->delay_buf != NULL)
-		free(fmmod->delay_buf);
+	if (fmmod->ssb_lpf_delay_buf != NULL)
+		free(fmmod->ssb_lpf_delay_buf);
 	if (fmmod->mpxbuf != NULL)
 		free(fmmod->mpxbuf);
 

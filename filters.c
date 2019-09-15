@@ -32,7 +32,7 @@
 static float
 gaussian(uint16_t bin, float variance)
 {
-	return expf(-1.0L * pow((float) bin, 2) / (2.0 * variance));
+	return (float) exp(-1.0L * pow((double) bin, 2) / (2.0L * (double) variance));
 }
 
 static float
@@ -219,8 +219,10 @@ lpf_filter_destroy(struct lpf_filter_data *lpf)
 {
 	if(lpf->filter_curve)
 		free(lpf->filter_curve);
-	if(lpf->real_buff)
-		fftwf_free(lpf->real_buff);
+	if(lpf->real_in)
+		fftwf_free(lpf->real_in);
+	if(lpf->real_out)
+		fftwf_free(lpf->real_out);
 	if(lpf->complex_buff)
 		fftwf_free(lpf->complex_buff);
 	if(lpf->dft_plan)
@@ -231,7 +233,8 @@ lpf_filter_destroy(struct lpf_filter_data *lpf)
 
 int
 lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
-		uint32_t sample_rate, uint16_t max_frames)
+		uint32_t sample_rate, uint16_t max_frames,
+		uint8_t overlap_factor)
 {
 	int i = 0;
 	int ret = 0;
@@ -239,11 +242,14 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	uint16_t remaining_bins = 0;
 	float nyquist_freq = 0.0;
 
-	lpf->num_bins = max_frames;
+	/* Initialize filter parameters */
+	lpf->period_size = max_frames;
+	lpf->num_bins = overlap_factor * lpf->period_size;
 	lpf->sample_rate = sample_rate;
 	lpf->middle_bin = (lpf->num_bins / 2) + 1;
 	nyquist_freq = (float) lpf->sample_rate / 2.0;
 	lpf->bin_bw = (nyquist_freq / (float) lpf->num_bins);
+	lpf->overlap_len = lpf->num_bins - lpf->period_size;
 
 	/*
 	 * We don't want the filter to bee too steep (like a sinc filter which
@@ -289,16 +295,23 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 
 
 	/* Allocate buffers for DFT/IFT */
-	lpf->real_buff = fftwf_alloc_real(max_frames);
-	if(!lpf->real_buff) {
+	lpf->real_in = fftwf_alloc_real(lpf->num_bins);
+	if(!lpf->real_in) {
 		ret = -2;
 		goto cleanup;
 	}
-	memset(lpf->real_buff, 0, max_frames * sizeof(float));
+	memset(lpf->real_in, 0, lpf->num_bins * sizeof(float));
+
+	lpf->real_out = fftwf_alloc_real(lpf->num_bins);
+	if(!lpf->real_out) {
+		ret = -3;
+		goto cleanup;
+	}
+	memset(lpf->real_out, 0, lpf->num_bins * sizeof(float));
 
 	lpf->complex_buff = fftwf_alloc_complex(lpf->middle_bin - 0);
 	if(!lpf->complex_buff) {
-		ret = -3;
+		ret = -4;
 		goto cleanup;
 	}
 	memset(lpf->complex_buff, 0, sizeof(fftwf_complex) *
@@ -306,19 +319,19 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 
 
 	/* Create DFT plan */
-	lpf->dft_plan = fftwf_plan_dft_r2c_1d(lpf->num_bins, lpf->real_buff,
+	lpf->dft_plan = fftwf_plan_dft_r2c_1d(lpf->num_bins, lpf->real_in,
 					     lpf->complex_buff, FFTW_MEASURE);
 	if(!lpf->dft_plan) {
-		ret = -4;
+		ret = -5;
 		goto cleanup;
 	}
 
 
 	/* Create IFT plan */
 	lpf->ift_plan = fftwf_plan_dft_c2r_1d(lpf->num_bins, lpf->complex_buff,
-					     lpf->real_buff, FFTW_MEASURE);
+					     lpf->real_out, FFTW_MEASURE);
 	if(!lpf->ift_plan)
-		ret = -5;
+		ret = -6;
 
  cleanup:
 	if(ret < 0)
@@ -339,9 +352,12 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	int i = 0;
 	int c = 0;
 
-	/* Clear and fill the real buffer */
-	memset(lpf->real_buff, 0, lpf->num_bins * sizeof(float));
-	memcpy(lpf->real_buff, in, num_samples * sizeof(float));
+	/* Shift the buffer's content to make room for the new
+	 * period on its end and then put the new data there. */
+	memmove(lpf->real_in, lpf->real_in + lpf->period_size,
+		lpf->overlap_len * sizeof(float));
+	memcpy(lpf->real_in + lpf->overlap_len, in,
+		num_samples * sizeof(float));
 
 	/* Run the DFT plan to get the freq domain (complex or
 	 * analytical) representation of the signal */
@@ -351,12 +367,10 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * frequency bins above cutoff_bin */
 
 	/* Multiply the input signal -after the cutoff bin- with the filter's
-	 * response. Again there is no need to play with the imaginary part
-	 * in the stopband, we can just zero it out instead of doing extra
-	 * multiplications */
+	 * response. */
 	for(i = lpf->cutoff_bin, c = 0; i < lpf->middle_bin; i++, c++) {
 		lpf->complex_buff[i][0] *= lpf->filter_curve[c];
-		lpf->complex_buff[i][1] = 0.0;
+		lpf->complex_buff[i][1] *= lpf->filter_curve[c];
 	}
 
 	/* Switch the signal back to the time domain */
@@ -370,8 +384,10 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * normalization (multiplication is cheaper than division). */
 	ratio = (float) gain / (float) lpf->num_bins;
 
+	/* Output the begining of the real_out buffer and discard the overlap
+	 * that follows */
 	for(i = 0; i < num_samples; i++)
-		out[i] = lpf->real_buff[i] * ratio;
+		out[i] = lpf->real_out[i] * ratio;
 
 	return 0;
 }
@@ -456,12 +472,14 @@ audio_filter_init(struct audio_filter *aflt, jack_client_t *fmmod_client,
 	aflt->fmmod_client = fmmod_client;
 
 	ret = lpf_filter_init(&aflt->audio_lpf_l, cutoff_freq,
-			      sample_rate, max_samples);
+			      sample_rate, max_samples,
+			      AUDIO_LPF_OVERLAP_FACTOR);
 	if(ret < 0)
 		return ret;
 
 	ret = lpf_filter_init(&aflt->audio_lpf_r, cutoff_freq,
-			      sample_rate, max_samples);
+			      sample_rate, max_samples,
+			      AUDIO_LPF_OVERLAP_FACTOR);
 	if(ret < 0)
 		return ret;
 
