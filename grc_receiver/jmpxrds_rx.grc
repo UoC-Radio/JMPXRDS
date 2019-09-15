@@ -698,7 +698,7 @@
     </param>
     <param>
       <key>freq</key>
-      <value>10000</value>
+      <value>5000</value>
     </param>
     <param>
       <key>_coordinate</key>

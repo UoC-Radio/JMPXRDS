@@ -211,7 +211,7 @@ class jmpxrds_rx(grc_wxgui.top_block_gui):
         self.blocks_add_xx_0 = blocks.add_vff(1)
         self.audio_source_0 = audio.source(mpx_samp_rate, '', True)
         self.audio_sink_0 = audio.sink(mpx_samp_rate, '', True)
-        self.analog_sig_source_x_4 = analog.sig_source_f(mpx_samp_rate, analog.GR_SIN_WAVE, 10000, 0.2, 0)
+        self.analog_sig_source_x_4 = analog.sig_source_f(mpx_samp_rate, analog.GR_SIN_WAVE, 5000, 0.2, 0)
         self.analog_sig_source_x_3 = analog.sig_source_f(mpx_samp_rate, analog.GR_SIN_WAVE, 100, 0.2, 0)
         self.analog_sig_source_x_2 = analog.sig_source_f(mpx_samp_rate, analog.GR_SIN_WAVE, 50, 0.2, 0)
         self.analog_sig_source_x_1 = analog.sig_source_f(mpx_samp_rate, analog.GR_SIN_WAVE, 500, 0.2, 0)

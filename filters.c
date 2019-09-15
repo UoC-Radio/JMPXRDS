@@ -27,36 +27,51 @@
 * HELPERS *
 \*********/
 
-/* Note that we don't use the normalization factor
- * here so that it always starts at 1.0 -exp(0)-. */
-static float
-gaussian(uint16_t bin, float variance)
+/*
+ * Sinc = sin(pi* x)/(pi * x)
+ * https://en.wikipedia.org/wiki/Sinc_function
+ */
+static double inline
+sinc(double phase)
 {
-	return (float) exp(-1.0L * pow((double) bin, 2) / (2.0L * (double) variance));
+	return (sin(M_PI * phase) / (M_PI * phase));
 }
 
-static float
-bin2freq(struct lpf_filter_data *lpf, uint16_t bin)
+/*
+ * Nutall window
+ * https://en.wikipedia.org/wiki/Window_function
+ */
+static double inline
+nutall_window(uint16_t bin, uint16_t num_bins)
 {
-	float bratio = 0;
-	float freq = 0;
-	float nyquist_freq = 0;
-	nyquist_freq = (float) lpf->sample_rate / 2.0;
-	bratio = (float) bin / (float) lpf->middle_bin;
-	freq = bratio * nyquist_freq;
-	return freq;
+	double width = (double) num_bins - 1.0;
+
+	double a0 = 0.355768;
+	double a1 = 0.487396;
+	double a2 = 0.144232;
+	double a3 = 0.012604;
+
+	return (a0 - a1 * cos((2.0 * M_PI * (double) bin) / width) +
+		a2 * cos((4.0 * M_PI * (double) bin) / width) -
+		a3 * cos((6.0 * M_PI * (double) bin) / width));
 }
 
-static uint16_t
-freq2bin(struct lpf_filter_data *lpf, float freq)
+static void
+generate_lpf_impulse(float* out, uint16_t num_bins,
+			float cutoff_freq, float sample_rate)
 {
-	float fratio = 0;
-	float nyquist_freq = 0;
-	uint16_t bin = 0;
-	nyquist_freq = (float) lpf->sample_rate / 2.0;
-	fratio = freq / nyquist_freq;
-	bin = (uint16_t) (fratio * (float) lpf->middle_bin);
-	return bin;
+	double fc_pre_warped = 2.0 * ((double) cutoff_freq / (double) sample_rate);
+	double middle_bin = ((double) num_bins - 1.0) / 2.0L;
+	double phase = 0;
+	int i = 0;
+
+	/*
+	 * Sinc impulse: h[n] = sinc(2*fc * (n - (N-1/2))
+	 */
+	for(i = 0; i < num_bins; i++) {
+		phase = ((double) i - middle_bin) * fc_pre_warped;
+		out[i] = (float) (0.2L * sinc(phase) * nutall_window(i, num_bins));
+	}
 }
 
 
@@ -236,11 +251,9 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 		uint32_t sample_rate, uint16_t max_frames,
 		uint8_t overlap_factor)
 {
+	float nyquist_freq = 0.0;
 	int i = 0;
 	int ret = 0;
-	float trans_bw = 0.0;
-	uint16_t remaining_bins = 0;
-	float nyquist_freq = 0.0;
 
 	/* Initialize filter parameters */
 	lpf->period_size = max_frames;
@@ -250,49 +263,6 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 	nyquist_freq = (float) lpf->sample_rate / 2.0;
 	lpf->bin_bw = (nyquist_freq / (float) lpf->num_bins);
 	lpf->overlap_len = lpf->num_bins - lpf->period_size;
-
-	/*
-	 * We don't want the filter to bee too steep (like a sinc filter which
-	 * zeroes out everything after the cutoff bin) to avoid the "ringing"
-	 * noise. Instead use a Gaussian curve (the second half part of the
-	 * "bell") to make the transition smooth. As a bonus, the gausian
-	 * remains the same when switching to the frequency domain and back
-	 * and is real in both cases, which means we don't have to store
-	 * the filter's responce in complex form.
-	 *
-	 * We calculate the Gaussian's variance -the witdh of the bell- for
-	 * a given transition bandwidth, in bins, the same way we did it above
-	 * for the cutoff frequency bin.
-	 */
-	trans_bw = 2500.0 / lpf->bin_bw; /* 2.5KHz should be enough */
-	lpf->variance = 2.0 * trans_bw;
-
-	/*
-	 * Calculate the frequency bin after which we 'll start filtering out
-	 * the remaining bins. The frequency bins will cover frequencies from
-	 * 0 to Nyquist frequency so we have to calculate what portion of that
-	 * spectrum is our passband (below the cutoff frequency), relative to
-	 * the Nyquist frequency.
-	 *
-	 * Note: Because the signal is purely real, the FFT be "mirrored"
-	 * -conjugate symmetric-, so we only need to use half of it (positive
-	 * frequencies) plus the point in the middle. That's why we have half
-	 * the bins (lpf->middle_bin - 0) here and below.
-	 */
-	lpf->cutoff_bin = freq2bin(lpf, cutoff_freq);
-
-	/* Calculate and store the filter's FFT curve from cutoff_bin
-	 * to the end of the spectrum */
-	remaining_bins = lpf->middle_bin - lpf->cutoff_bin;
-	lpf->filter_curve = (float*) malloc(remaining_bins * sizeof(float));
-	if(!lpf->filter_curve) {
-		ret = -1;
-		goto cleanup;
-	}
-
-	for(i = 0; i < remaining_bins; i++)
-		lpf->filter_curve[i] = gaussian(i, lpf->variance);
-
 
 	/* Allocate buffers for DFT/IFT */
 	lpf->real_in = fftwf_alloc_real(lpf->num_bins);
@@ -318,6 +288,14 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 					(lpf->middle_bin - 0));
 
 
+	/* Allocate buffer for the filter's responce */
+	lpf->filter_resp = fftwf_alloc_complex(lpf->middle_bin - 0);
+	if(!lpf->filter_resp) {
+		ret = -4;
+		goto cleanup;
+	}
+
+
 	/* Create DFT plan */
 	lpf->dft_plan = fftwf_plan_dft_r2c_1d(lpf->num_bins, lpf->real_in,
 					     lpf->complex_buff, FFTW_MEASURE);
@@ -332,6 +310,22 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 					     lpf->real_out, FFTW_MEASURE);
 	if(!lpf->ift_plan)
 		ret = -6;
+
+
+	/* Generate filter's responce on time domain on lpf->real_in and
+	 * calculate its responce on the frequency domain */
+	generate_lpf_impulse(lpf->real_in, lpf->num_bins,
+			     (float) cutoff_freq, (float) sample_rate);
+
+	fftwf_execute(lpf->dft_plan);
+
+	/* Store the result on lpf->filter_resp and clear the complex
+	 * buffer */
+	memcpy(lpf->filter_resp, lpf->complex_buff,
+	       sizeof(fftwf_complex) * (lpf->middle_bin - 0));
+	memset(lpf->complex_buff, 0, sizeof(fftwf_complex) *
+					(lpf->middle_bin - 0));
+
 
  cleanup:
 	if(ret < 0)
@@ -349,6 +343,7 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	uint16_t preemph_start_bin = 0;
 	float pe_resp = 0.0;
 	float bin_bw_scaled = 0.0;
+	fftw_complex tmp = {0};
 	int i = 0;
 	int c = 0;
 
@@ -363,14 +358,22 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * analytical) representation of the signal */
 	fftwf_execute(lpf->dft_plan);
 
-	/* Now signal is on the complex buffer and filter-out all
-	 * frequency bins above cutoff_bin */
 
-	/* Multiply the input signal -after the cutoff bin- with the filter's
-	 * response. */
-	for(i = lpf->cutoff_bin, c = 0; i < lpf->middle_bin; i++, c++) {
-		lpf->complex_buff[i][0] *= lpf->filter_curve[c];
-		lpf->complex_buff[i][1] *= lpf->filter_curve[c];
+	/* Now signal is on the complex buffer, convolution of 1d
+	 * signals on the time domain equals piecewise multiplication
+	 * on the frequency domain, so we multiply the complex
+	 * representation of the signal with the complex representation
+	 * of the filter's impulse. */
+	for(i = 0; i < lpf->middle_bin; i++) {
+		/* Real part */
+		tmp[0] = lpf->filter_resp[i][0] * lpf->complex_buff[i][0] -
+			 lpf->filter_resp[i][1] * lpf->complex_buff[i][1];
+		/* Imaginary part */
+		tmp[1] = lpf->filter_resp[i][0] * lpf->complex_buff[i][1] +
+			 lpf->filter_resp[i][1] * lpf->complex_buff[i][0];
+
+		lpf->complex_buff[i][0] = tmp[0];
+		lpf->complex_buff[i][1] = tmp[1];
 	}
 
 	/* Switch the signal back to the time domain */
