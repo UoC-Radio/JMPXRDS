@@ -1,12 +1,17 @@
 language: c
+
 os:
 - linux
+
 compiler:
 - clang
 - gcc
 - g++
+
 sudo: required
-dist: xenial
+
+dist: trusty
+
 addons:
   apt:
     packages:
@@ -20,7 +25,7 @@ addons:
   sonarcloud:
     organization: uoc-radio
     token:
-      secure: lM1h4I1sWXfnYAuydBFdxJEpfnV25qSqCEoVxjIn2n9oZtfTTZprKOE9+XvyatBCxUh6H9fbF248i8kfslejei1jLe8sY/j5cA85mvenmPG1/DDLrFMK55ZwxrtmsTVFOywRpVgDN9MHwFiTyQ7L56mhdKgWwRjc2DwU5zjNdqCPA9L6yCLCrRUQo73YFE80o6JLNsYpvuKJ7fGXr8ea0owoQnlLNVEAbWogGaiH3E4dyykAQQIysmJTu1JrBQP8GH2mLOcz9j7Val9xizr+GiIVf2IWpxW/eSAenuM3WvzDS+0CBzGooFgN7QyCNmGf1eyXYbE3KmoWIy2LwJOxGOJCwseXB3Sel1ml1QFt174P1ALvpEdTi3W2md0RZKV4W8Iy04M2x620BLWu0SjdG4yHAlrZ7XRbkq1W9y1NZR3nM6EZrnnBGKxGCmq9hZeZJgbUJMqGbvriHnMTyuH/b/JtR8fr41zkGj51vynooksgqEi2GmHR2cvC2RQnkInxfWc6faigYxLUgAas+UUYDUM/ePJM+sySaZd0n0ZGWcmlITWz/2fXn4sRFkuHG7gpR+wO7JZG4128Zlgk+J7q8hrj+mSJmpL1+C5fywEYAiDftp/EZ2KswNQoRWlMTFRjSj3ZV9hNFBhWb6m22wyJRNuZCYPwL78Ai/H6kLt5yys=
+      secure: V6Y7lgAyFZB9RuRUqmvtWoV4hBqaU8gNhLvhvSojWfRhwPWf9uFcecV2pV2rshtG79zCiPcyW8LGBe5u8UoOyMLQ3K2z1H1cZS1P5ZdD77o/5Dks5AVhFBmJifGgdNB3rhz6Z9bKLXynIS3tH5Cmf7Xn5c5iE8h7gYsb4WiAAloP86b82rzXPQCzS6vL5yf/oUkycmuo+LPQqWANJ8dzoubrCHfsBDZs8h2R7g7sxOIX0hrj8c5sg1k9I0b0TWN8ZOPycKoW4BqgVTpR+ktkPikeh/YadgeVVFHKjHHTnnhZDSnTd9+th0JAdivAOahAVlexi3n0gVHlYAKOH/WFTw+1JVZkI/+6xTv1Yoo+reM/nq9yiU4vIqZQx3x+gkTD9zEhhixcfCsj5+U4pYTpfc2T6jTZ1SCS0iu4BrBD1b4VgjmSWJyZ1OCB6qqkFnSnOSKpYeWxe6SfZAArfee2laACPNabbXwQQdUNabPR+8spWropbTRKsU+H+7laY2Rax3B7Pli6KHzHMOmN2KphX5xw6F7FN43SIiVlnzBrN6MLHTlVQqxWbhnZMIfLQnc5kf7Vm4sNhzeAzTVCG2KMyB5MKsMY+co/hRkNlcNdn9XrChqiRECi7W8jhwgTOFWcxbHpGGD8d2j80+JFLw7xcF1uxX4qSOoaldI6PnyyECk=
 
 before_script:
 - autoreconf -ivf
