@@ -10,7 +10,7 @@ compiler:
 
 sudo: required
 
-dist: trusty
+dist: xenial
 
 addons:
   apt:
@@ -31,6 +31,6 @@ before_script:
 - autoreconf -ivf
 
 script:
-- "./configure --without-gtk"
+- "./configure"
 - build-wrapper-linux-x86-64 --out-dir bw-output make
 - sonar-scanner
