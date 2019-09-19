@@ -31,6 +31,6 @@ before_script:
 - autoreconf -ivf
 
 script:
-- "./configure"
+- "./configure --without-gtk"
 - build-wrapper-linux-x86-64 --out-dir bw-output make
 - sonar-scanner
