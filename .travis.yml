@@ -1,16 +1,12 @@
 language: c
-
 os:
- - linux
-
+- linux
 compiler:
- - clang
- - gcc
- - g++
-
+- clang
+- gcc
+- g++
 sudo: required
 dist: xenial
-
 addons:
   apt:
     packages:
@@ -22,5 +18,21 @@ addons:
     - libgtk-3-dev
     - libepoxy-dev
 
+  sonarcloud:
+    organization: "uoc-radio"
+    token:
+      secure: V6Y7lgAyFZB9RuRUqmvtWoV4hBqaU8gNhLvhvSojWfRhwPWf9uFcecV2pV2rshtG79zCiPcyW8LGBe5u8UoOyMLQ3K2z1H1cZS1P5ZdD77o/5Dks5AVhFBmJifGgdNB3rhz6Z9bKLXynIS3tH5Cmf7Xn5c5iE8h7gYsb4WiAAloP86b82rzXPQCzS6vL5yf/oUkycmuo+LPQqWANJ8dzoubrCHfsBDZs8h2R7g7sxOIX0hrj8c5sg1k9I0b0TWN8ZOPycKoW4BqgVTpR+ktkPikeh/YadgeVVFHKjHHTnnhZDSnTd9+th0JAdivAOahAVlexi3n0gVHlYAKOH/WFTw+1JVZkI/+6xTv1Yoo+reM/nq9yiU4vIqZQx3x+gkTD9zEhhixcfCsj5+U4pYTpfc2T6jTZ1SCS0iu4BrBD1b4VgjmSWJyZ1OCB6qqkFnSnOSKpYeWxe6SfZAArfee2laACPNabbXwQQdUNabPR+8spWropbTRKsU+H+7laY2Rax3B7Pli6KHzHMOmN2KphX5xw6F7FN43SIiVlnzBrN6MLHTlVQqxWbhnZMIfLQnc5kf7Vm4sNhzeAzTVCG2KMyB5MKsMY+co/hRkNlcNdn9XrChqiRECi7W8jhwgTOFWcxbHpGGD8d2j80+JFLw7xcF1uxX4qSOoaldI6PnyyECk=
+
 before_script:
- - autoreconf -ivf
+- autoreconf -ivf
+
+script:
+  - make clean
+  # Wraps the compilation with the Build Wrapper to generate configuration (used
+  # later by the SonarQube Scanner) into the "bw-output" folder
+  - build-wrapper-linux-x86-64 --out-dir bw-output make all
+  # Execute some tests
+  - make test
+  # And finally run the SonarQube analysis - read the "sonar-project.properties"
+  # file to see the specific configuration
+  - sonar-scanner
