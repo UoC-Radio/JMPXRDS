@@ -54,8 +54,8 @@ jmrg_acentry_poll(gpointer data)
 \*****************/
 
 static gboolean
-jmrg_acentry_match(GtkEntryCompletion *widget, GtkTreeModel *model,
-		   GtkTreeIter *iter, gpointer data)
+jmrg_acentry_match(__attribute__((unused)) GtkEntryCompletion *widget,
+		   GtkTreeModel *model, GtkTreeIter *iter, gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
 	GValue value = {0};
@@ -155,7 +155,7 @@ jmrg_acentry_init(struct rds_encoder_state *st, const char* label, int type)
 
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		goto cleanup;
 	memset(vmap, 0, sizeof(struct value_map));

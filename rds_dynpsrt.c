@@ -172,8 +172,8 @@ rds_dynps_destroy(struct rds_dynps_state *dps)
 		pthread_cancel(dps->dynps_filemon_tid);
 	if(dps->dynps_consumer_tid)
 		pthread_cancel(dps->dynps_consumer_tid);
-	if(dps->fixed_ps)
-		rds_set_ps(st, dps->fixed_ps);
+
+	rds_set_ps(st, dps->fixed_ps);
 	pthread_mutex_destroy(&dps->dynps_proc_mutex);
 	pthread_mutex_destroy(&dps->sleep_mutex);
 	pthread_cond_destroy(&dps->sleep_trig);
@@ -353,8 +353,8 @@ rds_dynrt_destroy(struct rds_dynrt_state *drt)
 		pthread_cancel(drt->dynrt_filemon_tid);
 	if(drt->dynrt_consumer_tid)
 		pthread_cancel(drt->dynrt_consumer_tid);
-	if(drt->fixed_rt)
-		rds_set_rt(st, drt->fixed_rt, 1);
+
+	rds_set_rt(st, drt->fixed_rt, 1);
 	pthread_mutex_destroy(&drt->dynrt_proc_mutex);
 	pthread_mutex_destroy(&drt->sleep_mutex);
 	pthread_cond_destroy(&drt->sleep_trig);

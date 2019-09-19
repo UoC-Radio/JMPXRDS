@@ -430,7 +430,7 @@ int
 rds_codes_get_ctry_code_by_ctry_idx(int ctry_idx)
 {
 	static int num_countries = sizeof(ctry_codes) / sizeof(ctry_codes[0]);
-	const char *this = NULL;
+	const char *curr = NULL;
 	const char *next = NULL;
 
 	if(ctry_idx >= num_countries)
@@ -438,9 +438,9 @@ rds_codes_get_ctry_code_by_ctry_idx(int ctry_idx)
 	
 	/* Check if country has multiple country codes */
 	if(ctry_idx < num_countries - 2) {
-		this = rds_codes_get_ctry_name(ctry_idx);
+		curr = rds_codes_get_ctry_name(ctry_idx);
 		next = rds_codes_get_ctry_name(ctry_idx + 1);
-		if(!strcmp(this, next))
+		if(!strcmp(curr, next))
 			return -2;
 	}
 
@@ -488,7 +488,6 @@ const char*
 rds_codes_get_lang_name(uint8_t lang_idx)
 {
 	static int num_langs = sizeof(li_codes) / sizeof(li_codes[0]);
-	int i = 0;
 
 	if(lang_idx >= num_langs)
 		return "";

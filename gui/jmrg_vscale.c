@@ -10,7 +10,6 @@ static int
 jmrg_vscale_poll(gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
-	double val = 0.0L;
 
 	if(!GTK_IS_SCALE(vmap->target))
 		return FALSE;
@@ -39,11 +38,11 @@ jmrg_vscale_format_value(GtkScale *scale, gdouble value)
 static void
 jmrg_vscale_update(GtkRange *range, gpointer data)
 {
-	gdouble new = 0.0L;
+	gdouble new_val = 0.0L;
 	float *val_ptr = (float*) data;
-	new = gtk_range_get_value(range);
+	new_val = gtk_range_get_value(range);
 	/* Gain values go from 0 to 1, scale value goes from 0 to 100 */
-	(*val_ptr) = (float) new * 0.01;
+	(*val_ptr) = (float) new_val * 0.01;
 	return;
 }
 
@@ -100,7 +99,7 @@ jmrg_vscale_init(const char* label, float* val_ptr, gdouble max)
 
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		goto cleanup;
 	memset(vmap, 0, sizeof(struct value_map));

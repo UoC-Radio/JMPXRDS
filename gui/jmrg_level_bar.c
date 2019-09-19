@@ -128,7 +128,7 @@ jmrg_level_bar_init(const char* label, float* val_ptr)
 	gtk_style_context_add_class(context,"gain_bar");
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		goto cleanup;
 	memset(vmap, 0, sizeof(struct value_map));

@@ -31,7 +31,7 @@
  * Sinc = sin(pi* x)/(pi * x)
  * https://en.wikipedia.org/wiki/Sinc_function
  */
-static double inline
+inline static double
 sinc(double phase)
 {
 	return (sin(M_PI * phase) / (M_PI * phase));
@@ -41,7 +41,7 @@ sinc(double phase)
  * Nutall window
  * https://en.wikipedia.org/wiki/Window_function
  */
-static double inline
+inline static double
 nutall_window(uint16_t bin, uint16_t num_bins)
 {
 	double width = (double) num_bins - 1.0;
@@ -172,8 +172,8 @@ fmpreemph_filter_init(struct fmpreemph_filter_data *fmprf,
 			   sample_rate,
 			   high_corner_freq,
 			   75);
-	if (ret < 0)
-		return ret;
+
+	return ret;
 }
 
 static float
@@ -183,7 +183,7 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
 	float out = 0.0;
 	float *ataps = NULL;
 	float *btaps = NULL;
-	static int prev_tau_mode = LPF_PREEMPH_NONE;
+	static enum lpf_preemph_mode prev_tau_mode = LPF_PREEMPH_NONE;
 
 	switch (tau_mode) {
 		case LPF_PREEMPH_NONE:
@@ -252,7 +252,6 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 		uint8_t overlap_factor)
 {
 	float nyquist_freq = 0.0;
-	int i = 0;
 	int ret = 0;
 
 	/* Initialize filter parameters */
@@ -337,15 +336,9 @@ int
 lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 		 uint16_t num_samples, float gain)
 {
-	float tau = 0.0;
 	float ratio = 0.0;
-	float fc = 0.0;
-	uint16_t preemph_start_bin = 0;
-	float pe_resp = 0.0;
-	float bin_bw_scaled = 0.0;
 	fftw_complex tmp = {0};
 	int i = 0;
-	int c = 0;
 
 	/* Shift the buffer's content to make room for the new
 	 * period on its end and then put the new data there. */
@@ -470,7 +463,6 @@ audio_filter_init(struct audio_filter *aflt, jack_client_t *fmmod_client,
 {
 	struct aflt_thread_data *afltd_l = &aflt->afltd_l;
 	struct aflt_thread_data *afltd_r = &aflt->afltd_r;
-	int rtprio = 0;
 	int ret = 0;
 	aflt->fmmod_client = fmmod_client;
 
@@ -536,7 +528,6 @@ audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
 {
 	struct aflt_thread_data *afltd_l = &aflt->afltd_l;
 	struct aflt_thread_data *afltd_r = &aflt->afltd_r;
-	int ret = 0;
 	int i = 0;
 
 	/* If Low Pass filter is enabled, apply it afterwards, else
@@ -641,7 +632,6 @@ hilbert_transformer_destroy(struct hilbert_transformer_data *ht)
 int
 hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 {
-	int i = 0;
 	int ret = 0;
 	ht->num_bins = num_bins;
 

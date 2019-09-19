@@ -47,7 +47,8 @@ jmrg_hide_page_contents(struct control_page *page)
 \************************/
 
 void
-jmrg_free_vmap(GtkWidget *widget, gpointer data)
+jmrg_free_vmap(__attribute__((unused)) GtkWidget *widget,
+	       gpointer data)
 {
 	const struct timespec tv = {0, 20000000L};
 	struct value_map *vmap = (struct value_map*) data;
@@ -70,7 +71,8 @@ jmrg_free_vmap(GtkWidget *widget, gpointer data)
 }
 
 void
-jmrg_panel_destroy(GtkWidget *container, struct control_page *ctl_page)
+jmrg_panel_destroy(__attribute__((unused)) GtkWidget *container,
+		   struct control_page *ctl_page)
 {
 	if(ctl_page->shmem)
 		utils_shm_destroy(ctl_page->shmem, 0);
@@ -81,15 +83,16 @@ jmrg_panel_destroy(GtkWidget *container, struct control_page *ctl_page)
  * so that we don't poll for their contents. Un-hide / show only the contents
  * of the current page. */
 void
-jmrg_panel_switched(GtkNotebook *notebook, GtkWidget *panel, guint page_no,
-		    gpointer user_data)
+jmrg_panel_switched(GtkNotebook *notebook,
+		    __attribute__((unused)) GtkWidget *panel,
+		    guint page_no, gpointer user_data)
 {
 	struct control_page **pages = (struct control_page **) user_data;
 	int i = 0;
 	gint no_pages = gtk_notebook_get_n_pages(notebook);
 
 	for(i = 0; i < no_pages; i++) {
-		if(i == page_no)
+		if(page_no == (guint) i)
 			gtk_widget_show_all(pages[i]->container);
 		else
 			jmrg_hide_page_contents(pages[i]);
@@ -149,7 +152,7 @@ main(int argc, char *argv[])
 	gtk_container_add(GTK_CONTAINER(window), notebook);
 
 	/* Initialize FMmod control panel */
-	fmmod_panel = malloc(sizeof(struct control_page));
+	fmmod_panel = (struct control_page*) malloc(sizeof(struct control_page));
 	if(!fmmod_panel) {
 		ret = -4;
 		goto cleanup;
@@ -164,7 +167,7 @@ main(int argc, char *argv[])
 	pages[no_pages++] = fmmod_panel;
 
 	/* Initialize RDSEncoder control panel */
-	rdsenc_panel = malloc(sizeof(struct control_page));
+	rdsenc_panel = (struct control_page*) malloc(sizeof(struct control_page));
 	if(!rdsenc_panel) {
 		ret = -6;
 		goto cleanup;
@@ -179,7 +182,7 @@ main(int argc, char *argv[])
 	pages[no_pages++] = rdsenc_panel;
 
 	/* Initialize RTPServer control panel */
-	rtpserv_panel = malloc(sizeof(struct control_page));
+	rtpserv_panel = (struct control_page*) malloc(sizeof(struct control_page));
 	if(!rtpserv_panel) {
 		ret = -7;
 		goto cleanup;

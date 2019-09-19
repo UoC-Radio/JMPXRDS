@@ -36,6 +36,7 @@ enum lpf_preemph_mode {
 	LPF_PREEMPH_50US = 0,	/* E.U. / WORLD */
 	LPF_PREEMPH_75US = 1,	/* U.S. */
 	LPF_PREEMPH_NONE = 2,
+	LPF_PREEMPH_MAX = 3
 };
 
 /* A generic FFT low pass filter */

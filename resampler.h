@@ -55,8 +55,7 @@ struct resampler_data {
 
 int resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 		jack_client_t *fmmod_client, uint32_t osc_samplerate,
-		uint32_t rds_samplerate, uint32_t output_samplerate,
-		uint32_t max_process_frames);
+		uint32_t rds_samplerate, uint32_t output_samplerate);
 int resampler_upsample_audio(struct resampler_data *rsmpl, float *in_l,
 			     float *in_r, float *out_l, float *out_r,
 			     uint32_t inframes, uint32_t outframes);

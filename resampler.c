@@ -67,8 +67,10 @@ resampler_init_upsampler_threads(struct resampler_data *rsmpl)
 {
 	struct resampler_thread_data *rstd_l = &rsmpl->rstd_l;
 	struct resampler_thread_data *rstd_r = &rsmpl->rstd_r;
+#ifdef JMPXRDS_MT
 	int rtprio = 0;
 	int ret = 0;
+#endif
 
 	rstd_l->resampler = rsmpl->audio_upsampler_l;
 	rstd_l->active = &rsmpl->active;
@@ -121,8 +123,6 @@ resampler_upsample_audio(struct resampler_data *rsmpl,
 {
 	struct resampler_thread_data *rstd_l = &rsmpl->rstd_l;
 	struct resampler_thread_data *rstd_r = &rsmpl->rstd_r;
-	soxr_error_t error;
-	size_t frames_used = 0;
 	size_t frames_generated = 0;
 
 	/* No need to upsample anything, just copy the buffers.
@@ -231,8 +231,7 @@ resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
 int
 resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 		jack_client_t *fmmod_client, uint32_t osc_samplerate,
-		uint32_t rds_samplerate, uint32_t output_samplerate,
-		uint32_t max_process_frames)
+		uint32_t rds_samplerate, uint32_t output_samplerate)
 {
 	int ret = 0;
 	soxr_error_t error;

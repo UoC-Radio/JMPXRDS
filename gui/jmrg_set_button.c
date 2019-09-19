@@ -7,7 +7,7 @@
 \*****************/
 
 static void
-jmrg_set_button_clicked(GtkButton *button, gpointer data)
+jmrg_set_button_clicked(__attribute__((unused)) GtkButton *button, gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
 	struct rds_encoder_state *st = vmap->st;

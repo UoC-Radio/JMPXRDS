@@ -19,7 +19,8 @@ jmrg_mpxp_create_grid_points(struct mpx_plotter *mpxp)
 	 * Since we have 60KHz on x and 60dB on y we 'll need
 	 * 12 horizonal and vertical lines, since each line needs
 	 * 2 points we need 2 * 2 * 12 = 48 points */
-	mpxp->points = malloc(48 * sizeof(struct grid_point));
+	mpxp->points = (struct grid_point*)
+		       malloc(48 * sizeof(struct grid_point));
 	if(!mpxp->points)
 		return -1;
 
@@ -60,7 +61,6 @@ jmrg_mpxp_update_y_vals(struct mpx_plotter *mpxp)
 	float mag = 0.0;
 	float db = 0.0;
 	float scaled = 0.0;
-	float out = -1.0;
 	int i = 0;
 	int ret = 0;
 	static int skip = 0;
@@ -142,7 +142,8 @@ jmrg_mpxp_redraw(gpointer data)
 \*****************/
 
 static void
-jmrg_mpxp_toggle_avg(GtkToggleButton *togglebutton, gpointer data)
+jmrg_mpxp_toggle_avg(__attribute__((unused)) GtkToggleButton *togglebutton,
+		     gpointer data)
 {
 	struct mpx_plotter *mpxp = (struct mpx_plotter*) data;
 	mpxp->avg = (mpxp->avg) ? 0 : 1;
@@ -150,7 +151,8 @@ jmrg_mpxp_toggle_avg(GtkToggleButton *togglebutton, gpointer data)
 }
 
 static void
-jmrg_mpxp_toggle_mh(GtkToggleButton *togglebutton, gpointer data)
+jmrg_mpxp_toggle_mh(__attribute__((unused)) GtkToggleButton *togglebutton,
+		    gpointer data)
 {
 	struct mpx_plotter *mpxp = (struct mpx_plotter*) data;
 	int i = 0;
@@ -164,7 +166,8 @@ jmrg_mpxp_toggle_mh(GtkToggleButton *togglebutton, gpointer data)
 }
 
 static void
-jmrg_mpxp_destroy(GtkWidget *container, struct mpx_plotter *mpxp)
+jmrg_mpxp_destroy(__attribute__((unused)) GtkWidget *widget,
+		  struct mpx_plotter *mpxp)
 {
 	const struct timespec tv = {0, 83000000L};
 
@@ -213,7 +216,7 @@ jmrg_mpx_plotter_init(int sample_rate, int max_samples)
 	int ret = 0;
 	int i = 0;
 
-	mpxp = malloc(sizeof(struct mpx_plotter));
+	mpxp = (struct mpx_plotter*) malloc(sizeof(struct mpx_plotter));
 	if(!mpxp) {
 		ret = -1;
 		goto cleanup;
@@ -235,7 +238,8 @@ jmrg_mpx_plotter_init(int sample_rate, int max_samples)
 	 * contain the whole spectrum up to nyquist_freq */
 	nyquist_freq = sample_rate / 2;
 	passband_ratio = (double) 60000.0L / (double) nyquist_freq;
-	mpxp->drawable_bins = (uint16_t) (passband_ratio * (double) mpxp->half_bins);
+	mpxp->drawable_bins = (uint16_t)
+			      (passband_ratio * (double) mpxp->half_bins);
 
 	/* Our plot can't be smaller than 120x120 since the grid won't fit */
 	if(mpxp->drawable_bins < 120) {
@@ -256,13 +260,13 @@ jmrg_mpx_plotter_init(int sample_rate, int max_samples)
 		goto cleanup;
 	}
 
-	mpxp->x_vals = malloc(mpxp->drawable_bins * sizeof(float));
+	mpxp->x_vals = (float*) malloc(mpxp->drawable_bins * sizeof(float));
 	if(!mpxp->x_vals) {
 		ret = -5;
 		goto cleanup;
 	}
 
-	mpxp->y_vals = malloc(mpxp->drawable_bins * sizeof(float));
+	mpxp->y_vals = (float*) malloc(mpxp->drawable_bins * sizeof(float));
 	if(!mpxp->y_vals) {
 		ret = -6;
 		goto cleanup;
@@ -270,7 +274,7 @@ jmrg_mpx_plotter_init(int sample_rate, int max_samples)
 	for(i = 0; i < mpxp->drawable_bins; i++)
 		mpxp->y_vals[i] = -1.0;
 
-	mpxp->y_peak_vals = malloc(mpxp->drawable_bins * sizeof(float));
+	mpxp->y_peak_vals = (float*) malloc(mpxp->drawable_bins * sizeof(float));
 	if(!mpxp->y_peak_vals) {
 		ret = -7;
 		goto cleanup;
@@ -290,7 +294,8 @@ jmrg_mpx_plotter_init(int sample_rate, int max_samples)
 	/* Window's coordinates go from -1.0 to +1.0 */
 	middle_point = (mpxp->drawable_bins + 1) / 2;
 	for(i = 0; i < mpxp->drawable_bins; i++)
-		mpxp->x_vals[i] = (float)(i - middle_point) / (float)middle_point;
+		mpxp->x_vals[i] = (float)(i - middle_point) /
+				  (float)middle_point;
 
 	ret = jmrg_mpxp_create_grid_points(mpxp);
 	if(ret < 0) {

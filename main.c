@@ -34,7 +34,8 @@
 static volatile sig_atomic_t active;
 
 static void
-signal_handler(int sig, siginfo_t * info, void *context)
+signal_handler(int sig, siginfo_t * info,
+	       __attribute__((unused)) void *context)
 {
 #ifdef DEBUG
 	void *bt[16] = {0};
@@ -91,7 +92,7 @@ signal_handler(int sig, siginfo_t * info, void *context)
 }
 
 int
-main(int argc, char *argv[])
+main()
 {
 	int ret = 0;
 	struct sched_param sched;

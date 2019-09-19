@@ -102,21 +102,25 @@ rtp_server_update_stats(gpointer user_data)
 }
 
 static void
-rtp_server_queue_ready(GstAppSrc * appsrc, guint length, gpointer user_data)
+rtp_server_queue_ready(__attribute__((unused)) GstAppSrc * appsrc,
+		       __attribute__((unused)) guint length,
+		       gpointer user_data)
 {
 	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
 	rtpsrv->state = RTP_SERVER_ACTIVE;
 }
 
 static void
-rtp_server_queue_full(GstAppSrc * appsrc, gpointer user_data)
+rtp_server_queue_full(__attribute__((unused)) GstAppSrc * appsrc,
+		      gpointer user_data)
 {
 	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
 	rtpsrv->state = RTP_SERVER_QUEUE_FULL;
 }
 
 static void *
-rtp_server_error_cb(GstBus * bus, GstMessage * msg, gpointer user_data)
+rtp_server_error_cb(__attribute__((unused)) GstBus * bus, GstMessage * msg,
+		    gpointer user_data)
 {
 	GError *err;
 	gchar *debug_info;
@@ -136,7 +140,9 @@ rtp_server_error_cb(GstBus * bus, GstMessage * msg, gpointer user_data)
 }
 
 static GstCaps *
-request_pt_map_cb (GstElement *rtpbin, guint session, guint pt, gpointer user_data)
+rtp_server_request_pt_map_cb(__attribute__((unused)) GstElement *rtpbin,
+			     __attribute__((unused)) guint session,
+			     guint pt, gpointer user_data)
 {
 	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
 	GstCaps *caps = NULL;
@@ -146,7 +152,9 @@ request_pt_map_cb (GstElement *rtpbin, guint session, guint pt, gpointer user_da
 }
 
 static GstElement *
-rtp_server_request_aux_sender_cb (GstElement *rtpbin, guint sessid, gpointer user_data)
+rtp_server_request_aux_sender_cb(__attribute__((unused)) GstElement *rtpbin,
+				 guint sessid,
+				 __attribute__((unused)) gpointer user_data)
 {
 	GstElement *rtx, *bin;
 	GstPad *pad;
@@ -156,7 +164,7 @@ rtp_server_request_aux_sender_cb (GstElement *rtpbin, guint sessid, gpointer use
 	bin = gst_bin_new (NULL);
 	rtx = gst_element_factory_make ("rtprtxsend", NULL);
 	pt_map = gst_structure_new ("application/x-rtp-pt-map",
-		"96", G_TYPE_UINT, 97, NULL);
+				    "96", G_TYPE_UINT, 97, NULL);
 	g_object_set (rtx, "payload-type-map", pt_map, NULL);
 	gst_structure_free (pt_map);
 	gst_bin_add (GST_BIN (bin), rtx);
@@ -180,7 +188,6 @@ void
 rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
 {
 	GstBuffer *gstbuff = NULL;
-	guint gstbuff_len = 0;
 	GstFlowReturn ret = GST_FLOW_OK;
 	GstMapInfo info;
 
@@ -545,7 +552,7 @@ _rtp_server_init(void *data)
 			 rtpsrv->rtcpsink, rtcpsrc, NULL);
 
 	g_signal_connect (rtpsrv->rtpbin, "request-pt-map",
-			  G_CALLBACK (request_pt_map_cb), rtpsrv);
+			  G_CALLBACK (rtp_server_request_pt_map_cb), rtpsrv);
 
 	/* register callback to create "rtprtxsend".
 	 * This needs to be called before requesting the pads from rtpbin */

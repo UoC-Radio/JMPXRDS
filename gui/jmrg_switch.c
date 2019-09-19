@@ -36,7 +36,8 @@ jmrg_switch_poll(gpointer data)
 \*****************/
 
 static gboolean
-jmrg_switch_toggle(GtkSwitch *widget, gboolean state, gpointer data)
+jmrg_switch_toggle(__attribute__((unused)) GtkSwitch *widget,
+		   gboolean state, gpointer data)
 {
 	uint8_t *val = (uint8_t*) data;
 	(*val) = state ? 1 : 0;
@@ -76,7 +77,7 @@ jmrg_switch_init(const char* desc, int *val_ptr)
 
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		goto cleanup;
 	memset(vmap, 0, sizeof(struct value_map));

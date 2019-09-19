@@ -96,7 +96,7 @@ jmrg_rtpstats_init(struct rtp_server_control *ctl)
 	gtk_box_pack_start(GTK_BOX(hbox2), rtcp_kbps, 0, 0, 6);
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		goto cleanup;
 	memset(vmap, 0, sizeof(struct value_map));

@@ -102,7 +102,8 @@ jmrg_fmmodp_radio_buttons_update(gpointer data)
 \*****************/
 
 static void
-jmrg_fmmodp_free_rbutton_group(GtkWidget *widget, gpointer data)
+jmrg_fmmodp_free_rbutton_group(__attribute__((unused)) GtkWidget *widget,
+			       gpointer data)
 {
 	const struct timespec tv = {0, 20000000L};
 	struct rbutton_group *rbgrp = (struct rbutton_group*) data;
@@ -126,7 +127,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 	int i = 0;
 	int ret = 0;
 
-	rbgrp = malloc(sizeof(struct rbutton_group));
+	rbgrp = (struct rbutton_group*) malloc(sizeof(struct rbutton_group));
 	if(!rbgrp) {
 		ret = -1;
 		goto cleanup;
@@ -237,7 +238,7 @@ jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
 	int i = 0;
 	int ret = 0;
 
-	rbgrp = malloc(sizeof(struct rbutton_group));
+	rbgrp = (struct rbutton_group*) malloc(sizeof(struct rbutton_group));
 	if(!rbgrp) {
 		ret = -1;
 		goto cleanup;
@@ -288,7 +289,7 @@ jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
 
 	/* Initialize radio button group */
 	rbgrp->rbuttons[0] = jmrg_radio_button_init("50μsec (World)",
-					    &ctl->preemph_tau,
+					    (int*) &ctl->preemph_tau,
 					    LPF_PREEMPH_50US, NULL);
 	if(!rbgrp->rbuttons[0]) {
 		ret = -7;
@@ -296,7 +297,7 @@ jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
 	}
 
 	rbgrp->rbuttons[1] = jmrg_radio_button_init("75μsec (U.S.A.)",
-					    &ctl->preemph_tau,
+					    (int*) &ctl->preemph_tau,
 					    LPF_PREEMPH_75US,
 					    GTK_RADIO_BUTTON(rbgrp->rbuttons[0]));
 	if(!rbgrp->rbuttons[1]) {
@@ -305,7 +306,7 @@ jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
 	}
 
 	rbgrp->rbuttons[2] = jmrg_radio_button_init("No pre-emphasis",
-					    &ctl->preemph_tau,
+					    (int*) &ctl->preemph_tau,
 					    LPF_PREEMPH_NONE,
 					    GTK_RADIO_BUTTON(rbgrp->rbuttons[1]));
 	if(!rbgrp->rbuttons[2]) {

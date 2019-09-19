@@ -40,8 +40,6 @@
 int
 osc_initialize(struct osc_state *osc, uint32_t sample_rate, int type)
 {
-	int i;
-
 	if (osc == NULL)
 		return -1;
 

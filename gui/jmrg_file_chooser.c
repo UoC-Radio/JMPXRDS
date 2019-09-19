@@ -1,4 +1,4 @@
-#include <stdlib.h>	/* For strtol() */
+#include <stdlib.h>		/* For strtol() */
 #include "jmpxrds_gui.h"
 #include <linux/limits.h>	/* For PATH_MAX */
 #include <string.h>		/* For strncmp() */
@@ -11,9 +11,7 @@ static void
 jmrg_file_chooser_done(GtkWidget *button, gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
-	struct rds_encoder_state *st = vmap->st;
 	const char *filepath = NULL;
-	int ret = 0;
 
 	filepath = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(button));
 
@@ -23,14 +21,14 @@ jmrg_file_chooser_done(GtkWidget *button, gpointer data)
 			rds_dynps_destroy(&vmap->dps);
 		if(!filepath)
 			return;
-		ret = rds_dynps_init(&vmap->dps, vmap->st, filepath);
+		rds_dynps_init(&vmap->dps, vmap->st, filepath);
 		break;
 	case RDS_FIELD_RT:
 		if((&vmap->drt)->active)
 			rds_dynrt_destroy(&vmap->drt);
 		if(!filepath)
 			return;
-		ret = rds_dynrt_init(&vmap->drt, vmap->st, filepath);
+		rds_dynrt_init(&vmap->drt, vmap->st, filepath);
 		break;
 	default:
 		return;
@@ -49,7 +47,7 @@ jmrg_file_chooser_swtoggle(GtkSwitch *widget, gboolean state, gpointer data)
 	struct value_map *vmap = (struct value_map*) data;
 	GtkWidget *parent = gtk_widget_get_parent(GTK_WIDGET(widget));
 	GList *children = gtk_container_get_children(GTK_CONTAINER(parent));
-	GtkWidget *file_chooser = g_list_nth_data(children, 1);
+	GtkWidget *file_chooser = GTK_WIDGET(g_list_nth_data(children, 1));
 	int active = 0;
 
 	switch(vmap->type) {
@@ -64,7 +62,7 @@ jmrg_file_chooser_swtoggle(GtkSwitch *widget, gboolean state, gpointer data)
 	};
 
 	if(state) {
-		if((&vmap->dps)->active)
+		if(active)
 			return FALSE;
 
 		if(vmap->type == RDS_FIELD_PS && (&vmap->dps)->filepath)
@@ -78,7 +76,7 @@ jmrg_file_chooser_swtoggle(GtkSwitch *widget, gboolean state, gpointer data)
 			return FALSE;
 		}
 	} else {
-		if(!(&vmap->dps)->active)
+		if(!active)
 			return FALSE;
 		gtk_file_chooser_unselect_all(GTK_FILE_CHOOSER(file_chooser));
 	}

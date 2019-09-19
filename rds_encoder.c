@@ -349,8 +349,8 @@ rds_generate_group_2(struct rds_encoder *enc, struct rds_group *group,
 /* Group 4A: Clock-time and date
  * (Section 6.1.5.6) */
 static int
-rds_generate_group_4(struct rds_encoder *enc, struct rds_group *group,
-		     uint8_t version)
+rds_generate_group_4(__attribute__((unused)) struct rds_encoder *enc,
+		     struct rds_group *group, uint8_t version)
 {
 	int min = 0;
 	int hour = 0;

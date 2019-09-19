@@ -93,7 +93,8 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
  * available
  */
 static int
-fmmod_mono_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
+fmmod_mono_generator(struct fmmod_instance *fmmod, float* lpr,
+		     __attribute__((unused)) float* lmr,
 		     int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
@@ -325,7 +326,6 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	float lmr = 0.0;
 	int frames_generated = 0;
 	struct fmmod_instance *fmmod = (struct fmmod_instance *)arg;
-	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
 	struct audio_filter *aflt = &fmmod->aflt;
 	struct fmmod_control *ctl = fmmod->ctl;
@@ -461,10 +461,8 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	uint32_t jack_samplerate = 0;
 	uint32_t output_samplerate = 0;
 	uint32_t max_process_frames = 0;
-	uint8_t preemph_usecs = 0;
 	uint32_t uid = 0;
 	char sock_path[32] = { 0 };	/* /run/user/<userid>/jmpxrds.sock */
-	char *client_name = NULL;
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
 	uint32_t osc_samplerate = OSC_SAMPLE_RATE;
@@ -604,7 +602,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 			     fmmod->client,
 			     osc_samplerate,
 			     RDS_SAMPLE_RATE,
-			     output_samplerate, max_process_frames);
+			     output_samplerate);
 	if (ret < 0) {
 		utils_err("[RESAMPLER] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_RESAMPLER_ERR;

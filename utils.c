@@ -80,7 +80,6 @@ utils_shm_init(const char* name, int size)
 struct shm_mapping*
 utils_shm_attach(const char* name, int size)
 {
-	int ret = 0;
 	struct shm_mapping* shmem = NULL;
 
 	shmem = (struct shm_mapping*)
@@ -232,7 +231,7 @@ utils_trace(const char* fmt,...)
 }
 #else
 void
-utils_dbg(const char* fmt,...) { }
+utils_dbg(__attribute__((unused)) const char* fmt,...) {}
 void
-utils_trace(const char* fmt,...) {}
+utils_trace(__attribute__((unused)) const char* fmt,...) {}
 #endif

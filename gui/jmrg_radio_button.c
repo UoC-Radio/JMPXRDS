@@ -7,7 +7,8 @@
 \*****************/
 
 static void
-jmrg_radio_button_toggle(GtkToggleButton *button, gpointer data)
+jmrg_radio_button_toggle(__attribute__((unused)) GtkToggleButton *widget,
+			 gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
 	(*(int*)vmap->val_ptr) = vmap->val;
@@ -31,7 +32,7 @@ jmrg_radio_button_init(const char* label, int *val_ptr, int val,
 		goto cleanup;
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		return NULL;
 	memset(vmap, 0, sizeof(struct value_map));	

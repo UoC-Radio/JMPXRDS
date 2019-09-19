@@ -393,7 +393,9 @@ jmrg_mpxp_gl_draw_peaks(struct mpx_plotter *mpxp)
 }
 
 gboolean
-jmrg_mpxp_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer data)
+jmrg_mpxp_gl_render(__attribute__((unused)) GtkGLArea *area,
+		    __attribute__((unused)) GdkGLContext *context,
+		    gpointer data)
 {
 	struct mpx_plotter *mpxp = (struct mpx_plotter*) data;
 

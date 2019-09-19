@@ -144,9 +144,7 @@ jmrg_rdsc_programme_info_init(struct rds_encoder_state *st)
 	GtkWidget *hbox = NULL;
 	GtkWidget *ptyn = NULL;
 	GtkWidget *pty = NULL;
-	GtkWidget *ms_switch = NULL;
 	GtkWidget *programme_flags = NULL;
-	int i = 0;
 
 	container = gtk_frame_new("Programme Info");
 	if(!container)

@@ -9,7 +9,7 @@
 G_BEGIN_DECLS
 
 #define JMRG_TYPE_IPENTRY (jmrg_ipentry_get_type ())
-G_DECLARE_FINAL_TYPE(JMRG_IPEntry, jmrg_ipentry, JMRG, IPENTRY, GObject);
+G_DECLARE_FINAL_TYPE(JMRG_IPEntry, jmrg_ipentry, JMRG, IPENTRY, GObject)
 
 G_END_DECLS
 
@@ -19,7 +19,7 @@ struct _JMRG_IPEntry
 	in_addr_t	addr;
 };
 
-G_DEFINE_TYPE(JMRG_IPEntry, jmrg_ipentry, G_TYPE_OBJECT);
+G_DEFINE_TYPE(JMRG_IPEntry, jmrg_ipentry, G_TYPE_OBJECT)
 
 void
 jmrg_ipentry_init(JMRG_IPEntry* entry) {
@@ -27,13 +27,13 @@ jmrg_ipentry_init(JMRG_IPEntry* entry) {
 }
 
 void
-jmrg_ipentry_class_init(JMRG_IPEntryClass *class) {}
+jmrg_ipentry_class_init(__attribute__((unused)) JMRG_IPEntryClass *ipentry) {}
 
 JMRG_IPEntry*
 jmrg_ipentry_new(in_addr_t addr)
 {
 	JMRG_IPEntry* entry = NULL;
-	entry = g_object_new(JMRG_TYPE_IPENTRY, NULL);
+	entry = (JMRG_IPEntry*) g_object_new(JMRG_TYPE_IPENTRY, NULL);
 
 	if(entry)
 		entry->addr = addr;
@@ -47,7 +47,8 @@ jmrg_ipentry_new(in_addr_t addr)
 \*********/
 
 static GtkWidget *
-jmrg_iplist_create_label(gpointer item, gpointer data)
+jmrg_iplist_create_label(gpointer item,
+			 __attribute__((unused)) gpointer data)
 {
 	struct in_addr ipv4addr = { 0 };
 	JMRG_IPEntry *entry = (JMRG_IPEntry*) item;
@@ -58,7 +59,8 @@ jmrg_iplist_create_label(gpointer item, gpointer data)
 }
 
 static void
-jmrg_iplist_remove(GtkListBox *box, GtkListBoxRow *row, gpointer data)
+jmrg_iplist_remove(__attribute__((unused)) GtkListBox *box,
+		   GtkListBoxRow *row, gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
 	struct rtp_server_control *ctl= vmap->rtp_ctl;
@@ -94,7 +96,6 @@ jmrg_iplist_poll(gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
 	struct rtp_server_control *ctl= vmap->rtp_ctl;
-	GtkListBoxRow *last_row = NULL;
 	JMRG_IPEntry *entry = NULL;
 	static int active_entries = 0;
 	int i = 0;
@@ -136,7 +137,8 @@ jmrg_iplist_poll(gpointer data)
 \*****************/
 
 static void
-jmrg_ipadd_button_clicked(GtkButton *button, gpointer data)
+jmrg_ipadd_button_clicked(__attribute__((unused)) GtkButton *button,
+			  gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
 	struct rtp_server_control *ctl= vmap->rtp_ctl;
@@ -159,7 +161,8 @@ jmrg_ipadd_button_clicked(GtkButton *button, gpointer data)
 }
 
 static void
-jmrg_ipdel_button_clicked(GtkButton *button, gpointer data)
+jmrg_ipdel_button_clicked(__attribute__((unused)) GtkButton *button,
+			  gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
 	vmap->val = -1;
@@ -230,7 +233,7 @@ jmrg_iplist_init(struct rtp_server_control *ctl)
 	gtk_box_pack_start(GTK_BOX(hbox), del_button, 0, 0, 6);
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		goto cleanup;
 	memset(vmap, 0, sizeof(struct value_map));

@@ -87,7 +87,7 @@ jmrg_checkbox_init(struct rds_encoder_state *st, const char* label, int type,
 
 
 	/* Initialize value_map */
-	vmap = malloc(sizeof(struct value_map));
+	vmap = (struct value_map*) malloc(sizeof(struct value_map));
 	if(!vmap)
 		goto cleanup;
 	memset(vmap, 0, sizeof(struct value_map));

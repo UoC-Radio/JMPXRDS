@@ -70,7 +70,9 @@ static const struct option opts[] = {
 static volatile sig_atomic_t active;
 
 static void
-signal_handler(int sig, siginfo_t * info, void *context)
+signal_handler(__attribute__((unused)) int sig,
+	       __attribute__((unused)) siginfo_t *info,
+	       __attribute__((unused))void *context)
 {
 	active = 0;
 	return;
@@ -79,9 +81,7 @@ signal_handler(int sig, siginfo_t * info, void *context)
 int
 main(int argc, char *argv[])
 {
-	int rds_state_fd = 0;
 	int ret = 0;
-	int i = 0;
 	uint16_t pi = 0;
 	uint8_t pty = 0;
 	uint8_t ecc = 0;
@@ -90,12 +90,12 @@ main(int argc, char *argv[])
 	uint8_t ta = 0;
 	uint8_t ms = 0;
 	uint8_t di = 0;
-	char temp[TEMP_BUF_LEN] = { 0 };
+	char temp[TEMP_BUF_LEN] = {0};
 	struct shm_mapping *shmem = NULL;
 	struct rds_encoder_state *st = NULL;
 	struct rds_dynps_state dps = {0};
 	struct rds_dynrt_state drt = {0};
-	struct sigaction sa = {0};
+	struct sigaction sa;
 	int loop = 0;
 	int opt = 0;
 	int opt_idx = 0;
@@ -107,7 +107,6 @@ main(int argc, char *argv[])
 		return -1;
 	}
 	st = (struct rds_encoder_state*) shmem->mem;
-
 
 	while ((opt = getopt_long_only(argc, argv,"ged", opts, &opt_idx)) != -1) {
 		switch(opt) {
@@ -296,6 +295,7 @@ main(int argc, char *argv[])
 
 	if(loop) {
 		/* Install a signal handler for graceful exit */
+		memset(&sa, 0, sizeof(struct sigaction));
 		sigemptyset(&sa.sa_mask);
 		sa.sa_flags = SA_SIGINFO;
 		sa.sa_sigaction = signal_handler;

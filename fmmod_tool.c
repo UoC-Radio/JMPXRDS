@@ -41,7 +41,7 @@ usage(char *name)
 		"\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley),\n"
 				"\t\t\t\t\t2-> SSB (LP Filter), 3-> Mono\n"
 		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n"
-		"\t-e	<int>\tSet FM Pre-emphasis tau (0-> 50us, 1->75us, 2->Disabled)\n");
+		"\t-e	<int>\tSet FM Pre-emphasis tau (0-> 50us, 1-> 75us, 2-> Disabled)\n");
 }
 
 
@@ -49,7 +49,6 @@ int
 main(int argc, char *argv[])
 {
 	int ret = 0;
-	int i = 0;
 	int opt = 0;
 	char temp[TEMP_BUF_LEN] = { 0 };
 	struct shm_mapping *shmem = NULL;
@@ -166,9 +165,13 @@ main(int argc, char *argv[])
 		case 'e':
 			memset(temp, 0, TEMP_BUF_LEN);
 			snprintf(temp, 2, "%s", optarg);
-			ctl->preemph_tau = strtol(temp, NULL, 10) & 0x3;
-			if(ctl->preemph_tau > 2)
-				ctl->preemph_tau = 2;
+			ret = strtol(temp, NULL, 10) & 0x3;
+			if(ret == 0 || ret >= LPF_PREEMPH_MAX)
+				ctl->preemph_tau = LPF_PREEMPH_50US;
+			else if(ret == 1)
+				ctl->preemph_tau = LPF_PREEMPH_75US;
+			else
+				ctl->preemph_tau = LPF_PREEMPH_NONE;
 			utils_info("Set FM Pre-emphasis tau:  \t%i\n",
 				   ctl->preemph_tau);
 			break;
@@ -183,7 +186,6 @@ main(int argc, char *argv[])
 		ret = -1;
 	}
 
- cleanup:
 	utils_shm_destroy(shmem, 0);
 	return ret;
 }
