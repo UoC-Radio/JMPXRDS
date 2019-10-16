@@ -23,13 +23,8 @@ jmrg_cbox_text_poll(gpointer data)
 	if(gtk_widget_has_focus(vmap->target))
 		return TRUE;
 
-	switch(vmap->type) {
-	case RDS_FIELD_PTY:
+	if(vmap->type == RDS_FIELD_PTY)
 		tmp = rds_get_pty(st);
-		break;
-	default:
-		return FALSE;
-	}
 
 	gtk_combo_box_set_active(GTK_COMBO_BOX(vmap->target), tmp);
 
@@ -48,13 +43,8 @@ jmrg_cbox_text_changed(GtkComboBox *cbox, gpointer data)
 	struct rds_encoder_state *st = vmap->st;
 	int tmp = gtk_combo_box_get_active(cbox);
 
-	switch(vmap->type) {
-	case RDS_FIELD_PTY:
+	if(vmap->type == RDS_FIELD_PTY)
 		rds_set_pty(st, (uint8_t) tmp);
-		return;
-	default:
-		return;
-	}
 
 	return;
 }
@@ -96,18 +86,16 @@ jmrg_cbox_text_init(struct rds_encoder_state *st, const char* label, int type)
 	if(!cbox)
 		goto cleanup;
 	gtk_box_set_center_widget(GTK_BOX(vbox), cbox);
-	switch(type) {
-	case RDS_FIELD_PTY:
+
+	if(vmap->type == RDS_FIELD_PTY) {
 		pty_name = rds_codes_get_pty_name(i);
 		while(pty_name[0] != '\0') {
 			gtk_combo_box_text_insert(GTK_COMBO_BOX_TEXT(cbox), i,
 						  NULL, pty_name);
 			pty_name = rds_codes_get_pty_name(++i);
 		}
-		break;
-	default:
-		return NULL;
 	}
+
 	gtk_combo_box_set_active(GTK_COMBO_BOX(cbox), 0);
 
 

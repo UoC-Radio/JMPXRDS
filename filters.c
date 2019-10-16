@@ -111,9 +111,8 @@ fmpreemph_filter_init_mode(struct fmpreemph_filter_data *fmprf,
 	double cutoff_w_low = 1.0L / tau;
 	double cutoff_w_high = 2.0L * M_PI * (double) high_corner_freq;
 
-	/* Corner angular frequencies relative to the sampling rate */
+	/* Corner angular cutoff frequency relative to the sampling rate */
 	double pre_warped_wc = tan(cutoff_w_low /  (2.0L * (double) sample_rate));
-	double pre_warped_wh = tan(cutoff_w_high / (2.0L * (double) sample_rate));
 
 	/* V0 = 10^gain/20, however as we saw above that
 	 * increases proportionaly with the frequency so
@@ -199,7 +198,7 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
 			ataps = fmprf->ataps_50;
 			btaps = fmprf->btaps_50;
 			break;
-	};
+	}
 
 	out += ataps[0] * sample;
 

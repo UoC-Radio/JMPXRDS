@@ -1,5 +1,6 @@
 #include <stdlib.h>	/* For malloc() / free() */
 #include <string.h>	/* For memset() */
+#include <time.h>	/* For nanosleep() */
 #include "jmpxrds_gui.h"
 
 /**********************\
@@ -66,6 +67,7 @@ jmrg_iplist_remove(__attribute__((unused)) GtkListBox *box,
 	struct rtp_server_control *ctl= vmap->rtp_ctl;
 	struct in_addr ipv4addr = {0};
 	union sigval value = {0};
+	struct timespec tv = {0, 2000000L};
 	GtkWidget *label = gtk_bin_get_child(GTK_BIN(row));
 	const char* label_text = gtk_label_get_text(GTK_LABEL(label));
 	static int active_ips = 0;
@@ -81,7 +83,7 @@ jmrg_iplist_remove(__attribute__((unused)) GtkListBox *box,
 
 	/* Wait for it to get removed before moving to the next one */
 	while(active_ips == ctl->num_receivers && i > 0) {
-		usleep(200);
+		nanosleep(&tv, NULL);
 		i--;
 	}
 

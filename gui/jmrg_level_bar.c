@@ -13,22 +13,22 @@
 static float
 jmrg_level_bar_iec_scale(float db)
 {
-	float def = 0.0f;	/* Meter deflection %age */
+	float def = 0.0F;	/* Meter deflection %age */
 
-	if (db < -70.0f) {
-		def = 0.0f;
-	} else if (db < -60.0f) {	/* 0.0 - 2.5 */
-		def = (db + 70.0f) * 0.25f;
-	} else if (db < -50.0f) {	/* 2.5 - 7.5 */
-		def = (db + 60.0f) * 0.5f + 2.5f;
-	} else if (db < -40.0f) {	/* 7.5 - 15.0 */
-		def = (db + 50.0f) * 0.75f + 7.5f;
-	} else if (db < -30.0f) {	/* 15.0 - 30.0 */
-		def = (db + 40.0f) * 1.5f + 15.0f;
-	} else if (db < -20.0f) {	/* 30.0 - 50.0 */
-		def = (db + 30.0f) * 2.0f + 30.0f;
+	if (db < -70.0F) {
+		def = 0.0F;
+	} else if (db < -60.0F) {	/* 0.0 - 2.5 */
+		def = (db + 70.0F) * 0.25F;
+	} else if (db < -50.0F) {	/* 2.5 - 7.5 */
+		def = (db + 60.0F) * 0.5F + 2.5F;
+	} else if (db < -40.0F) {	/* 7.5 - 15.0 */
+		def = (db + 50.0F) * 0.75F + 7.5F;
+	} else if (db < -30.0F) {	/* 15.0 - 30.0 */
+		def = (db + 40.0F) * 1.5F + 15.0F;
+	} else if (db < -20.0F) {	/* 30.0 - 50.0 */
+		def = (db + 30.0F) * 2.0F + 30.0F;
 	} else {		/* 50 - 100 */
-		def = (db + 20.0f) * 2.5f + 50.0f;
+		def = (db + 20.0F) * 2.5F + 50.0F;
 	}
 
 	return def;
@@ -52,7 +52,7 @@ jmrg_level_bar_poll(gpointer data)
 		return TRUE;
 
 	/* Amplitude to db + iec scaling */
-	val = 20.0f * log10((*(float*)vmap->val_ptr));
+	val = 20.0F * log10((*(float*)vmap->val_ptr));
 	val = jmrg_level_bar_iec_scale(val) / 100;
 
 	/* Keep value in range */
@@ -87,7 +87,7 @@ jmrg_level_bar_init(const char* label, float* val_ptr)
 	container = gtk_frame_new(label);
 	if(!container)
 		goto cleanup;
-	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
+	gtk_frame_set_label_align(GTK_FRAME(container), 0.5F, 0.6F);
 	if(label != NULL)
 		gtk_frame_set_shadow_type(GTK_FRAME(container),
 					  GTK_SHADOW_ETCHED_IN);

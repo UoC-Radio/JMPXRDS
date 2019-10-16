@@ -32,7 +32,7 @@ jmrg_file_chooser_done(GtkWidget *button, gpointer data)
 		break;
 	default:
 		return;
-	};
+	}
 
 
 	if(gtk_switch_get_state(GTK_SWITCH(vmap->sw)) == FALSE)
@@ -59,7 +59,7 @@ jmrg_file_chooser_swtoggle(GtkSwitch *widget, gboolean state, gpointer data)
 		break;
 	default:
 		return FALSE;
-	};
+	}
 
 	if(state) {
 		if(active)
@@ -115,6 +115,8 @@ jmrg_file_chooser_init(struct value_map *vmap)
 		label_text = "Dynamic RT from file";
 		chooser_title = "Dynamic RT data file";
 		break;
+	default:
+		goto cleanup;
 	}
 
 	label = gtk_label_new(label_text);

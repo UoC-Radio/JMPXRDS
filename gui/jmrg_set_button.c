@@ -61,8 +61,6 @@ jmrg_set_button_clicked(__attribute__((unused)) GtkButton *button, gpointer data
 	default:
 		return;
 	};
-
-	return;
 }
 
 

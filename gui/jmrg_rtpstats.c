@@ -24,7 +24,10 @@ jmrg_rtpstats_poll(gpointer data)
 	if(!ctl)
 		return FALSE;
 
-	if(!GTK_IS_LABEL(vmap->target) || !GTK_IS_LABEL(vmap->target2))
+	if(!GTK_IS_LABEL(vmap->target))
+		return FALSE;
+
+	if(!GTK_IS_LABEL(vmap->target2))
 		return FALSE;
 
 	if(!gtk_widget_is_visible(vmap->target))

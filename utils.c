@@ -71,7 +71,7 @@ utils_shm_init(const char* name, int size)
 		shm_unlink(name);
 		free(shmem);
 		shmem = NULL;
-	} else
+	} else if (shmem->mem)
 		memset(shmem->mem, 0, shmem->size);
 
 	return shmem;

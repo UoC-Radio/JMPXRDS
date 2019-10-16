@@ -362,23 +362,27 @@ rds_generate_group_4(__attribute__((unused)) struct rds_encoder *enc,
 	uint16_t temp_infoword = 0;
 	double tz_offset = 0;
 	time_t now;
-	struct tm *utc;
-	struct tm *local_time;
+	struct tm utc;
+	struct tm local_time;
 
 	/* Group 4B is Open Data and it's not supported */
 	if (version != RDS_GROUP_VERSION_A)
 		return -1;
 
 	time(&now);
-	utc = gmtime(&now);
-	local_time = localtime(&now);
 
-	min = utc->tm_min;
-	hour = utc->tm_hour;
-	day = utc->tm_mday;
-	month = utc->tm_mon + 1;
-	year = utc->tm_year;
-	tz_offset = local_time->tm_hour - hour;
+	if(!gmtime_r(&now, &utc))
+		return -2;
+
+	if(!localtime_r(&now, &local_time))
+		return -3;
+
+	min = utc.tm_min;
+	hour = utc.tm_hour;
+	day = utc.tm_mday;
+	month = utc.tm_mon + 1;
+	year = utc.tm_year;
+	tz_offset = local_time.tm_hour - hour;
 
 	if (month <= 2)
 		leap_day = 1;
