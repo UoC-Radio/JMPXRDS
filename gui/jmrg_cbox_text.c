@@ -49,7 +49,7 @@ jmrg_cbox_text_changed(GtkComboBox *cbox, gpointer data)
 	int tmp = gtk_combo_box_get_active(cbox);
 
 	if(!vmap)
-		return FALSE;
+		return;
 
 	st = vmap->st;
 
