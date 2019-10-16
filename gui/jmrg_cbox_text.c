@@ -11,8 +11,13 @@ static gboolean
 jmrg_cbox_text_poll(gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
-	struct rds_encoder_state *st = vmap->st;
+	struct rds_encoder_state *st = NULL;
 	int tmp = 0;
+
+	if(!vmap)
+		return FALSE;
+
+	st = vmap->st;
 
 	if(!GTK_IS_COMBO_BOX(vmap->target))
 		return FALSE;
@@ -40,8 +45,13 @@ static void
 jmrg_cbox_text_changed(GtkComboBox *cbox, gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
-	struct rds_encoder_state *st = vmap->st;
+	struct rds_encoder_state *st = NULL;
 	int tmp = gtk_combo_box_get_active(cbox);
+
+	if(!vmap)
+		return FALSE;
+
+	st = vmap->st;
 
 	if(vmap->type == RDS_FIELD_PTY)
 		rds_set_pty(st, (uint8_t) tmp);
@@ -87,7 +97,7 @@ jmrg_cbox_text_init(struct rds_encoder_state *st, const char* label, int type)
 		goto cleanup;
 	gtk_box_set_center_widget(GTK_BOX(vbox), cbox);
 
-	if(vmap->type == RDS_FIELD_PTY) {
+	if(type == RDS_FIELD_PTY) {
 		pty_name = rds_codes_get_pty_name(i);
 		while(pty_name[0] != '\0') {
 			gtk_combo_box_text_insert(GTK_COMBO_BOX_TEXT(cbox), i,
