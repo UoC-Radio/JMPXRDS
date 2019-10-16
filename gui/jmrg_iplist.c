@@ -77,6 +77,8 @@ jmrg_iplist_remove(__attribute__((unused)) GtkListBox *box,
 	if(sigqueue(ctl->pid, SIGUSR2, value) != 0)
 		utils_perr("Couldn't send signal, sigqueue()");
 
+	gtk_widget_destroy(label);
+
 	/* Wait for it to get removed before moving to the next one */
 	while(active_ips == ctl->num_receivers && i > 0) {
 		usleep(200);
@@ -119,6 +121,7 @@ jmrg_iplist_poll(gpointer data)
 	for(i = 0; i < ctl->num_receivers; i++) {
 		entry = jmrg_ipentry_new(ctl->receivers[i]);
 		g_list_store_insert(vmap->iplstore, i, (gpointer) entry);
+		g_object_unref(entry);
 	}
 	active_entries = ctl->num_receivers;
 

@@ -102,10 +102,12 @@ utils_shm_attach(const char* name, int size)
  cleanup:
 	if(shmem->fd >= 0)
 		close(shmem->fd);
-	else
-		return NULL;
+	else {
+		free(shmem);
+		shmem = NULL;
+	}
 
-	if (shmem->mem == MAP_FAILED) {
+	if (shmem && shmem->mem == MAP_FAILED) {
 		shm_unlink(name);
 		free(shmem);
 		shmem = NULL;

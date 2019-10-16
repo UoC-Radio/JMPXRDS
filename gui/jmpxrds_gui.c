@@ -76,6 +76,10 @@ jmrg_panel_destroy(__attribute__((unused)) GtkWidget *container,
 {
 	if(ctl_page->shmem)
 		utils_shm_destroy(ctl_page->shmem, 0);
+
+	if(ctl_page)
+		free(ctl_page);
+
 	return;
 }
 
@@ -91,7 +95,7 @@ jmrg_panel_switched(GtkNotebook *notebook,
 	int i = 0;
 	gint no_pages = gtk_notebook_get_n_pages(notebook);
 
-	for(i = 0; i < no_pages; i++) {
+	for(i = 0; i < no_pages && i < JMRG_NUM_PAGES; i++) {
 		if(page_no == (guint) i)
 			gtk_widget_show_all(pages[i]->container);
 		else
@@ -105,7 +109,7 @@ jmrg_panel_switched(GtkNotebook *notebook,
 int
 main(int argc, char *argv[])
 {
-	struct control_page *pages[3];
+	struct control_page *pages[JMRG_NUM_PAGES];
 	GtkWidget *window = NULL;
 	GtkWidget *notebook = NULL;
 	GtkCssProvider *provider = NULL;

@@ -421,6 +421,8 @@ jmrg_rdsenc_panel_init(struct control_page *ctl_page)
 		gtk_widget_destroy(container);
 	if(ctl_page->shmem)
 		utils_shm_destroy(ctl_page->shmem, 0);
+	if(ctl_page)
+		free(ctl_page);
 	utils_err("[RDSENC PANEL] Init failed with code: %i\n", ret);
 	return ret;
 }

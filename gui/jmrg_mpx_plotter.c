@@ -81,13 +81,12 @@ jmrg_mpxp_update_y_vals(struct mpx_plotter *mpxp)
 
 	ret = fread((void*) mpxp->real_buff, sizeof(float),
 		    mpxp->max_samples, sock);
+	fclose(sock);
 	if(ret != mpxp->max_samples) {
 		utils_perr("[MPX PLOTTER] Could not read from socket");
 		skip = 1;
 		return;
 	}
-
-	fclose(sock);
 
 	fftwf_execute(mpxp->dft_plan);
 
@@ -191,6 +190,8 @@ jmrg_mpxp_destroy(__attribute__((unused)) GtkWidget *widget,
 		fftwf_free(mpxp->complex_buff);
 	if(mpxp->real_buff)
 		fftwf_free(mpxp->real_buff);
+	if(mpxp->dft_plan)
+		fftwf_destroy_plan(mpxp->dft_plan);
 	free(mpxp);
 
 	return;

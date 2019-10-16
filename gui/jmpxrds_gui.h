@@ -8,6 +8,8 @@ struct control_page {
 	struct shm_mapping *shmem;
 };
 
+#define JMRG_NUM_PAGES 3
+
 struct value_map {
 	/* The widgets that polling function will update */
 	GtkWidget *target;

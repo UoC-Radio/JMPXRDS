@@ -10,13 +10,21 @@ static gboolean
 jmrg_rtpstats_poll(gpointer data)
 {
 	struct value_map *vmap = (struct value_map*) data;
-	struct rtp_server_control *ctl = vmap->rtp_ctl;
+	struct rtp_server_control *ctl = NULL;
 	char tmp[12] = {0};
 	static guint64 prev_rtp_bps = 0;
 	static guint64 prev_rtcp_bps = 0;
 	int kbps = 0;
 
-	if(!ctl || !GTK_IS_LABEL(vmap->target) || !GTK_IS_LABEL(vmap->target2))
+	if(!data)
+		return FALSE;
+
+	ctl = vmap->rtp_ctl;
+
+	if(!ctl)
+		return FALSE;
+
+	if(!GTK_IS_LABEL(vmap->target) || !GTK_IS_LABEL(vmap->target2))
 		return FALSE;
 
 	if(!gtk_widget_is_visible(vmap->target))

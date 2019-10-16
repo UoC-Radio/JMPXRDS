@@ -145,6 +145,7 @@ rds_dynps_filemon_thread(void *arg)
 		res = fgets(dps->string, DYNPS_MAX_CHARS - 1, file);
 		if(!res) {
 			utils_perr("[DYNPS] Failed to get string from file, fgets()");
+			fclose(file);
 			continue;
 		}
 		rds_dynps_sanitize(dps);
@@ -326,6 +327,7 @@ rds_dynrt_filemon_thread(void *arg)
 		res = fgets(drt->string, DYNRT_MAX_CHARS - 1, file);
 		if(!res) {
 			utils_perr("[DYNRT] Failed to get string from file, fgets()");
+			fclose(file);
 			continue;
 		}
 		rds_dynrt_sanitize(drt);

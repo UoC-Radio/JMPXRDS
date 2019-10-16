@@ -70,8 +70,24 @@ jmrg_rtpserv_panel_init(struct control_page *ctl_page)
 	}
 	ctl_page->container = hbox;
 
+	/* Register signal hanlder for unrealize */
+	g_signal_connect(hbox, "unrealize", G_CALLBACK(jmrg_panel_destroy),
+			 ctl_page);
+
 	return 0;
  cleanup:
+	if(rtpstats)
+		gtk_widget_destroy(rtpstats);
+	if(rvbox)
+		gtk_widget_destroy(rvbox);
+	if(iplist)
+		gtk_widget_destroy(iplist);
+	if(lvbox)
+		gtk_widget_destroy(lvbox);
+	if(hbox)
+		gtk_widget_destroy(hbox);
+	if(ctl_page)
+		free(ctl_page);
 	return ret;
 }
 

@@ -329,8 +329,22 @@ jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
 
 	return container;
  cleanup:
+	if(rbgrp) {
+		for(i = 0; i < 3; i++)
+			if(rbgrp->rbuttons[i])
+				gtk_widget_destroy(rbgrp->rbuttons[i]);
+		free(rbgrp);
+	}
+	if(vbox)
+		gtk_widget_destroy(vbox);
 	if(container)
 		gtk_widget_destroy(container);
+	if(pe_frame)
+		gtk_widget_destroy(pe_frame);
+	if(lpf_sw)
+		gtk_widget_destroy(lpf_sw);
+	if(pe_vbox)
+		gtk_widget_destroy(pe_vbox);
 	utils_err("[AUDIO FILTER CTLS] Init failed with code: %i\n", ret);
 	return NULL;
 }
@@ -715,6 +729,8 @@ jmrg_fmmod_panel_init(struct control_page *ctl_page)
 		gtk_widget_destroy(hbox);
 	if(ctl_page->shmem)
 		utils_shm_destroy(ctl_page->shmem, 0);
+	if(ctl_page)
+		free(ctl_page);
 	utils_err("[FMMOD PANEL] Init failed with code: %i\n", ret);
 	return ret;
 }
