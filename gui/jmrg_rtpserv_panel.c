@@ -1,3 +1,4 @@
+#include <stdlib.h>	/* For free() */
 #include <string.h>	/* For memset() */
 #include "jmpxrds_gui.h"
 
