@@ -745,8 +745,16 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 	int uid = 0;
 	char sock_path[32] = { 0 };
 
-	if (!shutdown)
+	if (!shutdown) {
 		jack_deactivate(fmmod->client);
+		if (fmmod->inL)
+			jack_port_unregister(fmmod->client, fmmod->inL);
+		if (fmmod->inR)
+			jack_port_unregister(fmmod->client, fmmod->inR);
+		if (fmmod->outMPX)
+			jack_port_unregister(fmmod->client, fmmod->outMPX);
+		jack_client_close(fmmod->client);
+	}
 
 	fmmod->active = 0;
 
