@@ -316,7 +316,6 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	int i = 0;
 	jack_default_audio_sample_t *left_in, *right_in;
 	jack_default_audio_sample_t *mpx_out;
-	size_t mpx_out_len = 0;
 	float *mpxbuf = NULL;
 	float *upsampled_audio_l = NULL;
 	float *upsampled_audio_r = NULL;
@@ -352,13 +351,10 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	right_in = (float *) jack_port_get_buffer(fmmod->inR, nframes);
 
 	/* Output */
-	if (fmmod->output_type == FMMOD_OUT_JACK) {
+	if (fmmod->output_type == FMMOD_OUT_JACK)
 		mpx_out = (float *) jack_port_get_buffer(fmmod->outMPX, nframes);
-		mpx_out_len = nframes;
-	} else {
+	else
 		mpx_out = fmmod->sock_outbuf;
-		mpx_out_len = fmmod->sock_outbuf_len;
-	}
 
 	/* No frames received */
 	if (!nframes)
@@ -417,7 +413,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	/* Now downsample to the output sample rate */
 	frames_generated = resampler_downsample_mpx(rsmpl, mpxbuf, mpx_out,
 						    frames_generated,
-						    mpx_out_len);
+						    nframes);
 	if (frames_generated < 0)
 		return FMMOD_ERR_RESAMPLER_ERR;
 
