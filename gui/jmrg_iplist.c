@@ -1,6 +1,7 @@
 #include <stdlib.h>	/* For malloc() / free() */
 #include <string.h>	/* For memset() */
 #include <time.h>	/* For nanosleep() */
+#include <arpa/inet.h>	/* For inet_ntoa()  / inet_aton() */
 #include "jmpxrds_gui.h"
 
 /**********************\

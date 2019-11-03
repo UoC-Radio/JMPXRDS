@@ -43,9 +43,8 @@ void rtp_server_destroy(struct rtp_server *rtpsrv)
 	return;
 }
 
-int
-rtp_server_init(struct rtp_server *rtpsrv, int mpx_samplerate,
-		int max_samples, int baseport)
+int rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
+		    int mpx_samplerate, int max_samples, int baseport)
 {
 	return 0;
 }

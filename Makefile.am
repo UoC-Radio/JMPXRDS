@@ -7,6 +7,7 @@ jmpxrds_CFLAGS = $(CFLAGS)
 
 rds_tool_SOURCES = utils.c rds_config.c rds_dynpsrt.c rds_tool.c
 rds_tool_LDADD = $(LIBRT)
+rds_tool_LDFLAGS = -pthread
 rds_tool_CFLAGS = $(CFLAGS)
 
 fmmod_tool_SOURCES = utils.c fmmod_tool.c

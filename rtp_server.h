@@ -19,37 +19,18 @@
  */
 
 #include "config.h"		/* For DISABLE_RTP_SERVER macro */
+#include <jack/jack.h>		/* For jack-related types */
+#include <arpa/inet.h>		/* For ipv4 address handling */
 
 #ifdef DISABLE_RTP_SERVER
 
-#include <jack/jack.h>		/* For jack-related types */
 struct rtp_server {
 	jack_client_t *fmmod_client;
 };
 
 #else				/* DISABLE_RTP_SERVER */
 
-#include <arpa/inet.h>		/* For ipv4 address handling */
-#include <jack/jack.h>		/* For jack-related types */
 #include <gst/gst.h>		/* For GStreamer stuff */
-
-enum rtp_server_state {
-	RTP_SERVER_INACTIVE = 0,
-	RTP_SERVER_ACTIVE = 1,
-	RTP_SERVER_QUEUE_FULL = 2,
-	RTP_SERVER_TERMINATED = 3
-};
-
-#define RTP_SRV_MAX_RECEIVERS	64
-
-struct rtp_server_control {
-	pid_t pid;
-	struct rtp_server *rtpsrv;
-	guint64 rtp_bytes_sent;
-	guint64 rtcp_bytes_sent;
-	int num_receivers;
-	in_addr_t receivers[RTP_SRV_MAX_RECEIVERS];
-};
 
 struct rtp_server {
 	int state;
@@ -72,6 +53,24 @@ struct rtp_server {
 };
 
 #endif
+
+enum rtp_server_state {
+	RTP_SERVER_INACTIVE = 0,
+	RTP_SERVER_ACTIVE = 1,
+	RTP_SERVER_QUEUE_FULL = 2,
+	RTP_SERVER_TERMINATED = 3
+};
+
+#define RTP_SRV_MAX_RECEIVERS	64
+
+struct rtp_server_control {
+	pid_t pid;
+	struct rtp_server *rtpsrv;
+	uint64_t rtp_bytes_sent;
+	uint64_t rtcp_bytes_sent;
+	int num_receivers;
+	in_addr_t receivers[RTP_SRV_MAX_RECEIVERS];
+};
 
 int rtp_server_add_receiver(int addr);
 int rtp_server_remove_receiver(int addr);
