@@ -413,7 +413,7 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	/* Now downsample to the output sample rate */
 	frames_generated = resampler_downsample_mpx(rsmpl, mpxbuf, mpx_out,
 						    frames_generated,
-						    nframes);
+						    fmmod->max_out_samples);
 	if (frames_generated < 0)
 		return FMMOD_ERR_RESAMPLER_ERR;
 
@@ -456,12 +456,11 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	struct fmmod_control *ctl = NULL;
 	uint32_t jack_samplerate = 0;
 	uint32_t output_samplerate = 0;
-	uint32_t max_process_frames = 0;
+	uint32_t max_input_frames = 0;
 	uint32_t uid = 0;
 	char sock_path[32] = { 0 };	/* /run/user/<userid>/jmpxrds.sock */
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
-	uint32_t osc_samplerate = OSC_SAMPLE_RATE;
 	uint32_t output_buf_len = 0;
 
 	memset(fmmod, 0, sizeof(struct fmmod_instance));
@@ -483,31 +482,38 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 		goto cleanup;
 	}
 
-	/* Get JACK's sample rate and set output_samplerate */
+	/* Get JACK's sample rate and number of frames JACK will send to process()
+	 * (period len), and calculate buffer lengths and output_samplerate */
 	jack_samplerate = jack_get_sample_rate(fmmod->client);
+	max_input_frames = jack_get_buffer_size(fmmod->client);
+
+	fmmod->inbuf_len = max_input_frames *
+			   sizeof(jack_default_audio_sample_t);
+	fmmod->upsampled_num_samples = num_resampled_samples(jack_samplerate,
+							OSC_SAMPLE_RATE,
+							max_input_frames);
+	fmmod->upsampled_buf_len = fmmod->upsampled_num_samples *
+				   sizeof(jack_default_audio_sample_t);
+
 	if (jack_samplerate >= FMMOD_OUTPUT_SAMPLERATE_MIN) {
 		output_samplerate = jack_samplerate;
 		fmmod->output_type = FMMOD_OUT_JACK;
+		fmmod->max_out_samples = max_input_frames;
+		output_buf_len = fmmod->max_out_samples *
+				 sizeof(jack_default_audio_sample_t);
 	} else if (jack_samplerate > 0) {
 		output_samplerate = FMMOD_OUTPUT_SAMPLERATE_MIN;
 		fmmod->output_type = FMMOD_OUT_NOJACK;
+		fmmod->max_out_samples = num_resampled_samples(OSC_SAMPLE_RATE,
+						output_samplerate,
+						fmmod->upsampled_num_samples);
+		output_buf_len = fmmod->max_out_samples * sizeof(float);
 	} else {
 		utils_err("[FMMOD] Got invalid samplerate from jackd: %i\n",
 			  jack_samplerate);
 		ret = FMMOD_ERR_JACKD_ERR;
 		goto cleanup;
 	}
-
-	/* Get maximum number of frames JACK will send to process() and
-	 * calculate buffer lengths */
-	max_process_frames = jack_get_buffer_size(fmmod->client);
-	fmmod->inbuf_len = max_process_frames *
-	    		   sizeof(jack_default_audio_sample_t);
-	fmmod->upsampled_num_samples = num_resampled_samples(jack_samplerate,
-							osc_samplerate,
-							max_process_frames);
-	fmmod->upsampled_buf_len = fmmod->upsampled_num_samples *
-				   sizeof(jack_default_audio_sample_t);
 
 	/* Allocate input audio buffers */
 	fmmod->inbuf_l = (float *)malloc(fmmod->inbuf_len);
@@ -549,7 +555,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	memset(fmmod->mpxbuf, 0, fmmod->upsampled_buf_len);
 
 	/* Initialize the main oscilator */
-	ret = osc_initialize(&fmmod->sin_osc, osc_samplerate, OSC_TYPE_SINE);
+	ret = osc_initialize(&fmmod->sin_osc, OSC_SAMPLE_RATE, OSC_TYPE_SINE);
 	if (ret < 0) {
 		utils_err("[OSC] Init for sine osc failed with code: %i\n", ret);
 		ret = FMMOD_ERR_OSC_ERR;
@@ -557,7 +563,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	}
 
 	/* Initialize the cosine oscilator of the Hartley modulator */
-	ret = osc_initialize(&fmmod->cos_osc, osc_samplerate, OSC_TYPE_COSINE);
+	ret = osc_initialize(&fmmod->cos_osc, OSC_SAMPLE_RATE, OSC_TYPE_COSINE);
 	if (ret < 0) {
 		utils_err("[OSC] Init for cosine osc failed with code: %i\n", ret);
 		ret = FMMOD_ERR_OSC_ERR;
@@ -565,7 +571,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	}
 
 	/* Initialize the low pass FFT filter for the filter-based SSB modulator */
-	ret = lpf_filter_init(&fmmod->ssb_lpf, 38000, osc_samplerate,
+	ret = lpf_filter_init(&fmmod->ssb_lpf, 38000, OSC_SAMPLE_RATE,
 			      fmmod->upsampled_num_samples, SSB_LPF_OVERLAP_FACTOR);
 	if (ret < 0) {
 		utils_err("[SSB LPF] Init failed with code: %i\n", ret);
@@ -596,7 +602,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	/* Initialize resampler */
 	ret = resampler_init(&fmmod->rsmpl, jack_samplerate,
 			     fmmod->client,
-			     osc_samplerate,
+			     OSC_SAMPLE_RATE,
 			     RDS_SAMPLE_RATE,
 			     output_samplerate);
 	if (ret < 0) {
@@ -610,7 +616,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	/* The cutoff frequency is set so that the filter's
 	 * maximum drop is at 19KHz (the pilot tone) */
 	ret = audio_filter_init(&fmmod->aflt, fmmod->client, 16500,
-				jack_samplerate, max_process_frames);
+				jack_samplerate, max_input_frames);
 	if (ret < 0) {
 		utils_err("[AFLT] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;
@@ -662,11 +668,6 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 		goto cleanup;
 	}
 
-	output_buf_len = num_resampled_samples(osc_samplerate,
-					       output_samplerate,
-					       fmmod->upsampled_num_samples);
-	output_buf_len *= sizeof(float);
-
 	/* Register output port if possible, if not allocate
 	 * our own buffers since we can't use JACK's */
 	if (fmmod->output_type == FMMOD_OUT_JACK) {
@@ -693,7 +694,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	 * mpx signal to a remote host if needed */
 	fmmod->rtpsrv.fmmod_client = fmmod->client;
 	ret = rtp_server_init(&fmmod->rtpsrv, output_buf_len, output_samplerate,
-			      max_process_frames, 5000);
+			      fmmod->max_out_samples, 5000);
 	if (ret < 0) {
 		utils_err("[RTP] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_RTP_ERR;
@@ -720,7 +721,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	ctl->use_audio_lpf = 1;
 	ctl->preemph_tau = LPF_PREEMPH_50US;
 	ctl->sample_rate = output_samplerate;
-	ctl->max_samples = max_process_frames;
+	ctl->max_samples = max_input_frames;
 
 	/* Tell the JACK server that we are ready to roll.  Our
 	 * process() callback will start running now. */

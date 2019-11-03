@@ -91,6 +91,7 @@ struct fmmod_instance {
 	float *inbuf_l;
 	float *inbuf_r;
 	uint32_t inbuf_len;
+	uint32_t max_out_samples;
 	uint32_t upsampled_num_samples;
 	uint32_t upsampled_buf_len;
 	/* Upsampled audio buffers */
