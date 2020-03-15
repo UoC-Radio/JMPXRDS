@@ -29,7 +29,7 @@
  * with SSB enabled but for proper stereo imaging and
  * in order to support RDS output too (57Khz carrier)
  * 192Khz is needed. */
-#define FMMOD_OUTPUT_SAMPLERATE_MIN	192000
+#define FMMOD_OUTPUT_SAMPLERATE	192000
 
 enum fmmod_errors {
 	FMMOD_ERR_INVALID_INPUT = -1,
@@ -45,14 +45,6 @@ enum fmmod_errors {
 	FMMOD_ERR_LPF = -11,
 	FMMOD_ERR_HILBERT = -12,
 	FMMOD_ERR_AFLT = -13,
-};
-
-/* If JACK's samplerate is not enough (e.g. soundcard
- * can't do 192KHz or CPU can't handle 192KHz processsing)
- * send the data only to the output socket and through RTP */
-enum fmmod_output {
-	FMMOD_OUT_JACK = 1,
-	FMMOD_OUT_NOJACK = 2
 };
 
 /* Stereo signal (L-R) encoding:
@@ -74,7 +66,7 @@ struct fmmod_control {
 	float rds_gain;
 	float stereo_carrier_gain;
 	float mpx_gain;
-	int stereo_modulation;
+	enum fmmod_stereo_modulation stereo_modulation;
 	int use_audio_lpf;
 	enum lpf_preemph_mode preemph_tau;
 	float peak_mpx_out;
@@ -90,19 +82,15 @@ struct fmmod_instance {
 	/* Audio input buffer */
 	float *inbuf_l;
 	float *inbuf_r;
-	uint32_t inbuf_len;
 	uint32_t max_out_samples;
 	uint32_t upsampled_num_samples;
-	uint32_t upsampled_buf_len;
 	/* Upsampled audio buffers */
 	float *uaudio_buf_0;
 	float *uaudio_buf_1;
 	/* MPX Output buffer */
-	float *mpxbuf;
-	int output_type;
+	float *umpxbuf;
+	float *outbuf;
 	/* For socket output */
-	float *sock_outbuf;
-	uint32_t sock_outbuf_len;
 	int out_sock_fd;
 	/* The Oscilator */
 	struct osc_state sin_osc;
@@ -124,7 +112,6 @@ struct fmmod_instance {
 	struct osc_state cos_osc;
 	struct lpf_filter_data ssb_lpf;
 	float *ssb_lpf_delay_buf;
-	uint16_t ssb_lpf_delay_buf_len;
 	uint16_t ssb_lpf_overlap_len;
 	struct hilbert_transformer_data ht;
 	/* Control */

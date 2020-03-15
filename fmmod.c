@@ -37,7 +37,7 @@
 * HELPERS *
 \*********/
 
-static int
+static inline int
 num_resampled_samples(int in_srate, int out_srate, int num_samples)
 {
 	float ratio = (float) out_srate / (float) in_srate;
@@ -313,10 +313,8 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 static int
 fmmod_process(jack_nframes_t nframes, void *arg)
 {
-	int i = 0;
-	jack_default_audio_sample_t *left_in, *right_in;
-	jack_default_audio_sample_t *mpx_out;
-	float *mpxbuf = NULL;
+	jack_default_audio_sample_t *left_in = NULL;
+	jack_default_audio_sample_t *right_in = NULL;
 	float *upsampled_audio_l = NULL;
 	float *upsampled_audio_r = NULL;
 	float *lpr_buf = NULL;
@@ -329,14 +327,12 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	struct audio_filter *aflt = &fmmod->aflt;
 	struct fmmod_control *ctl = fmmod->ctl;
 	mpx_generator get_mpx_samples;
+	int i = 0;
 	int ret = 0;
 
 	/* FMmod is inactive, don't do any processing */
 	if (!fmmod->active)
 		return 0;
-
-	/* Temporary buffer */
-	mpxbuf = fmmod->mpxbuf;
 
 	/* Upsampled audio buffers */
 	upsampled_audio_l = fmmod->uaudio_buf_0;
@@ -350,18 +346,11 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	left_in = (float *) jack_port_get_buffer(fmmod->inL, nframes);
 	right_in = (float *) jack_port_get_buffer(fmmod->inR, nframes);
 
-	/* Output */
-	if (fmmod->output_type == FMMOD_OUT_JACK)
-		mpx_out = (float *) jack_port_get_buffer(fmmod->outMPX, nframes);
-	else
-		mpx_out = fmmod->sock_outbuf;
-
 	/* No frames received */
 	if (!nframes)
 		return 0;
 
-	/* Apply audio filter on input and merge the two
-	 * channels to prepare the buffer for upsampling */
+	/* Apply audio filter on input to prepare the buffer for upsampling */
 	ret = audio_filter_apply(aflt, left_in, fmmod->inbuf_l,
 				 right_in, fmmod->inbuf_r, nframes,
 				 ctl->audio_gain, ctl->use_audio_lpf,
@@ -408,10 +397,10 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	}
 
 	/* Create the multiplex signal */
-	get_mpx_samples(fmmod, lpr_buf, lmr_buf, frames_generated, mpxbuf);
+	get_mpx_samples(fmmod, lpr_buf, lmr_buf, frames_generated, fmmod->umpxbuf);
 
 	/* Now downsample to the output sample rate */
-	frames_generated = resampler_downsample_mpx(rsmpl, mpxbuf, mpx_out,
+	frames_generated = resampler_downsample_mpx(rsmpl, fmmod->umpxbuf, fmmod->outbuf,
 						    frames_generated,
 						    fmmod->max_out_samples);
 	if (frames_generated < 0)
@@ -420,15 +409,15 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	/* Update mpx output peak gain */
 	ctl->peak_mpx_out = 0;
 	for (i = 0; i < frames_generated; i++) {
-		if (mpx_out[i] > ctl->peak_mpx_out)
-			ctl->peak_mpx_out = mpx_out[i];
+		if (fmmod->outbuf[i] > ctl->peak_mpx_out)
+			ctl->peak_mpx_out = fmmod->outbuf[i];
 	}
 
 	/* Write raw MPX signal to socket */
-	write_to_sock(fmmod, mpx_out, frames_generated);
+	write_to_sock(fmmod, fmmod->outbuf, frames_generated);
 
 	/* Send out a FLAC-encoded version of the signal as an RTP stream */
-	rtp_server_send_buffer(&fmmod->rtpsrv, mpx_out, frames_generated);
+	rtp_server_send_buffer(&fmmod->rtpsrv, fmmod->outbuf, frames_generated);
 
 	return 0;
 }
@@ -445,25 +434,17 @@ fmmod_shutdown(void *arg)
 	return;
 }
 
-/****************\
-* INIT / DESTROY *
-\****************/
 
-int
-fmmod_initialize(struct fmmod_instance *fmmod)
+/************************\
+* INIT / DESTROY HELPERS *
+\************************/
+
+static int
+fmmod_connect(struct fmmod_instance *fmmod)
 {
-	int ret = 0;
-	struct fmmod_control *ctl = NULL;
-	uint32_t jack_samplerate = 0;
-	uint32_t output_samplerate = 0;
-	uint32_t max_input_frames = 0;
-	uint32_t uid = 0;
-	char sock_path[32] = { 0 };	/* /run/user/<userid>/jmpxrds.sock */
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
-	uint32_t output_buf_len = 0;
-
-	memset(fmmod, 0, sizeof(struct fmmod_instance));
+	int ret = 0;
 
 	/* Open a client connection to the default JACK server */
 	fmmod->client = jack_client_open("FMmod", options, &status, NULL);
@@ -481,156 +462,6 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 		ret = FMMOD_ERR_ALREADY_RUNNING;
 		goto cleanup;
 	}
-
-	/* Get JACK's sample rate and number of frames JACK will send to process()
-	 * (period len), and calculate buffer lengths and output_samplerate */
-	jack_samplerate = jack_get_sample_rate(fmmod->client);
-	max_input_frames = jack_get_buffer_size(fmmod->client);
-
-	fmmod->inbuf_len = max_input_frames *
-			   sizeof(jack_default_audio_sample_t);
-	fmmod->upsampled_num_samples = num_resampled_samples(jack_samplerate,
-							OSC_SAMPLE_RATE,
-							max_input_frames);
-	fmmod->upsampled_buf_len = fmmod->upsampled_num_samples *
-				   sizeof(jack_default_audio_sample_t);
-
-	if (jack_samplerate >= FMMOD_OUTPUT_SAMPLERATE_MIN) {
-		output_samplerate = jack_samplerate;
-		fmmod->output_type = FMMOD_OUT_JACK;
-		fmmod->max_out_samples = max_input_frames;
-		output_buf_len = fmmod->max_out_samples *
-				 sizeof(jack_default_audio_sample_t);
-	} else if (jack_samplerate > 0) {
-		output_samplerate = FMMOD_OUTPUT_SAMPLERATE_MIN;
-		fmmod->output_type = FMMOD_OUT_NOJACK;
-		fmmod->max_out_samples = num_resampled_samples(OSC_SAMPLE_RATE,
-						output_samplerate,
-						fmmod->upsampled_num_samples);
-		output_buf_len = fmmod->max_out_samples * sizeof(float);
-	} else {
-		utils_err("[FMMOD] Got invalid samplerate from jackd: %i\n",
-			  jack_samplerate);
-		ret = FMMOD_ERR_JACKD_ERR;
-		goto cleanup;
-	}
-
-	/* Allocate input audio buffers */
-	fmmod->inbuf_l = (float *)malloc(fmmod->inbuf_len);
-	if (fmmod->inbuf_l == NULL) {
-		ret = FMMOD_ERR_NOMEM;
-		goto cleanup;
-	}
-	memset(fmmod->inbuf_l, 0, fmmod->inbuf_len);
-
-	fmmod->inbuf_r = (float *)malloc(fmmod->inbuf_len);
-	if (fmmod->inbuf_r == NULL) {
-		ret = FMMOD_ERR_NOMEM;
-		goto cleanup;
-	}
-	memset(fmmod->inbuf_r, 0, fmmod->inbuf_len);
-
-	/* Allocate buffers for the upsampled audio. Use separate
-	 * buffers for L/R to make use of SoXr's OpenMP code */
-	fmmod->uaudio_buf_0 = (float *)malloc(fmmod->upsampled_buf_len);
-	if (fmmod->uaudio_buf_0 == NULL) {
-		ret = FMMOD_ERR_NOMEM;
-		goto cleanup;
-	}
-	memset(fmmod->uaudio_buf_0, 0, fmmod->upsampled_buf_len);
-
-	fmmod->uaudio_buf_1 = (float *)malloc(fmmod->upsampled_buf_len);
-	if (fmmod->uaudio_buf_1 == NULL) {
-		ret = FMMOD_ERR_NOMEM;
-		goto cleanup;
-	}
-	memset(fmmod->uaudio_buf_1, 0, fmmod->upsampled_buf_len);
-
-	/* Allocate output buffer for MPX */
-	fmmod->mpxbuf = (float *)malloc(fmmod->upsampled_buf_len);
-	if (fmmod->mpxbuf == NULL) {
-		ret = FMMOD_ERR_NOMEM;
-		goto cleanup;
-	}
-	memset(fmmod->mpxbuf, 0, fmmod->upsampled_buf_len);
-
-	/* Initialize the main oscilator */
-	ret = osc_initialize(&fmmod->sin_osc, OSC_SAMPLE_RATE, OSC_TYPE_SINE);
-	if (ret < 0) {
-		utils_err("[OSC] Init for sine osc failed with code: %i\n", ret);
-		ret = FMMOD_ERR_OSC_ERR;
-		goto cleanup;
-	}
-
-	/* Initialize the cosine oscilator of the Hartley modulator */
-	ret = osc_initialize(&fmmod->cos_osc, OSC_SAMPLE_RATE, OSC_TYPE_COSINE);
-	if (ret < 0) {
-		utils_err("[OSC] Init for cosine osc failed with code: %i\n", ret);
-		ret = FMMOD_ERR_OSC_ERR;
-		goto cleanup;
-	}
-
-	/* Initialize the low pass FFT filter for the filter-based SSB modulator */
-	ret = lpf_filter_init(&fmmod->ssb_lpf, 38000, OSC_SAMPLE_RATE,
-			      fmmod->upsampled_num_samples, SSB_LPF_OVERLAP_FACTOR);
-	if (ret < 0) {
-		utils_err("[SSB LPF] Init failed with code: %i\n", ret);
-		ret = FMMOD_ERR_LPF;
-		goto cleanup;
-	}
-
-	fmmod->ssb_lpf_delay_buf_len = fmmod->upsampled_num_samples * SSB_LPF_OVERLAP_FACTOR;
-	fmmod->ssb_lpf_overlap_len = fmmod->ssb_lpf_delay_buf_len - fmmod->upsampled_num_samples;
-	fmmod->ssb_lpf_delay_buf = (float *) malloc(fmmod->ssb_lpf_delay_buf_len * sizeof(float));
-	if (!fmmod->ssb_lpf_delay_buf)  {
-		utils_err("[SSB LPF] Could not allocate delay buffer\n");
-		ret = FMMOD_ERR_LPF;
-		goto cleanup;
-	}
-	memset(fmmod->ssb_lpf_delay_buf, 0, fmmod->ssb_lpf_delay_buf_len * sizeof(float));
-
-
-	/* Initialize the Hilbert transformer for the Hartley modulator */
-	ret = hilbert_transformer_init(&fmmod->ht, fmmod->upsampled_num_samples);
-	if (ret < 0) {
-		utils_err("[HILBERT] Init failed with code: %i\n",
-			  ret);
-		ret = FMMOD_ERR_HILBERT;
-		goto cleanup;
-	}
-
-	/* Initialize resampler */
-	ret = resampler_init(&fmmod->rsmpl, jack_samplerate,
-			     fmmod->client,
-			     OSC_SAMPLE_RATE,
-			     RDS_SAMPLE_RATE,
-			     output_samplerate);
-	if (ret < 0) {
-		utils_err("[RESAMPLER] Init failed with code: %i\n", ret);
-		ret = FMMOD_ERR_RESAMPLER_ERR;
-		goto cleanup;
-	}
-
-	/* Initialize audio filter */
-
-	/* The cutoff frequency is set so that the filter's
-	 * maximum drop is at 19KHz (the pilot tone) */
-	ret = audio_filter_init(&fmmod->aflt, fmmod->client, 16500,
-				jack_samplerate, max_input_frames);
-	if (ret < 0) {
-		utils_err("[AFLT] Init failed with code: %i\n", ret);
-		ret = FMMOD_ERR_AFLT;
-		goto cleanup;
-	}
-
-	/* Initialize RDS encoder */
-	ret = rds_encoder_init(&fmmod->rds_enc, &fmmod->rsmpl);
-	if (ret < 0) {
-		utils_err("[RDS] Init failed with code: %i\n", ret);
-		ret = FMMOD_ERR_RDS_ERR;
-		goto cleanup;
-	}
-	fmmod->rds_enc.fmmod_client = fmmod->client;
 
 	/* Register callbacks on JACK */
 	jack_set_process_callback(fmmod->client, fmmod_process, fmmod);
@@ -654,8 +485,210 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	if (fmmod->inR == NULL) {
 		utils_err("[FMMOD] Unable to register AudioR port\n");
 		ret = FMMOD_ERR_JACKD_ERR;
+	}
+
+ cleanup:
+	if (ret < 0) {
+		if (fmmod->inL)
+			jack_port_unregister(fmmod->client, fmmod->inL);
+		jack_client_close(fmmod->client);
+	}
+
+	return ret;
+}
+
+static void
+fmmod_free_buffers(struct fmmod_instance *fmmod)
+{
+	if (fmmod->inbuf_l != NULL)
+		free(fmmod->inbuf_l);
+	if (fmmod->inbuf_r != NULL)
+		free(fmmod->inbuf_r);
+	if (fmmod->uaudio_buf_0 != NULL)
+		free(fmmod->uaudio_buf_0);
+	if (fmmod->uaudio_buf_1 != NULL)
+		free(fmmod->uaudio_buf_1);
+	if (fmmod->umpxbuf != NULL)
+		free(fmmod->umpxbuf);
+	if (fmmod->outbuf != NULL)
+		free(fmmod->outbuf);
+	if (fmmod->ssb_lpf_delay_buf != NULL)
+		free(fmmod->ssb_lpf_delay_buf);
+}
+
+static int
+fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
+		   uint32_t max_input_frames)
+{
+	int ret = 0;
+	uint32_t inbuf_len = 0;
+	uint32_t ssb_lpf_delay_buf_len = 0;
+	uint32_t upsampled_buf_len = 0;
+	uint32_t output_buf_len = 0;
+
+	/* Allocate input audio buffers */
+	inbuf_len = max_input_frames *
+		    sizeof(jack_default_audio_sample_t);
+
+	fmmod->inbuf_l = (float *) malloc(inbuf_len);
+	if (fmmod->inbuf_l == NULL) {
+		ret = FMMOD_ERR_NOMEM;
 		goto cleanup;
 	}
+	memset(fmmod->inbuf_l, 0, inbuf_len);
+
+	fmmod->inbuf_r = (float *) malloc(inbuf_len);
+	if (fmmod->inbuf_r == NULL) {
+		ret = FMMOD_ERR_NOMEM;
+		goto cleanup;
+	}
+	memset(fmmod->inbuf_r, 0, inbuf_len);
+
+	/* Allocate buffers for the upsampled signals. Use separate
+	 * buffers for L/R to make use of SoXr's OpenMP code */
+	fmmod->upsampled_num_samples = num_resampled_samples(jack_samplerate,
+							OSC_SAMPLE_RATE,
+							max_input_frames);
+	upsampled_buf_len = fmmod->upsampled_num_samples *
+			    sizeof(jack_default_audio_sample_t);
+
+	/* Upsampled audio */
+	fmmod->uaudio_buf_0 = (float *) malloc(upsampled_buf_len);
+	if (fmmod->uaudio_buf_0 == NULL) {
+		ret = FMMOD_ERR_NOMEM;
+		goto cleanup;
+	}
+	memset(fmmod->uaudio_buf_0, 0, upsampled_buf_len);
+
+	fmmod->uaudio_buf_1 = (float *) malloc(upsampled_buf_len);
+	if (fmmod->uaudio_buf_1 == NULL) {
+		ret = FMMOD_ERR_NOMEM;
+		goto cleanup;
+	}
+	memset(fmmod->uaudio_buf_1, 0, upsampled_buf_len);
+
+	/* Upsampled MPX */
+	fmmod->umpxbuf = (float *) malloc(upsampled_buf_len);
+	if (fmmod->umpxbuf == NULL) {
+		ret = FMMOD_ERR_NOMEM;
+		goto cleanup;
+	}
+	memset(fmmod->umpxbuf, 0, upsampled_buf_len);
+
+
+	/* Allocate output buffer */
+	fmmod->max_out_samples = num_resampled_samples(OSC_SAMPLE_RATE,
+						FMMOD_OUTPUT_SAMPLERATE,
+						fmmod->upsampled_num_samples);
+	output_buf_len = fmmod->max_out_samples * sizeof(float);
+
+	fmmod->outbuf = (float *) malloc(output_buf_len);
+	if (fmmod->outbuf == NULL) {
+		ret = FMMOD_ERR_NOMEM;
+		goto cleanup;
+	}
+	memset(fmmod->outbuf, 0, output_buf_len);
+
+
+	/* Allocate LPF SSB Delay buffer */
+	fmmod->ssb_lpf_overlap_len = fmmod->upsampled_num_samples *
+				     SSB_LPF_OVERLAP_FACTOR;
+	ssb_lpf_delay_buf_len = (fmmod->upsampled_num_samples *
+				 (SSB_LPF_OVERLAP_FACTOR + 1)) * sizeof(float);
+	fmmod->ssb_lpf_delay_buf = (float *) malloc(ssb_lpf_delay_buf_len);
+	if (!fmmod->ssb_lpf_delay_buf)  {
+		utils_err("[FMMOD] Could not allocate delay buffer for LPF SSB modulator\n");
+		ret = FMMOD_ERR_LPF;
+		goto cleanup;
+	}
+	memset(fmmod->ssb_lpf_delay_buf, 0, ssb_lpf_delay_buf_len);
+
+	return  0;
+
+ cleanup:
+	fmmod_free_buffers(fmmod);
+	return ret;
+}
+
+static int
+fmmod_init_osc(struct fmmod_instance *fmmod)
+{
+	int ret = 0;
+
+	/* Initialize the main oscilator */
+	ret = osc_initialize(&fmmod->sin_osc, OSC_SAMPLE_RATE, OSC_TYPE_SINE);
+	if (ret < 0) {
+		utils_err("[OSC] Init for sine osc failed with code: %i\n", ret);
+		return FMMOD_ERR_OSC_ERR;
+	}
+
+	/* Initialize the cosine oscilator of the Hartley modulator */
+	ret = osc_initialize(&fmmod->cos_osc, OSC_SAMPLE_RATE, OSC_TYPE_COSINE);
+	if (ret < 0) {
+		utils_err("[OSC] Init for cosine osc failed with code: %i\n", ret);
+		return FMMOD_ERR_OSC_ERR;
+	}
+
+	return 0;
+}
+
+static int
+fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
+		   uint32_t max_input_frames)
+{
+	int ret = 0;
+
+	/* Initialize audio filter
+	 * The cutoff frequency is set so that the filter's
+	 * maximum drop is at 19KHz (the pilot tone) */
+	ret = audio_filter_init(&fmmod->aflt, fmmod->client, 16500,
+				jack_samplerate, max_input_frames);
+	if (ret < 0) {
+		utils_err("[AFLT] Init failed with code: %i\n", ret);
+		ret = FMMOD_ERR_AFLT;
+		goto cleanup;
+	}
+
+
+	/* Initialize the low pass FFT filter for the filter-based SSB modulator */
+	ret = lpf_filter_init(&fmmod->ssb_lpf, 38000, OSC_SAMPLE_RATE,
+			      fmmod->upsampled_num_samples, SSB_LPF_OVERLAP_FACTOR);
+	if (ret < 0) {
+		utils_err("[SSB LPF] Init failed with code: %i\n", ret);
+		ret = FMMOD_ERR_LPF;
+		goto cleanup;
+	}
+
+
+	/* Initialize the Hilbert transformer for the Hartley modulator */
+	ret = hilbert_transformer_init(&fmmod->ht, fmmod->upsampled_num_samples);
+	if (ret < 0) {
+		utils_err("[HILBERT] Init failed with code: %i\n", ret);
+		ret = FMMOD_ERR_HILBERT;
+		goto cleanup;
+	}
+
+ cleanup:
+	if (ret < 0)
+		switch (ret) {
+		case FMMOD_ERR_HILBERT:
+			lpf_filter_destroy(&fmmod->ssb_lpf);
+			/* Fallthrough */
+		case FMMOD_ERR_LPF:
+			audio_filter_destroy(&fmmod->aflt);
+			/* Fallthrough */
+		default:
+			break;
+		}
+	return ret;
+}
+
+static int
+fmmod_init_outsock(struct fmmod_instance *fmmod)
+{
+	uint32_t uid = 0;
+	char sock_path[32] = { 0 };
+	int ret = 0;
 
 	/* Create a named pipe (fifo socket) for sending
 	 * out the raw mpx signal (float32) */
@@ -663,51 +696,36 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
 	ret = mkfifo(sock_path, 0600);
 	if ((ret < 0) && (errno != EEXIST)) {
-		ret = FMMOD_ERR_SOCK_ERR;
-		utils_perr("[FMMOD] Unable to create socket, mkfifo()");
-		goto cleanup;
+		utils_perr("[OUTSOCK] Unable to create socket, mkfifo()");
+		return FMMOD_ERR_SOCK_ERR;
 	}
 
-	/* Register output port if possible, if not allocate
-	 * our own buffers since we can't use JACK's */
-	if (fmmod->output_type == FMMOD_OUT_JACK) {
-		fmmod->outMPX = jack_port_register(fmmod->client, "MPX",
-						   JACK_DEFAULT_AUDIO_TYPE,
-						   JackPortIsOutput |
-						   JackPortIsTerminal, 0);
-		if (fmmod->outMPX == NULL) {
-			utils_err("[FMMOD] Unable to register MPX port\n");
-			ret = FMMOD_ERR_JACKD_ERR;
-			goto cleanup;
-		}
-	} else {
-		fmmod->sock_outbuf_len = output_buf_len;
-		fmmod->sock_outbuf = (float *)malloc(fmmod->sock_outbuf_len);
-		if (fmmod->sock_outbuf == NULL) {
-			ret = FMMOD_ERR_NOMEM;
-			goto cleanup;
-		}
-		memset(fmmod->sock_outbuf, 0, fmmod->sock_outbuf_len);
-	}
+	return 0;
+}
 
-	/* Initialize the RTP server for sending the FLAC-compressed
-	 * mpx signal to a remote host if needed */
-	fmmod->rtpsrv.fmmod_client = fmmod->client;
-	ret = rtp_server_init(&fmmod->rtpsrv, output_buf_len, output_samplerate,
-			      fmmod->max_out_samples, 5000);
-	if (ret < 0) {
-		utils_err("[RTP] Init failed with code: %i\n", ret);
-		ret = FMMOD_ERR_RTP_ERR;
-		goto cleanup;
-	}
+static void
+fmmod_outsock_destroy(struct fmmod_instance *fmmod)
+{
+	uint32_t uid = 0;
+	char sock_path[32] = { 0 };
+
+	close(fmmod->out_sock_fd);
+	uid = getuid();
+	snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
+	unlink(sock_path);
+}
+
+static int
+fmmod_init_ctl(struct fmmod_instance *fmmod)
+{
+	struct fmmod_control *ctl = NULL;
 
 	/* Initialize the control I/O channel */
 	fmmod->ctl_map = utils_shm_init(FMMOD_CTL_SHM_NAME,
 					sizeof(struct fmmod_control));
 	if (!fmmod->ctl_map) {
 		utils_err("[FMMOD] Unable to create control channel\n");
-		ret = FMMOD_ERR_SHM_ERR;
-		goto cleanup;
+		return FMMOD_ERR_SHM_ERR;
 	}
 	fmmod->ctl = (struct fmmod_control*) fmmod->ctl_map->mem;
 
@@ -720,8 +738,104 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	ctl->stereo_modulation = FMMOD_DSB;
 	ctl->use_audio_lpf = 1;
 	ctl->preemph_tau = LPF_PREEMPH_50US;
-	ctl->sample_rate = output_samplerate;
-	ctl->max_samples = max_input_frames;
+	ctl->sample_rate = FMMOD_OUTPUT_SAMPLERATE;
+	ctl->max_samples = fmmod->max_out_samples;
+
+	return 0;
+}
+
+
+/****************\
+* INIT / DESTROY *
+\****************/
+
+int
+fmmod_initialize(struct fmmod_instance *fmmod)
+{
+	int ret = 0;
+	uint32_t jack_samplerate = 0;
+	uint32_t max_input_frames = 0;
+	uint32_t output_buf_len = 0;
+
+	memset(fmmod, 0, sizeof(struct fmmod_instance));
+
+	/* Connect to jack and register as a client */
+	ret = fmmod_connect(fmmod);
+	if (ret < 0)
+		goto cleanup;
+
+	/* Get JACK's sample rate and number of frames JACK will send to process()
+	 * (period len), and calculate buffer lengths */
+	jack_samplerate = jack_get_sample_rate(fmmod->client);
+	max_input_frames = jack_get_buffer_size(fmmod->client);
+
+	if (jack_samplerate <= 0 || max_input_frames <= 0) {
+		utils_err("[FMMOD] Got invalid data from jackd: %i, %i\n",
+			  jack_samplerate, max_input_frames);
+		ret = FMMOD_ERR_JACKD_ERR;
+		goto cleanup;
+	}
+
+	/* Initialize buffers */
+	ret = fmmod_init_buffers(fmmod, jack_samplerate, max_input_frames);
+	if (ret < 0) {
+		utils_err("[FMMOD] Could not initialize buffers !\n");
+		goto cleanup;
+	}
+
+	/* Initialize oscilators */
+	ret = fmmod_init_osc(fmmod);
+	if (ret < 0)
+		goto cleanup;
+
+	/* Initialize resampler */
+	ret = resampler_init(&fmmod->rsmpl, jack_samplerate,
+			     fmmod->client,
+			     OSC_SAMPLE_RATE,
+			     RDS_SAMPLE_RATE,
+			     FMMOD_OUTPUT_SAMPLERATE);
+	if (ret < 0) {
+		utils_err("[RESAMPLER] Init failed with code: %i\n", ret);
+		ret = FMMOD_ERR_RESAMPLER_ERR;
+		goto cleanup;
+	}
+
+	/* Initialize filters */
+	ret = fmmod_init_filters(fmmod, jack_samplerate, max_input_frames);
+	if (ret < 0)
+		goto cleanup;
+
+	/* Initialize RDS encoder */
+	ret = rds_encoder_init(&fmmod->rds_enc, &fmmod->rsmpl);
+	if (ret < 0) {
+		utils_err("[RDS] Init failed with code: %i\n", ret);
+		ret = FMMOD_ERR_RDS_ERR;
+		goto cleanup;
+	}
+	fmmod->rds_enc.fmmod_client = fmmod->client;
+
+	/* Initialize output socket */
+	ret = fmmod_init_outsock(fmmod);
+	if (ret < 0)
+		goto cleanup;
+
+	/* Initialize the RTP server for sending the FLAC-compressed
+	 * mpx signal to a remote host if needed */
+	fmmod->rtpsrv.fmmod_client = fmmod->client;
+	output_buf_len = fmmod->max_out_samples * sizeof(float);
+	ret = rtp_server_init(&fmmod->rtpsrv, output_buf_len,
+			      FMMOD_OUTPUT_SAMPLERATE,
+			      fmmod->max_out_samples, 5000);
+	if (ret < 0) {
+		utils_err("[RTP] Init failed with code: %i\n", ret);
+		ret = FMMOD_ERR_RTP_ERR;
+		goto cleanup;
+	}
+
+	/* Initialize control channel */
+	ret = fmmod_init_ctl(fmmod);
+	if (ret < 0)
+		goto cleanup;
 
 	/* Tell the JACK server that we are ready to roll.  Our
 	 * process() callback will start running now. */
@@ -747,21 +861,23 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 	char sock_path[32] = { 0 };
 
 	if (!shutdown) {
+		utils_dbg("[FMMOD] graceful exit\n");
 		jack_deactivate(fmmod->client);
 		if (fmmod->inL)
 			jack_port_unregister(fmmod->client, fmmod->inL);
 		if (fmmod->inR)
 			jack_port_unregister(fmmod->client, fmmod->inR);
-		if (fmmod->outMPX)
-			jack_port_unregister(fmmod->client, fmmod->outMPX);
 		jack_client_close(fmmod->client);
-	}
+	} else
+		utils_dbg("[FMMOD] Jack dropped fmmod\n");
 
 	fmmod->active = 0;
 
 	utils_dbg("[FMMOD] deactivated\n");
 
 	utils_shm_destroy(fmmod->ctl_map, 1);
+
+	utils_dbg("[FMMOD] control channel closed\n");
 
 	rds_encoder_destroy(&fmmod->rds_enc);
 
@@ -771,13 +887,13 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	utils_dbg("[RTP] destroyed\n");
 
-	resampler_destroy(&fmmod->rsmpl);
-
-	utils_dbg("[RESAMPLER] destroyed\n");
-
 	audio_filter_destroy(&fmmod->aflt);
 
 	utils_dbg("[AFLT] destroyed\n");
+
+	resampler_destroy(&fmmod->rsmpl);
+
+	utils_dbg("[RESAMPLER] destroyed\n");
 
 	lpf_filter_destroy(&fmmod->ssb_lpf);
 
@@ -787,26 +903,13 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	utils_dbg("[HILBERT] destroyed\n");
 
-	if (fmmod->inbuf_l != NULL)
-		free(fmmod->inbuf_l);
-	if (fmmod->inbuf_r != NULL)
-		free(fmmod->inbuf_r);
-	if (fmmod->uaudio_buf_0 != NULL)
-		free(fmmod->uaudio_buf_0);
-	if (fmmod->uaudio_buf_1 != NULL)
-		free(fmmod->uaudio_buf_1);
-	if (fmmod->ssb_lpf_delay_buf != NULL)
-		free(fmmod->ssb_lpf_delay_buf);
-	if (fmmod->mpxbuf != NULL)
-		free(fmmod->mpxbuf);
+	fmmod_free_buffers(fmmod);
 
-	close(fmmod->out_sock_fd);
-	uid = getuid();
-	snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
-	unlink(sock_path);
+	utils_dbg("[FMMOD] buffers freed\n");
 
-	if (fmmod->sock_outbuf != NULL)
-		free(fmmod->sock_outbuf);
+	fmmod_outsock_destroy(fmmod);
+
+	utils_dbg("[OUTSOCK] destroyed\n");
 
 	utils_dbg("[FMMOD] destroyed\n");
 

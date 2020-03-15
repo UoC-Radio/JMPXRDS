@@ -45,7 +45,6 @@ struct lpf_filter_data {
 	uint16_t num_bins;
 	uint16_t middle_bin;
 	uint16_t cutoff_bin;
-	float variance;
 	uint32_t sample_rate;
 	float bin_bw;
 	fftwf_complex *filter_resp;

@@ -36,7 +36,7 @@
 * HELPERS *
 \*********/
 
-static int
+static inline int
 num_resampled_samples(int in_srate, int out_srate, int num_samples)
 {
 	float ratio = (float) out_srate / (float) in_srate;
@@ -162,8 +162,8 @@ static uint16_t G[] = { 0x1B9, 0x372, 0x35D, 0x303, 0x3BF,
 static uint32_t
 rds_generate_block(struct rds_block *block)
 {
-	int i = 0;
 	uint32_t encoded_block = 0;
+	int i = 0;
 
 	for (i = RDS_INFOWORD_SIZE_BITS - 1; i >= 0; i--)
 		if (block->infoword & (1 << i))
@@ -182,13 +182,13 @@ static int
 rds_generate_group_samples(struct rds_group *group)
 {
 	static uint8_t moving_window = 0;
+	uint8_t current_bit = 0;
 	uint8_t previous_bit = 0;
 	uint32_t current_block = 0;
-	uint8_t current_bit = 0;
-	int i = 0;
-	int j = 0;
 	float *buffer = group->samples_buffer;
 	uint16_t buffer_offset = 0;
+	int i = 0;
+	int j = 0;
 
 	for (i = 0; i < RDS_BLOCKS_PER_GROUP; i++) {
 		current_block = rds_generate_block(&group->blocks[i]);
@@ -352,6 +352,11 @@ static int
 rds_generate_group_4(__attribute__((unused)) struct rds_encoder *enc,
 		     struct rds_group *group, uint8_t version)
 {
+	struct tm utc;
+	struct tm local_time;
+	double tz_offset = 0;
+	time_t now;
+	uint16_t temp_infoword = 0;
 	int min = 0;
 	int hour = 0;
 	int day = 0;
@@ -359,11 +364,6 @@ rds_generate_group_4(__attribute__((unused)) struct rds_encoder *enc,
 	int year = 0;
 	int leap_day = 0;
 	int mjd = 0;
-	uint16_t temp_infoword = 0;
-	double tz_offset = 0;
-	time_t now;
-	struct tm utc;
-	struct tm local_time;
 
 	/* Group 4B is Open Data and it's not supported */
 	if (version != RDS_GROUP_VERSION_A)
@@ -565,8 +565,8 @@ static int
 rds_get_next_group(struct rds_encoder *enc, struct rds_group *group)
 {
 	struct rds_encoder_state *st = enc->state;
-	static uint16_t groups_per_min_counter = 0;
 	static int8_t groups_per_sec_counter = 0;
+	static uint16_t groups_per_min_counter = 0;
 	static uint8_t ptyn_cnt = 0;
 	int ret = 0;
 
@@ -629,11 +629,11 @@ rds_get_next_group(struct rds_encoder *enc, struct rds_group *group)
 static struct rds_upsampled_group *
 rds_get_next_upsampled_group(struct rds_encoder *enc)
 {
-	int ret = 0;
-	int out_idx = 0;
 	struct resampler_data *rsmpl = enc->rsmpl;
 	struct rds_group next_group;
 	struct rds_upsampled_group *outbuf = NULL;
+	int out_idx = 0;
+	int ret = 0;
 
 	pthread_mutex_lock(&enc->rds_process_mutex);
 	while (pthread_cond_wait(&enc->rds_process_trigger, &enc->rds_process_mutex) !=
@@ -695,9 +695,9 @@ rds_main_loop(void *arg)
 static int
 rds_update_output(struct rds_encoder *enc)
 {
+	static jack_native_thread_t tid = 0;
 	int ret = 0;
 	int rtprio = 0;
-	static jack_native_thread_t tid = 0;
 
 	/* Switch output buffer */
 	enc->curr_outbuf_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
@@ -731,11 +731,11 @@ rds_update_output(struct rds_encoder *enc)
 float
 rds_get_next_sample(struct rds_encoder *enc)
 {
+	struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
+	struct rds_encoder_state *st = enc->state;
 	static int samples_out = 0;
 	int ret = 0;
 	float out = 0;
-	struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
-	struct rds_encoder_state *st = enc->state;
 
 	/* Encoder is disabled, don't do any processing */
 	if (!enc->active || !st->enabled)

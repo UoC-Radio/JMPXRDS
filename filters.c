@@ -44,24 +44,24 @@ sinc(double phase)
 inline static double
 nutall_window(uint16_t bin, uint16_t num_bins)
 {
-	double width = (double) num_bins - 1.0;
+	double width = (double) num_bins - 1.0L;
 
-	double a0 = 0.355768;
-	double a1 = 0.487396;
-	double a2 = 0.144232;
-	double a3 = 0.012604;
+	double a0 = 0.355768L;
+	double a1 = 0.487396L;
+	double a2 = 0.144232L;
+	double a3 = 0.012604L;
 
-	return (a0 - a1 * cos((2.0 * M_PI * (double) bin) / width) +
-		a2 * cos((4.0 * M_PI * (double) bin) / width) -
-		a3 * cos((6.0 * M_PI * (double) bin) / width));
+	return (a0 - a1 * cos((2.0L * M_PI * (double) bin) / width) +
+		a2 * cos((4.0L * M_PI * (double) bin) / width) -
+		a3 * cos((6.0L * M_PI * (double) bin) / width));
 }
 
 static void
 generate_lpf_impulse(float* out, uint16_t num_bins,
 			float cutoff_freq, float sample_rate)
 {
-	double fc_pre_warped = 2.0 * ((double) cutoff_freq / (double) sample_rate);
-	double middle_bin = ((double) num_bins - 1.0) / 2.0L;
+	double fc_pre_warped = 2.0L * ((double) cutoff_freq / (double) sample_rate);
+	double middle_bin = ((double) num_bins - 1.0L) / 2.0L;
 	double phase = 0;
 	int i = 0;
 
@@ -255,12 +255,13 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 
 	/* Initialize filter parameters */
 	lpf->period_size = max_frames;
-	lpf->num_bins = overlap_factor * lpf->period_size;
+	lpf->num_bins = (overlap_factor + 1) * lpf->period_size;
 	lpf->sample_rate = sample_rate;
 	lpf->middle_bin = (lpf->num_bins / 2) + 1;
 	nyquist_freq = (float) lpf->sample_rate / 2.0;
 	lpf->bin_bw = (nyquist_freq / (float) lpf->num_bins);
-	lpf->overlap_len = lpf->num_bins - lpf->period_size;
+	lpf->overlap_len = overlap_factor * lpf->period_size;
+
 
 	/* Allocate buffers for DFT/IFT */
 	lpf->real_in = fftwf_alloc_real(lpf->num_bins);
@@ -283,7 +284,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 		goto cleanup;
 	}
 	memset(lpf->complex_buff, 0, sizeof(fftwf_complex) *
-					(lpf->middle_bin - 0));
+				     (lpf->middle_bin - 0));
 
 
 	/* Allocate buffer for the filter's responce */
@@ -349,7 +350,6 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	/* Run the DFT plan to get the freq domain (complex or
 	 * analytical) representation of the signal */
 	fftwf_execute(lpf->dft_plan);
-
 
 	/* Now signal is on the complex buffer, convolution of 1d
 	 * signals on the time domain equals piecewise multiplication
