@@ -68,7 +68,7 @@ struct fmmod_control {
 	float mpx_gain;
 	enum fmmod_stereo_modulation stereo_modulation;
 	int use_audio_lpf;
-	enum lpf_preemph_mode preemph_tau;
+	enum fmpreemph_mode preemph_tau;
 	float peak_mpx_out;
 	float peak_audio_in_l;
 	float peak_audio_in_r;
@@ -76,26 +76,43 @@ struct fmmod_control {
 	int max_samples;
 };
 
+/* Filters */
+struct fmmod_flts {
+	struct fmpreemph_filter_data fmprf_l;
+	struct fmpreemph_filter_data fmprf_r;
+	struct lpf_filter_data lpf_l;
+	struct lpf_filter_data lpf_r;
+	struct lpf_filter_data ssb_lpf;
+	struct hilbert_transformer_data ht;
+};
+
 struct fmmod_instance {
 	/* State */
 	int active;
+	pthread_mutex_t proc_mutex;
+	pthread_cond_t proc_trigger;
+	jack_native_thread_t proc_tid;
 	/* Audio input buffer */
 	float *inbuf_l;
 	float *inbuf_r;
-	uint32_t max_out_samples;
+	pthread_mutex_t inbuf_mutex;
+	uint32_t num_in_samples;
+	uint32_t num_out_samples;
 	uint32_t upsampled_num_samples;
 	/* Upsampled audio buffers */
 	float *uaudio_buf_0;
 	float *uaudio_buf_1;
+	pthread_mutex_t uaudio_buf_mutex;
 	/* MPX Output buffer */
 	float *umpxbuf;
 	float *outbuf;
+	pthread_mutex_t mpx_buf_mutex;
 	/* For socket output */
 	int out_sock_fd;
+	/* Filters */
+	struct fmmod_flts flts;
 	/* The Oscilator */
 	struct osc_state sin_osc;
-	/* The audio filter */
-	struct audio_filter aflt;
 	/* The resampler */
 	struct resampler_data rsmpl;
 	/* The RDS Encoder */
@@ -110,10 +127,8 @@ struct fmmod_instance {
 	jack_nframes_t added_latency;
 	/* SSB modulators */
 	struct osc_state cos_osc;
-	struct lpf_filter_data ssb_lpf;
 	float *ssb_lpf_delay_buf;
-	uint16_t ssb_lpf_overlap_len;
-	struct hilbert_transformer_data ht;
+	uint32_t ssb_lpf_overlap_len;
 	/* Control */
 	struct shm_mapping *ctl_map;
 	struct fmmod_control *ctl;

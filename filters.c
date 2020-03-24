@@ -21,7 +21,6 @@
 #include <stdlib.h>		/* For NULL */
 #include <string.h>		/* For memset */
 #include <math.h>		/* For exp() */
-#include <jack/thread.h>	/* For thread handling through jack */
 
 /*********\
 * HELPERS *
@@ -153,36 +152,35 @@ fmpreemph_filter_init_mode(struct fmpreemph_filter_data *fmprf,
 	return 0;
 }
 
-static int
+int
 fmpreemph_filter_init(struct fmpreemph_filter_data *fmprf,
-		      float sample_rate,
-		      float high_corner_freq)
+		      float sample_rate)
 {
 	int ret = 0;
 
 	ret = fmpreemph_filter_init_mode(fmprf,
 			   sample_rate,
-			   high_corner_freq,
+			   (float) AFLT_CUTOFF_FREQ,
 			   50);
 	if (ret < 0)
 		return ret;
 
 	ret = fmpreemph_filter_init_mode(fmprf,
 			   sample_rate,
-			   high_corner_freq,
+			   (float) AFLT_CUTOFF_FREQ,
 			   75);
 
 	return ret;
 }
 
-static float
+float
 fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
-		       float sample, enum lpf_preemph_mode tau_mode)
+		       float sample, enum fmpreemph_mode tau_mode)
 {
 	float out = 0.0;
 	float *ataps = NULL;
 	float *btaps = NULL;
-	static enum lpf_preemph_mode prev_tau_mode = LPF_PREEMPH_NONE;
+	static enum fmpreemph_mode prev_tau_mode = LPF_PREEMPH_NONE;
 
 	switch (tau_mode) {
 		case LPF_PREEMPH_NONE:
@@ -221,7 +219,7 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
 	fmprf->last_out[1] = fmprf->last_out[0];
 	fmprf->last_out[0] = out;
 
-	return out;
+	return out * 8.0;
 }
 
 /*****************************\
@@ -383,212 +381,6 @@ lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
 	 * that follows */
 	for(i = 0; i < num_samples; i++)
 		out[i] = lpf->real_out[i] * ratio;
-
-	return 0;
-}
-
-
-/***********************************************\
-* COMBINED AUDIO FILTER (FM PRE-EMPHASIS + LPF) *
-\***********************************************/
-
-static void
-audio_filter_thread_run(struct aflt_thread_data *afltd)
-{
-	int i = 0;
-	float tmp_gain = 0;
-
-	/* If pre-emphasis is requested, run the input buffer through
-	 * the pre-emphasis filter in the time domain before feeding
-	 * it to the lpf. Re-use the output buffer. */
-	if (afltd->preemph_tau_mode != LPF_PREEMPH_NONE) {
-		for(i = 0; i < afltd->num_samples; i++)
-			afltd->out[i] = fmpreemph_filter_apply(afltd->fmprf,
-							afltd->in[i],
-							afltd->preemph_tau_mode) * 8.0;
-
-		afltd->result = lpf_filter_apply(afltd->lpf, afltd->out, afltd->out,
-						afltd->num_samples, afltd->gain);
-	} else
-		afltd->result = lpf_filter_apply(afltd->lpf, afltd->in, afltd->out,
-						afltd->num_samples, afltd->gain);
-
-	/* Update audio peak levels */
-	for(i = 0, tmp_gain = 0; i < afltd->num_samples; i++)
-		if(afltd->out[i] > tmp_gain)
-			tmp_gain = afltd->out[i];
-
-	afltd->peak_gain = tmp_gain;
-}
-
-#ifdef JMPXRDS_MT
-static void*
-audio_filter_loop(void* arg)
-{
-	struct aflt_thread_data *afltd = (struct aflt_thread_data*) arg;
-
-	while((*afltd->active)) {
-		pthread_mutex_lock(&afltd->proc_mutex);
-		while (pthread_cond_wait(&afltd->proc_trigger, &afltd->proc_mutex) != 0);
-
-		if(!(*afltd->active))
-			break;
-
-		audio_filter_thread_run(afltd);
-
-		pthread_mutex_unlock(&afltd->proc_mutex);
-
-		/* Let the caller know we are done */
-		pthread_mutex_lock(&afltd->done_mutex);
-		pthread_cond_signal(&afltd->done_trigger);
-		pthread_mutex_unlock(&afltd->done_mutex);
-	}
-
-	return arg;
-}
-#endif
-
-void
-audio_filter_destroy(struct audio_filter *aflt)
-{
-	lpf_filter_destroy(&aflt->audio_lpf_l);
-	lpf_filter_destroy(&aflt->audio_lpf_r);
-}
-
-int
-audio_filter_init(struct audio_filter *aflt, jack_client_t *fmmod_client,
-		  uint32_t cutoff_freq, uint32_t sample_rate,
-		  uint16_t max_samples)
-{
-	struct aflt_thread_data *afltd_l = &aflt->afltd_l;
-	struct aflt_thread_data *afltd_r = &aflt->afltd_r;
-	int ret = 0;
-	aflt->fmmod_client = fmmod_client;
-
-	ret = lpf_filter_init(&aflt->audio_lpf_l, cutoff_freq,
-			      sample_rate, max_samples,
-			      AUDIO_LPF_OVERLAP_FACTOR);
-	if(ret < 0)
-		return ret;
-
-	ret = lpf_filter_init(&aflt->audio_lpf_r, cutoff_freq,
-			      sample_rate, max_samples,
-			      AUDIO_LPF_OVERLAP_FACTOR);
-	if(ret < 0)
-		return ret;
-
-	ret = fmpreemph_filter_init(&aflt->fmprf_l, (float) sample_rate,
-			      (float) cutoff_freq);
-	if(ret < 0)
-		return ret;
-
-	ret = fmpreemph_filter_init(&aflt->fmprf_r, (float) sample_rate,
-			      (float) cutoff_freq);
-	if(ret < 0)
-		return ret;
-
-	afltd_l->lpf = &aflt->audio_lpf_l;
-	afltd_l->fmprf = &aflt->fmprf_l;
-	afltd_l->active = &aflt->active;
-
-	afltd_r->lpf = &aflt->audio_lpf_r;
-	afltd_r->fmprf = &aflt->fmprf_r;
-	afltd_r->active = &aflt->active;
-
-	aflt->active = 1;
-
-#ifdef JMPXRDS_MT
-	pthread_mutex_init(&afltd_l->proc_mutex, NULL);
-	pthread_cond_init(&afltd_l->proc_trigger, NULL);
-	pthread_mutex_init(&afltd_l->done_mutex, NULL);
-	pthread_cond_init(&afltd_l->done_trigger, NULL);
-
-	rtprio = jack_client_max_real_time_priority(aflt->fmmod_client);
-	if(rtprio < 0)
-		return ret;
-
-	ret = jack_client_create_thread(aflt->fmmod_client, &afltd_l->tid,
-					rtprio, 1,
-					lpf_loop, (void *) afltd_l);
-	if(ret < 0)
-		return ret;
-#endif
-
-	return ret;
-}
-
-int
-audio_filter_apply(struct audio_filter *aflt, float *samples_in_l,
-		   float *samples_out_l, float *samples_in_r,
-		   float *samples_out_r, uint16_t num_samples,
-		   float gain_multiplier, uint8_t use_lp_filter,
-		   enum lpf_preemph_mode preemph_tau_mode,
-		   float* peak_l, float* peak_r)
-{
-	struct aflt_thread_data *afltd_l = &aflt->afltd_l;
-	struct aflt_thread_data *afltd_r = &aflt->afltd_r;
-	int i = 0;
-
-	/* If Low Pass filter is enabled, apply it afterwards, else
-	 * just multiply with the gain multiplier and return */
-	if(!use_lp_filter) {
-		for(i = 0; i < num_samples; i++) {
-			samples_out_l[i] = samples_in_l[i] * gain_multiplier;
-			samples_out_r[i] = samples_in_r[i] * gain_multiplier;
-		}
-		return 0;
-	}
-
-#ifdef JMPXRDS_MT
-	pthread_mutex_lock(&afltd_l->proc_mutex);
-	afltd_l->in = samples_in_l;
-	afltd_l->out = samples_out_l;
-	afltd_l->gain = gain_multiplier;
-	afltd_l->num_samples = num_samples;
-	afltd_l->preemph_tau_mode = preemph_tau_mode;
-	pthread_mutex_unlock(&afltd_l->proc_mutex);
-
-	afltd_r->in = samples_in_r;
-	afltd_r->out = samples_out_r;
-	afltd_r->gain = gain_multiplier;
-	afltd_r->num_samples = num_samples;
-	afltd_r->preemph_tau_mode = preemph_tau_mode;
-
-	/* Signal the left channel thread to start
-	 * processing this chunk */
-	pthread_mutex_lock(&afltd_l->proc_mutex);
-	pthread_cond_signal(&afltd_l->proc_trigger);
-	pthread_mutex_unlock(&afltd_l->proc_mutex);
-
-	/* Process right channel on current thread */
-	audio_filter_thread_run(afltd_r);
-
-	/* Wait for the left channel thread to finish */
-	while (pthread_cond_wait(&afltd_l->done_trigger, &afltd_l->done_mutex) != 0);
-
-#else
-	afltd_l->in = samples_in_l;
-	afltd_l->out = samples_out_l;
-	afltd_l->gain = gain_multiplier;
-	afltd_l->num_samples = num_samples;
-	afltd_l->preemph_tau_mode = preemph_tau_mode;
-
-	afltd_r->in = samples_in_r;
-	afltd_r->out = samples_out_r;
-	afltd_r->gain = gain_multiplier;
-	afltd_r->num_samples = num_samples;
-	afltd_r->preemph_tau_mode = preemph_tau_mode;
-
-
-	audio_filter_thread_run(afltd_l);
-	audio_filter_thread_run(afltd_r);
-#endif
-
-	if (afltd_l->result || afltd_r->result)
-		return -1;
-
-	(*peak_l) = afltd_l->peak_gain;
-	(*peak_r) = afltd_r->peak_gain;
 
 	return 0;
 }

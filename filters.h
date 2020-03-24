@@ -20,26 +20,8 @@
 #include <stdint.h>		/* For typed integers */
 #include <fftw3.h>		/* For FFTW support */
 #include <jack/jack.h>		/* For jack-related types */
-#include <pthread.h>		/* For pthread mutex / conditional */
 
-/* FM Preemphasis IIR filter */
-struct fmpreemph_filter_data {
-	float last_in;
-	float last_out[2];
-	float ataps_50[2];
-	float btaps_50[2];
-	float ataps_75[2];
-	float btaps_75[2];
-};
-
-enum lpf_preemph_mode {
-	LPF_PREEMPH_50US = 0,	/* E.U. / WORLD */
-	LPF_PREEMPH_75US = 1,	/* U.S. */
-	LPF_PREEMPH_NONE = 2,
-	LPF_PREEMPH_MAX = 3
-};
-
-/* A generic FFT low pass filter */
+/* A generic FFT-based FIR low pass filter */
 struct lpf_filter_data {
 	uint16_t period_size;
 	uint16_t num_bins;
@@ -71,49 +53,39 @@ struct lpf_filter_data {
  * obviously introduce a systematic delay between input and
  * output (output will be delayed by overlap samples).
  */
-#define AUDIO_LPF_OVERLAP_FACTOR 3
-
+#define	AFLT_LPF_OVERLAP_FACTOR 3
 #define SSB_LPF_OVERLAP_FACTOR 3
 
 void lpf_filter_destroy(struct lpf_filter_data *);
 int lpf_filter_init(struct lpf_filter_data *, uint32_t, uint32_t, uint16_t, uint8_t);
 int lpf_filter_apply(struct lpf_filter_data *, float*, float*, uint16_t, float);
 
-/* Combined audio filter */
-struct aflt_thread_data {
-	struct lpf_filter_data *lpf;
-	struct fmpreemph_filter_data *fmprf;
-	int *active;
-	float *in;
-	float *out;
-	uint16_t num_samples;
-	float gain;
-	enum lpf_preemph_mode preemph_tau_mode;
-	float peak_gain;
-	pthread_mutex_t proc_mutex;
-	pthread_cond_t proc_trigger;
-	pthread_mutex_t done_mutex;
-	pthread_cond_t done_trigger;
-	jack_native_thread_t tid;
-	int result;
+
+/* FM Preemphasis IIR filter */
+struct fmpreemph_filter_data {
+	float last_in;
+	float last_out[2];
+	float ataps_50[2];
+	float btaps_50[2];
+	float ataps_75[2];
+	float btaps_75[2];
 };
 
-struct audio_filter {
-	struct aflt_thread_data afltd_l;
-	struct aflt_thread_data afltd_r;
-	struct lpf_filter_data audio_lpf_l;
-	struct lpf_filter_data audio_lpf_r;
-	struct fmpreemph_filter_data fmprf_l;
-	struct fmpreemph_filter_data fmprf_r;
-	jack_client_t *fmmod_client;
-	int active;
+enum fmpreemph_mode {
+	LPF_PREEMPH_50US = 0,	/* E.U. / WORLD */
+	LPF_PREEMPH_75US = 1,	/* U.S. */
+	LPF_PREEMPH_NONE = 2,
+	LPF_PREEMPH_MAX = 3
 };
 
-void audio_filter_destroy(struct audio_filter *);
-int audio_filter_init(struct audio_filter *, jack_client_t *,
-		      uint32_t, uint32_t, uint16_t);
-int audio_filter_apply(struct audio_filter *, float*, float *, float *, float *,
-			uint16_t, float, uint8_t, enum lpf_preemph_mode, float*, float*);
+int
+fmpreemph_filter_init(struct fmpreemph_filter_data *, float);
+
+float
+fmpreemph_filter_apply(struct fmpreemph_filter_data *,
+		       float, enum fmpreemph_mode);
+
+#define AFLT_CUTOFF_FREQ 17000
 
 /* Hilbert transformer for the Hartley modulator (SSB) */
 struct hilbert_transformer_data {

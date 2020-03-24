@@ -23,6 +23,7 @@
 #include "utils.h"
 #include "fmmod.h"
 #include <jack/transport.h>
+#include <jack/thread.h>	/* For thread handling through jack */
 #include <stdlib.h>		/* For malloc() */
 #include <unistd.h>		/* For ftruncate(), close() */
 #include <string.h>		/* For memset() */
@@ -188,6 +189,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
+	struct fmmod_flts *flts = &fmmod->flts;
 	double saved_phase = 0.0L;
 	int i = 0;
 
@@ -203,7 +205,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 
 	/* Apply the lpf filter to suppres the USB, re-use the output
 	 * buffer. */
-	lpf_filter_apply(&fmmod->ssb_lpf, out, out,
+	lpf_filter_apply(&flts->ssb_lpf, out, out,
 		    num_samples, ctl->stereo_carrier_gain);
 
 	/* L-R is behind max_samples * SSB_LPF_OVERLAP_FACTOR due to the filter's
@@ -257,12 +259,13 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
 	struct fmmod_control *ctl = fmmod->ctl;
-	struct hilbert_transformer_data *ht = &fmmod->ht;
+	struct fmmod_flts *flts = &fmmod->flts;
+	struct hilbert_transformer_data *ht = &flts->ht;
 	float carrier_freq = 38000.0;
 	int i = 0;
 
 	/* Phase shift L-R by 90deg using the Hilbert transformer */
-	hilbert_transformer_apply(&fmmod->ht, lmr, num_samples);
+	hilbert_transformer_apply(&flts->ht, lmr, num_samples);
 
 	/* Now shifted L+R signal is in ht->real_buff */
 
@@ -303,18 +306,20 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 	return 0;
 }
 
-/****************\
-* JACK CALLBACKS *
-\****************/
 
-/**
- * Main process callback -here is where the magic happens-
- */
-static int
-fmmod_process(jack_nframes_t nframes, void *arg)
+/*******************\
+* PROCESSING THREAD *
+\*******************/
+
+static void*
+fmmod_process(struct fmmod_instance *fmmod)
 {
-	jack_default_audio_sample_t *left_in = NULL;
-	jack_default_audio_sample_t *right_in = NULL;
+	struct resampler_data *rsmpl = &fmmod->rsmpl;
+	struct fmmod_flts *flts = &fmmod->flts;
+	struct fmmod_control *ctl = fmmod->ctl;
+	mpx_generator get_mpx_samples;
+	float *left_in = NULL;
+	float *right_in = NULL;
 	float *upsampled_audio_l = NULL;
 	float *upsampled_audio_r = NULL;
 	float *lpr_buf = NULL;
@@ -322,54 +327,53 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	float lpr = 0.0;
 	float lmr = 0.0;
 	int frames_generated = 0;
-	struct fmmod_instance *fmmod = (struct fmmod_instance *)arg;
-	struct resampler_data *rsmpl = &fmmod->rsmpl;
-	struct audio_filter *aflt = &fmmod->aflt;
-	struct fmmod_control *ctl = fmmod->ctl;
-	mpx_generator get_mpx_samples;
 	int i = 0;
 	int ret = 0;
 
-	/* FMmod is inactive, don't do any processing */
-	if (!fmmod->active)
-		return 0;
+	/* Input audio buffers */
+	left_in = fmmod->inbuf_l;
+	right_in = fmmod->inbuf_r;
 
 	/* Upsampled audio buffers */
 	upsampled_audio_l = fmmod->uaudio_buf_0;
 	upsampled_audio_r = fmmod->uaudio_buf_1;
 
-	/* L + R / L - R buffers */
+	/* L + R / L - R buffers (reuse upsampled buffers) */
 	lpr_buf = fmmod->uaudio_buf_0;
 	lmr_buf = fmmod->uaudio_buf_1;
 
-	/* Input */
-	left_in = (float *) jack_port_get_buffer(fmmod->inL, nframes);
-	right_in = (float *) jack_port_get_buffer(fmmod->inR, nframes);
+	/* Apply a low-pass filter to the audio signal so that
+	 * it doesn't hit the 19Khz pilot */
+	ret = pthread_mutex_trylock(&fmmod->inbuf_mutex);
+	if (ret != 0) {
+		if (ret == EBUSY) {
+			utils_wrn("[FMMOD] Buffer overrun, skipping this period\n");
+			return;
+		}
+		goto done;
+	}
 
-	/* No frames received */
-	if (!nframes)
-		return 0;
+	if (ctl->use_audio_lpf) {
+		lpf_filter_apply(&flts->lpf_l, left_in, left_in,
+				 fmmod->num_in_samples, 1.0);
+		lpf_filter_apply(&flts->lpf_r, right_in, right_in,
+				 fmmod->num_in_samples, 1.0);
+	}
 
-	/* Apply audio filter on input to prepare the buffer for upsampling */
-	ret = audio_filter_apply(aflt, left_in, fmmod->inbuf_l,
-				 right_in, fmmod->inbuf_r, nframes,
-				 ctl->audio_gain, ctl->use_audio_lpf,
-				 ctl->preemph_tau, &ctl->peak_audio_in_l,
-				 &ctl->peak_audio_in_r);
-	if(ret)
-		return 0;
-
-	/* Upsample to the sample rate of the main oscilator */
-	frames_generated = resampler_upsample_audio(rsmpl, fmmod->inbuf_l,
-						    fmmod->inbuf_r,
+	/* Upsample audio to the sample rate of the main oscilator,
+	 * apply a low-pass filter in the process */
+	pthread_mutex_lock(&fmmod->uaudio_buf_mutex);
+	frames_generated = resampler_upsample_audio(rsmpl, left_in, right_in,
 						    upsampled_audio_l,
 						    upsampled_audio_r,
-						    nframes,
+						    fmmod->num_in_samples,
 						    fmmod->upsampled_num_samples);
-	if (frames_generated < 0)
-		return FMMOD_ERR_RESAMPLER_ERR;
-	else if(!frames_generated)
-		return 0;
+	pthread_mutex_unlock(&fmmod->inbuf_mutex);
+	if (frames_generated <= 0) {
+		pthread_mutex_unlock(&fmmod->uaudio_buf_mutex);
+		ret = FMMOD_ERR_RESAMPLER_ERR;
+		goto done;
+	}
 
 	/* Move L + R to buffer 0 and L - R to buffer 1 */
 	for (i = 0; i < frames_generated; i++) {
@@ -397,14 +401,19 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 	}
 
 	/* Create the multiplex signal */
+	pthread_mutex_lock(&fmmod->mpx_buf_mutex);
 	get_mpx_samples(fmmod, lpr_buf, lmr_buf, frames_generated, fmmod->umpxbuf);
+	pthread_mutex_unlock(&fmmod->uaudio_buf_mutex);
 
 	/* Now downsample to the output sample rate */
 	frames_generated = resampler_downsample_mpx(rsmpl, fmmod->umpxbuf, fmmod->outbuf,
 						    frames_generated,
-						    fmmod->max_out_samples);
-	if (frames_generated < 0)
-		return FMMOD_ERR_RESAMPLER_ERR;
+						    fmmod->num_out_samples);
+	if (frames_generated <= 0) {
+		pthread_mutex_unlock(&fmmod->mpx_buf_mutex);
+		ret = FMMOD_ERR_RESAMPLER_ERR;
+		goto done;
+	}
 
 	/* Update mpx output peak gain */
 	ctl->peak_mpx_out = 0;
@@ -418,6 +427,126 @@ fmmod_process(jack_nframes_t nframes, void *arg)
 
 	/* Send out a FLAC-encoded version of the signal as an RTP stream */
 	rtp_server_send_buffer(&fmmod->rtpsrv, fmmod->outbuf, frames_generated);
+
+	pthread_mutex_unlock(&fmmod->mpx_buf_mutex);
+
+ done:
+	if (ret < 0) {
+		if (ret == FMMOD_ERR_RESAMPLER_ERR)
+			utils_err("[RESAMPLER] failed on this period,"
+				  " frames_generated: %i\n", frames_generated);
+		else
+			utils_err("[FMMMOD] something weird happened on the"
+				  " processing thread\n");
+		raise(SIGTERM);
+	}
+}
+
+static void*
+fmmod_process_loop(void* arg)
+{
+	struct fmmod_instance *fmmod = (struct fmmod_instance *)arg;
+
+	while(fmmod->active) {
+		pthread_mutex_lock(&fmmod->proc_mutex);
+		while (pthread_cond_wait(&fmmod->proc_trigger,
+					 &fmmod->proc_mutex) != 0);
+
+		if(!fmmod->active) {
+			pthread_mutex_unlock(&fmmod->proc_mutex);
+			break;
+		}
+
+		fmmod_process(fmmod);
+
+		pthread_mutex_unlock(&fmmod->proc_mutex);
+	}
+
+	return arg;
+}
+
+
+/****************\
+* JACK CALLBACKS *
+\****************/
+
+/**
+ * Main process callback -here is where the magic happens-
+ */
+static int
+fmmod_process_cb(jack_nframes_t num_samples, void *arg)
+{
+	struct fmmod_instance *fmmod = (struct fmmod_instance *)arg;
+	struct fmmod_flts *flts = &fmmod->flts;
+	struct fmmod_control *ctl = fmmod->ctl;
+	jack_default_audio_sample_t *left_in = NULL;
+	jack_default_audio_sample_t *right_in = NULL;
+	float tmp_gain_l = 0.0;
+	float tmp_gain_r = 0.0;
+	int i = 0;
+
+	/* FMmod is inactive, don't do any processing */
+	if (!fmmod->active)
+		return 0;
+
+	/* No frames received or underrun, ignore this period */
+	if (!num_samples || num_samples < fmmod->num_in_samples) {
+		utils_dbg("[FMMOD] got underrun, skipping period\n");
+		return 0;
+	}
+
+	/* Got more frames than expected */
+	if (num_samples > fmmod->num_in_samples) {
+		utils_err("[FMMOD] got excessive input samples\n");
+		return FMMOD_ERR_INVALID_INPUT;
+	}
+
+	/* Try to consume input, if previous buffer is still not in
+	 * we got an overrun so skip this period */
+	if (pthread_mutex_trylock(&fmmod->inbuf_mutex) != 0) {
+		utils_dbg("[FMMOD] got overrun, skipping period\n");
+		return 0;
+	}
+
+	/* Input */
+	left_in = (float *) jack_port_get_buffer(fmmod->inL, num_samples);
+	right_in = (float *) jack_port_get_buffer(fmmod->inR, num_samples);
+
+	/* If pre-emphasis is requested, run the input buffers through
+	 * the pre-emphasis filter in the time domain, else just copy them
+	 * to inbuf_* */
+	if (ctl->preemph_tau != LPF_PREEMPH_NONE) {
+		for(i = 0; i < num_samples; i++) {
+			fmmod->inbuf_l[i] = fmpreemph_filter_apply(&flts->fmprf_l,
+							left_in[i],
+							ctl->preemph_tau);
+			fmmod->inbuf_r[i] = fmpreemph_filter_apply(&flts->fmprf_r,
+							right_in[i],
+							ctl->preemph_tau);
+		}
+	} else {
+		memcpy(fmmod->inbuf_l, left_in, num_samples * sizeof(float));
+		memcpy(fmmod->inbuf_r, right_in, num_samples * sizeof(float));
+	}
+
+	/* Update audio gain levels */
+	for(i = 0, tmp_gain_l = 0.0, tmp_gain_r = 0.0;
+	    i < num_samples; i++) {
+		fmmod->inbuf_l[i] *= ctl->audio_gain;
+		if(fmmod->inbuf_l[i] > tmp_gain_l)
+			tmp_gain_l = fmmod->inbuf_l[i];
+		fmmod->inbuf_r[i] *= ctl->audio_gain;
+		if(fmmod->inbuf_r[i] > tmp_gain_r)
+			tmp_gain_r = fmmod->inbuf_r[i];
+	}
+
+	/* We are done with inbuf, let mutex go and
+	 * trigger the processing thread to start */
+	pthread_mutex_unlock(&fmmod->inbuf_mutex);
+	pthread_cond_signal(&fmmod->proc_trigger);
+
+	ctl->peak_audio_in_l = tmp_gain_l;
+	ctl->peak_audio_in_r = tmp_gain_r;
 
 	return 0;
 }
@@ -464,7 +593,7 @@ fmmod_connect(struct fmmod_instance *fmmod)
 	}
 
 	/* Register callbacks on JACK */
-	jack_set_process_callback(fmmod->client, fmmod_process, fmmod);
+	jack_set_process_callback(fmmod->client, fmmod_process_cb, fmmod);
 	jack_on_shutdown(fmmod->client, fmmod_shutdown, fmmod);
 
 	/* Register input ports */
@@ -498,6 +627,26 @@ fmmod_connect(struct fmmod_instance *fmmod)
 }
 
 static void
+fmmod_destroy_locks(struct fmmod_instance *fmmod)
+{
+	pthread_mutex_destroy(&fmmod->inbuf_mutex);
+	pthread_mutex_destroy(&fmmod->uaudio_buf_mutex);
+	pthread_mutex_destroy(&fmmod->mpx_buf_mutex);
+	pthread_mutex_destroy(&fmmod->proc_mutex);
+	pthread_cond_destroy(&fmmod->proc_trigger);
+}
+
+static void
+fmmod_init_locks(struct fmmod_instance *fmmod)
+{
+	pthread_mutex_init(&fmmod->inbuf_mutex, NULL);
+	pthread_mutex_init(&fmmod->uaudio_buf_mutex, NULL);
+	pthread_mutex_init(&fmmod->mpx_buf_mutex, NULL);
+	pthread_mutex_init(&fmmod->proc_mutex, NULL);
+	pthread_cond_init(&fmmod->proc_trigger, NULL);
+}
+
+static void
 fmmod_free_buffers(struct fmmod_instance *fmmod)
 {
 	if (fmmod->inbuf_l != NULL)
@@ -517,8 +666,7 @@ fmmod_free_buffers(struct fmmod_instance *fmmod)
 }
 
 static int
-fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
-		   uint32_t max_input_frames)
+fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 {
 	int ret = 0;
 	uint32_t inbuf_len = 0;
@@ -527,7 +675,7 @@ fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
 	uint32_t output_buf_len = 0;
 
 	/* Allocate input audio buffers */
-	inbuf_len = max_input_frames *
+	inbuf_len = fmmod->num_in_samples *
 		    sizeof(jack_default_audio_sample_t);
 
 	fmmod->inbuf_l = (float *) malloc(inbuf_len);
@@ -548,7 +696,7 @@ fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
 	 * buffers for L/R to make use of SoXr's OpenMP code */
 	fmmod->upsampled_num_samples = num_resampled_samples(jack_samplerate,
 							OSC_SAMPLE_RATE,
-							max_input_frames);
+							fmmod->num_in_samples);
 	upsampled_buf_len = fmmod->upsampled_num_samples *
 			    sizeof(jack_default_audio_sample_t);
 
@@ -577,10 +725,10 @@ fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
 
 
 	/* Allocate output buffer */
-	fmmod->max_out_samples = num_resampled_samples(OSC_SAMPLE_RATE,
+	fmmod->num_out_samples = num_resampled_samples(OSC_SAMPLE_RATE,
 						FMMOD_OUTPUT_SAMPLERATE,
 						fmmod->upsampled_num_samples);
-	output_buf_len = fmmod->max_out_samples * sizeof(float);
+	output_buf_len = fmmod->num_out_samples * sizeof(float);
 
 	fmmod->outbuf = (float *) malloc(output_buf_len);
 	if (fmmod->outbuf == NULL) {
@@ -633,25 +781,43 @@ fmmod_init_osc(struct fmmod_instance *fmmod)
 }
 
 static int
-fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
-		   uint32_t max_input_frames)
+fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 {
+	struct fmmod_flts *flts = &fmmod->flts;
 	int ret = 0;
 
-	/* Initialize audio filter
-	 * The cutoff frequency is set so that the filter's
-	 * maximum drop is at 19KHz (the pilot tone) */
-	ret = audio_filter_init(&fmmod->aflt, fmmod->client, 16500,
-				jack_samplerate, max_input_frames);
+	/* Initialize audio FM pre-emphasis IIR filter */
+	ret = fmpreemph_filter_init(&flts->fmprf_l, (float) jack_samplerate);
+	if(ret < 0) {
+		ret = FMMOD_ERR_AFLT;
+		return ret;
+	}
+
+	ret = fmpreemph_filter_init(&flts->fmprf_r, (float) jack_samplerate);
+	if(ret < 0) {
+		ret = FMMOD_ERR_AFLT;
+		return ret;
+	}
+
+	/* Initialize audio low-pass FFT filter for protecting the pilot */
+	ret = lpf_filter_init(&flts->lpf_l, AFLT_CUTOFF_FREQ, jack_samplerate,
+			      fmmod->num_in_samples, AFLT_LPF_OVERLAP_FACTOR);
 	if (ret < 0) {
-		utils_err("[AFLT] Init failed with code: %i\n", ret);
+		utils_err("[AFLT] LPF init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;
 		goto cleanup;
 	}
 
+	ret = lpf_filter_init(&flts->lpf_r, AFLT_CUTOFF_FREQ, jack_samplerate,
+			      fmmod->num_in_samples, AFLT_LPF_OVERLAP_FACTOR);
+	if (ret < 0) {
+		utils_err("[AFLT] LPF init failed with code: %i\n", ret);
+		ret = FMMOD_ERR_AFLT;
+		goto cleanup;
+	}
 
 	/* Initialize the low pass FFT filter for the filter-based SSB modulator */
-	ret = lpf_filter_init(&fmmod->ssb_lpf, 38000, OSC_SAMPLE_RATE,
+	ret = lpf_filter_init(&flts->ssb_lpf, 38000, OSC_SAMPLE_RATE,
 			      fmmod->upsampled_num_samples, SSB_LPF_OVERLAP_FACTOR);
 	if (ret < 0) {
 		utils_err("[SSB LPF] Init failed with code: %i\n", ret);
@@ -661,7 +827,7 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
 
 
 	/* Initialize the Hilbert transformer for the Hartley modulator */
-	ret = hilbert_transformer_init(&fmmod->ht, fmmod->upsampled_num_samples);
+	ret = hilbert_transformer_init(&flts->ht, fmmod->upsampled_num_samples);
 	if (ret < 0) {
 		utils_err("[HILBERT] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_HILBERT;
@@ -672,10 +838,11 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate,
 	if (ret < 0)
 		switch (ret) {
 		case FMMOD_ERR_HILBERT:
-			lpf_filter_destroy(&fmmod->ssb_lpf);
+			lpf_filter_destroy(&flts->ssb_lpf);
 			/* Fallthrough */
 		case FMMOD_ERR_LPF:
-			audio_filter_destroy(&fmmod->aflt);
+			lpf_filter_destroy(&flts->lpf_l);
+			lpf_filter_destroy(&flts->lpf_r);
 			/* Fallthrough */
 		default:
 			break;
@@ -739,7 +906,7 @@ fmmod_init_ctl(struct fmmod_instance *fmmod)
 	ctl->use_audio_lpf = 1;
 	ctl->preemph_tau = LPF_PREEMPH_50US;
 	ctl->sample_rate = FMMOD_OUTPUT_SAMPLERATE;
-	ctl->max_samples = fmmod->max_out_samples;
+	ctl->max_samples = fmmod->num_out_samples;
 
 	return 0;
 }
@@ -752,10 +919,10 @@ fmmod_init_ctl(struct fmmod_instance *fmmod)
 int
 fmmod_initialize(struct fmmod_instance *fmmod)
 {
-	int ret = 0;
 	uint32_t jack_samplerate = 0;
-	uint32_t max_input_frames = 0;
 	uint32_t output_buf_len = 0;
+	int rtprio = 0;
+	int ret = 0;
 
 	memset(fmmod, 0, sizeof(struct fmmod_instance));
 
@@ -767,21 +934,23 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	/* Get JACK's sample rate and number of frames JACK will send to process()
 	 * (period len), and calculate buffer lengths */
 	jack_samplerate = jack_get_sample_rate(fmmod->client);
-	max_input_frames = jack_get_buffer_size(fmmod->client);
-
-	if (jack_samplerate <= 0 || max_input_frames <= 0) {
+	fmmod->num_in_samples = jack_get_buffer_size(fmmod->client);
+	if (jack_samplerate <= 0 || fmmod->num_in_samples <= 0) {
 		utils_err("[FMMOD] Got invalid data from jackd: %i, %i\n",
-			  jack_samplerate, max_input_frames);
+			  jack_samplerate, fmmod->num_in_samples);
 		ret = FMMOD_ERR_JACKD_ERR;
 		goto cleanup;
 	}
 
 	/* Initialize buffers */
-	ret = fmmod_init_buffers(fmmod, jack_samplerate, max_input_frames);
+	ret = fmmod_init_buffers(fmmod, jack_samplerate);
 	if (ret < 0) {
 		utils_err("[FMMOD] Could not initialize buffers !\n");
 		goto cleanup;
 	}
+
+	/* Initialize locks / triggers */
+	fmmod_init_locks(fmmod);
 
 	/* Initialize oscilators */
 	ret = fmmod_init_osc(fmmod);
@@ -801,7 +970,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	}
 
 	/* Initialize filters */
-	ret = fmmod_init_filters(fmmod, jack_samplerate, max_input_frames);
+	ret = fmmod_init_filters(fmmod, jack_samplerate);
 	if (ret < 0)
 		goto cleanup;
 
@@ -822,10 +991,10 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	/* Initialize the RTP server for sending the FLAC-compressed
 	 * mpx signal to a remote host if needed */
 	fmmod->rtpsrv.fmmod_client = fmmod->client;
-	output_buf_len = fmmod->max_out_samples * sizeof(float);
+	output_buf_len = fmmod->num_out_samples * sizeof(float);
 	ret = rtp_server_init(&fmmod->rtpsrv, output_buf_len,
 			      FMMOD_OUTPUT_SAMPLERATE,
-			      fmmod->max_out_samples, 5000);
+			      fmmod->num_out_samples, 5000);
 	if (ret < 0) {
 		utils_err("[RTP] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_RTP_ERR;
@@ -837,14 +1006,31 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	if (ret < 0)
 		goto cleanup;
 
+	fmmod->active = 1;
+
+	/* Init processing thread */
+	rtprio = jack_client_max_real_time_priority(fmmod->client);
+	if(rtprio < 0) {
+		utils_err("[JACKD] Could not get max rt priority\n");
+		ret = FMMOD_ERR_JACKD_ERR;
+		goto cleanup;
+	}
+
+	ret = jack_client_create_thread(fmmod->client, &fmmod->proc_tid,
+					rtprio, 1,
+					fmmod_process_loop, (void *) fmmod);
+	if(ret < 0) {
+		utils_err("[JACKD] Could not create processing thread\n");
+		return ret;
+	}
+
 	/* Tell the JACK server that we are ready to roll.  Our
 	 * process() callback will start running now. */
 	ret = jack_activate(fmmod->client);
 	if (ret != 0) {
 		utils_err("[FMMOD] Could not activate FMmod\n");
 		ret = FMMOD_ERR_JACKD_ERR;
-	} else
-		fmmod->active = 1;
+	}
 
  cleanup:
 	if (ret < 0) {
@@ -857,8 +1043,9 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 void
 fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 {
-	int uid = 0;
+	struct fmmod_flts *flts = &fmmod->flts;
 	char sock_path[32] = { 0 };
+	int uid = 0;
 
 	if (!shutdown) {
 		utils_dbg("[FMMOD] graceful exit\n");
@@ -875,6 +1062,11 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	utils_dbg("[FMMOD] deactivated\n");
 
+	/* Let the process thread run for one last time */
+	pthread_mutex_lock(&fmmod->proc_mutex);
+	pthread_cond_signal(&fmmod->proc_trigger);
+	pthread_mutex_unlock(&fmmod->proc_mutex);
+
 	utils_shm_destroy(fmmod->ctl_map, 1);
 
 	utils_dbg("[FMMOD] control channel closed\n");
@@ -887,21 +1079,26 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	utils_dbg("[RTP] destroyed\n");
 
-	audio_filter_destroy(&fmmod->aflt);
-
-	utils_dbg("[AFLT] destroyed\n");
-
 	resampler_destroy(&fmmod->rsmpl);
 
 	utils_dbg("[RESAMPLER] destroyed\n");
 
-	lpf_filter_destroy(&fmmod->ssb_lpf);
+	lpf_filter_destroy(&flts->lpf_l);
+	lpf_filter_destroy(&flts->lpf_r);
 
-	utils_dbg("[LPF] destroyed\n");
+	utils_dbg("[AFLT] destroyed\n");
 
-	hilbert_transformer_destroy(&fmmod->ht);
+	lpf_filter_destroy(&flts->ssb_lpf);
+
+	utils_dbg("[SSB LPF] destroyed\n");
+
+	hilbert_transformer_destroy(&flts->ht);
 
 	utils_dbg("[HILBERT] destroyed\n");
+
+	fmmod_destroy_locks(fmmod);
+
+	utils_dbg("[FMMOD] locks destroyed\n");
 
 	fmmod_free_buffers(fmmod);
 
