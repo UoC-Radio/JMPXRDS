@@ -85,7 +85,7 @@ float
 fmpreemph_filter_apply(struct fmpreemph_filter_data *,
 		       float, enum fmpreemph_mode);
 
-#define AFLT_CUTOFF_FREQ 17000
+#define AFLT_CUTOFF_FREQ 16750
 
 /* Hilbert transformer for the Hartley modulator (SSB) */
 struct hilbert_transformer_data {

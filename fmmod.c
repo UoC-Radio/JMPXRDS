@@ -348,7 +348,7 @@ fmmod_process(struct fmmod_instance *fmmod)
 	if (ret != 0) {
 		if (ret == EBUSY) {
 			utils_wrn("[FMMOD] Buffer overrun, skipping this period\n");
-			return;
+			return fmmod;
 		}
 		goto done;
 	}
@@ -440,6 +440,7 @@ fmmod_process(struct fmmod_instance *fmmod)
 				  " processing thread\n");
 		raise(SIGTERM);
 	}
+	return fmmod;
 }
 
 static void*
@@ -975,13 +976,12 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 		goto cleanup;
 
 	/* Initialize RDS encoder */
-	ret = rds_encoder_init(&fmmod->rds_enc, &fmmod->rsmpl);
+	ret = rds_encoder_init(&fmmod->rds_enc, fmmod->client, &fmmod->rsmpl);
 	if (ret < 0) {
 		utils_err("[RDS] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_RDS_ERR;
 		goto cleanup;
 	}
-	fmmod->rds_enc.fmmod_client = fmmod->client;
 
 	/* Initialize output socket */
 	ret = fmmod_init_outsock(fmmod);

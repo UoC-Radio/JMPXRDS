@@ -154,10 +154,9 @@ struct rds_encoder {
 	int curr_outbuf_idx;
 	size_t upsampled_waveform_len;
 	int active;
+	jack_native_thread_t tid;
 	pthread_mutex_t rds_process_mutex;
 	pthread_cond_t rds_process_trigger;
-	pthread_mutex_t rds_loop_exit_mutex;
-	jack_client_t *fmmod_client;
 };
 
 #define	RDS_MS_SPEECH	0
@@ -177,7 +176,8 @@ struct rds_encoder {
 #define RDS_RT_SOFT_HYPHEN	0x1F	/* Split a word to the next line if needed */
 
 /* Prototypes */
-int rds_encoder_init(struct rds_encoder *enc, struct resampler_data *rsmpl);
+int rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
+		     struct resampler_data *rsmpl);
 void rds_encoder_destroy(struct rds_encoder *enc);
 float rds_get_next_sample(struct rds_encoder *enc);
 
