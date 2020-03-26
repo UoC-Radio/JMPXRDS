@@ -22,13 +22,11 @@ static gboolean
 jmrg_fmmodp_radio_buttons_update(gpointer data)
 {
 	struct rbutton_group *rbgrp = (struct rbutton_group*) data;
-	float scgain = rbgrp->ctl->stereo_carrier_gain;
 	int mode = 0;
 	int i = 0;
 	static int old_mod_mode = 0;
 	static int old_pe_mode = 0;
 	static int alpf_state = 0;
-	static int doubled = 0;
 	gboolean active = FALSE;
 
 	if(!gtk_widget_is_visible(rbgrp->rbuttons[0]))
@@ -48,21 +46,6 @@ jmrg_fmmodp_radio_buttons_update(gpointer data)
 	if(active == FALSE)
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]),
 					     TRUE);
-
-	/* When switching to LP filter-based SSB, double
-	 * the stereo carrier gain */
-	if((mode == FMMOD_SSB_LPF) && !doubled) {
-		if(scgain > 1.0)
-			scgain = 2.0;
-		else
-			scgain *= 2.0;
-		rbgrp->ctl->stereo_carrier_gain = scgain;
-		doubled = 1;
-	} else if((mode != FMMOD_SSB_LPF) && doubled) {
-		scgain *= 0.5;
-		rbgrp->ctl->stereo_carrier_gain = scgain;
-		doubled = 0;
-	}
 
 	old_mod_mode = mode;
 
@@ -157,7 +140,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 
 	/* Initialize radio button group */
 	rbgrp->rbuttons[0] = jmrg_radio_button_init("DSB (Default)",
-					    &ctl->stereo_modulation,
+					    (int*) &ctl->stereo_modulation,
 					    FMMOD_DSB, NULL);
 	if(!rbgrp->rbuttons[0]) {
 		ret = -4;
@@ -165,7 +148,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 	}
 
 	rbgrp->rbuttons[1] = jmrg_radio_button_init("SSB (Hartley)",
-					    &ctl->stereo_modulation,
+					    (int*) &ctl->stereo_modulation,
 					    FMMOD_SSB_HARTLEY,
 					    GTK_RADIO_BUTTON(rbgrp->rbuttons[0]));
 	if(!rbgrp->rbuttons[1]) {
@@ -175,7 +158,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 
 
 	rbgrp->rbuttons[2] = jmrg_radio_button_init("SSB (LP Filter)",
-					    &ctl->stereo_modulation,
+					    (int*) &ctl->stereo_modulation,
 					    FMMOD_SSB_LPF,
 					    GTK_RADIO_BUTTON(rbgrp->rbuttons[1]));
 	if(!rbgrp->rbuttons[2]) {
@@ -184,7 +167,7 @@ jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
 	}
 
 	rbgrp->rbuttons[3] = jmrg_radio_button_init("Mono",
-					    &ctl->stereo_modulation,
+					    (int*) &ctl->stereo_modulation,
 					    FMMOD_MONO,
 					    GTK_RADIO_BUTTON(rbgrp->rbuttons[2]));
 	if(!rbgrp->rbuttons[3]) {

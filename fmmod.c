@@ -206,7 +206,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 	/* Apply the lpf filter to suppres the USB, re-use the output
 	 * buffer. */
 	lpf_filter_apply(&flts->ssb_lpf, out, out,
-		    num_samples, ctl->stereo_carrier_gain);
+		    num_samples, ctl->stereo_carrier_gain * 3.0);
 
 	/* L-R is behind max_samples * SSB_LPF_OVERLAP_FACTOR due to the filter's
 	 * overlap so delay L+R by the same amount of samples to keep them in sync
@@ -215,7 +215,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
 	/* Shift the buffer's content to make room for the new
 	 * period on its end and then put the new data there. */
 	memmove(fmmod->ssb_lpf_delay_buf,
-		fmmod->ssb_lpf_delay_buf + fmmod->upsampled_num_samples,
+		fmmod->ssb_lpf_delay_buf + fmmod->ssb_lpf_overlap_len,
 		fmmod->ssb_lpf_overlap_len * sizeof(float));
 	memcpy(fmmod->ssb_lpf_delay_buf + fmmod->ssb_lpf_overlap_len, lpr,
 		num_samples * sizeof(float));
@@ -285,7 +285,7 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 		out[i] += lmr[i] *
 			  osc_get_sample_for_freq(sin_osc, carrier_freq);
 
-		out[i] *= ctl->stereo_carrier_gain;
+		out[i] *= ctl->stereo_carrier_gain * 1.5;
 
 		/* L + R */
 		out[i] += lpr[i];

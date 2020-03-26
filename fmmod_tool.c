@@ -144,13 +144,6 @@ main(int argc, char *argv[])
 			ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x7;
 			if(ctl->stereo_modulation > FMMOD_MONO)
 				ctl->stereo_modulation = FMMOD_DSB;
-			/* LP modulator eliminates USB but
-			 * doesn't increase the gain of the LSB
-			 * so do it here when switching. */
-			if (ctl->stereo_modulation == FMMOD_SSB_LPF)
-				ctl->stereo_carrier_gain = 2;
-			else
-				ctl->stereo_carrier_gain = 1;
 			utils_info("Set stereo modulation:  \t%i\n",
 				   ctl->stereo_modulation);
 			break;
