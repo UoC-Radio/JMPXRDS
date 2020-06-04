@@ -874,7 +874,7 @@
     </param>
     <param>
       <key>ok_to_block</key>
-      <value>False</value>
+      <value>True</value>
     </param>
     <param>
       <key>samp_rate</key>

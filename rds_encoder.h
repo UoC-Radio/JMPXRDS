@@ -211,7 +211,7 @@ typedef int (*rds_bf_setter) (struct rds_encoder_state *, uint8_t);
 
 /* Dynamic PS */
 
-#define EVENT_LEN (10 * (sizeof(struct inotify_event) + NAME_MAX + 1))
+#define EVENT_LEN (4 * (sizeof(struct inotify_event) + NAME_MAX + 1))
 
 /* We send PSN once every second, 3 secs should be enough to make sure
  * that most recievers got the update, even if they lost the packet
@@ -226,21 +226,20 @@ typedef int (*rds_bf_setter) (struct rds_encoder_state *, uint8_t);
 
 struct rds_dynps_state {
 	struct rds_encoder_state *st;
-	char	string[DYNPS_MAX_CHARS];
-	char	fixed_ps[RDS_PS_LENGTH + 1];
-	int	curr_segment;
-	int	no_segments;
+	char		string[DYNPS_MAX_CHARS];
+	char		fixed_ps[RDS_PS_LENGTH + 1];
+	int		string_len;
+	int		remaining_len;
 	pthread_t	dynps_filemon_tid;
 	pthread_t	dynps_consumer_tid;
 	pthread_mutex_t	dynps_proc_mutex;
 	pthread_cond_t	sleep_trig;
 	pthread_mutex_t sleep_mutex;
-	int	active;
-	int	opened;
-	int	inotify_fd;
-	int	watch_fd;
-	const char *filepath;
-	char	event_buf[EVENT_LEN];
+	int		active;
+	int		inotify_fd;
+	int		watch_fd;
+	const char	*filepath;
+	char		event_buf[EVENT_LEN];
 };
 
 int rds_dynps_init(struct rds_dynps_state *dps, struct rds_encoder_state *st,
@@ -256,27 +255,28 @@ void rds_dynps_destroy(struct rds_dynps_state *dps);
  * the message out 3 times, so it's 9 seconds, make it 10 to be sure */
 #define	DYNRT_DELAY_SECS 10
 
-/* That's 3 RT messages plus the null terminator, it'll take almost 30
- * seconds to send that in the worst case */
-#define	DYNRT_MAX_CHARS	193
+/* We store 3 RT segments from the file, one on each line, and switch
+ * between them. This will take around 30 secs to transmit the full
+ * text. Each time we change segment, we also flush the buffer on
+ * the receiver (use the other buffer via the A/B flag). */
+#define DYNRT_MAX_SEGMENTS 3
 
 struct rds_dynrt_state {
 	struct rds_encoder_state *st;
-	char	string[DYNRT_MAX_CHARS];
-	char	fixed_rt[RDS_RT_LENGTH + 1];
-	int	curr_segment;
-	int	no_segments;
+	char		rt_segments[DYNRT_MAX_SEGMENTS][RDS_RT_LENGTH + 1];
+	char		fixed_rt[RDS_RT_LENGTH + 1];
+	int		curr_segment;
+	int		num_segments;
 	pthread_t	dynrt_filemon_tid;
 	pthread_t	dynrt_consumer_tid;
 	pthread_mutex_t	dynrt_proc_mutex;
 	pthread_cond_t	sleep_trig;
 	pthread_mutex_t sleep_mutex;
-	int	active;
-	int	opened;
-	int	inotify_fd;
-	int	watch_fd;
-	const char *filepath;
-	char	event_buf[EVENT_LEN];
+	int		active;
+	int		inotify_fd;
+	int		watch_fd;
+	const char	*filepath;
+	char		event_buf[EVENT_LEN];
 };
 
 int rds_dynrt_init(struct rds_dynrt_state *drt, struct rds_encoder_state *st,

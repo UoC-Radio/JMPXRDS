@@ -835,6 +835,7 @@ rds_encoder_destroy(struct rds_encoder *enc)
 	/* Cleanup */
 	utils_shm_destroy(enc->state_map, 1);
 
+	pthread_mutex_unlock(&enc->rds_process_mutex);
 	pthread_mutex_destroy(&enc->rds_process_mutex);
 	pthread_cond_destroy(&enc->rds_process_trigger);
 

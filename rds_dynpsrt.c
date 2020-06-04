@@ -24,6 +24,9 @@
 #include <unistd.h>		/* For read() / close() */
 #include <pthread.h>		/* For pthread support */
 #include <time.h>		/* For clock_gettime() */
+#include <ctype.h>		/* For isspace() */
+#include <errno.h>		/* For errno */
+#include <stdlib.h>		/* For free() */
 
 /*********\
 * HELPERS *
@@ -40,6 +43,46 @@ rds_dynpsrt_cond_sleep(pthread_cond_t *trig, pthread_mutex_t *mutex, int delay_s
 	pthread_mutex_unlock(mutex);
 }
 
+static int
+rds_string_sanitize(char *string, size_t max_len)
+{
+	/* TODO: Maybe clean up symbols, dots etc */
+	int len = strnlen(string, max_len);
+	int i = 1;
+	int off = 0;
+
+	/* Empty string ? */
+	if(len == 0)
+		return -1;
+
+	/* Trim trailing white space */
+	while(isspace(string[len - i]) && i <= len) {
+		string[len - i] = '\0';
+		i++;
+	}
+
+	/* Only got whitespace ? */
+	if(i == len)
+		return -2;
+
+	/* Trim leading white space */
+	while(isspace(string[off]) && off < len)
+		off++;
+
+	/* Move the string in place */
+	if(off > 0) {
+		memmove(string, string + off, len - off);
+		/* In case we didn't have any trailing white space
+		 * add a null terminator. */
+		if(!isspace(string[len - 1]))
+			string[len - off - 1] = '\0';
+	}
+
+	/* Update len */
+	len = strnlen(string, max_len);
+	return len;
+}
+
 /*************\
 * DYNAMIC PSN *
 \*************/
@@ -49,70 +92,53 @@ rds_dynpsrt_cond_sleep(pthread_cond_t *trig, pthread_mutex_t *mutex, int delay_s
  * statements against it. I've put it here since many stations use it and I
  * got a request from radio Best 94.7 in Heraklion for it. This operation will
  * switch the station's name every DYNPS_DELAY_SECS so that the PSN field on
- * car / old radios shows like a scrolling text. The station's name (fixed_ps)
+ * car / old radios presents a scrolling text. The station's name (fixed_ps)
  * will be shown each time the dynamic PSN text has been fully "scrolled".
  * There are various dynamic PSN modes available out there, here I've implemented
  * the "scroll by 8 characters" mode since it's the most reliable and takes fewer
  * time to scroll the full text.
  */
 
-static void
-rds_dynps_sanitize(struct rds_dynps_state *dps)
-{
-	/* TODO: Maybe clean up symbols, dots etc */
-	dps->no_segments = (strnlen(dps->string, DYNPS_MAX_CHARS)  + 7) / RDS_PS_LENGTH;
-	return;
-}
-
-static char*
-rds_dynps_get_next_str_segment(struct rds_dynps_state *dps)
-{
-	static char segment[RDS_PS_LENGTH + 1] = {0};
-
-	if(dps->no_segments == 0)
-		return dps->fixed_ps;
-
-	if(dps->curr_segment + 1 > dps->no_segments) {
-		dps->curr_segment = 0;
-		return dps->fixed_ps;
-	}
-
-	strncpy(segment, dps->string + (dps->curr_segment * RDS_PS_LENGTH),
-		RDS_PS_LENGTH);
-	dps->curr_segment++;
-
-	return segment;
-}
-
-static void
-rds_dynps_sleep(struct rds_dynps_state *dps)
-{
-	rds_dynpsrt_cond_sleep(&dps->sleep_trig, &dps->sleep_mutex, DYNPS_DELAY_SECS);
-}
-
-static void
-rds_dynps_update(struct rds_dynps_state *dps, const char* segment)
-{
-	struct rds_encoder_state *st = dps->st;
-	int ret = 0;
-	ret = rds_set_ps(st, segment);
-	utils_dbg("[DYNPS] %s, status: %i\n",segment, ret);
-}
-
 static void*
 rds_dynps_consumer_thread(void *arg)
 {
 	struct rds_dynps_state *dps = (struct rds_dynps_state *) arg;
-	char* segment = NULL;
+	char segment[RDS_PS_LENGTH] = {0};
+	int segment_len = 0;
+	int off = 0;
+	int ret = 0;
 
 	while(dps->active) {
 		pthread_mutex_lock(&dps->dynps_proc_mutex);
-		segment = rds_dynps_get_next_str_segment(dps);
-		rds_dynps_update(dps, segment);
+		if(dps->string_len) {
+			if(dps->remaining_len == 0) {
+				ret = rds_set_ps(dps->st, dps->fixed_ps);
+				utils_dbg("[DYNPS] %s, status: %i\n",dps->fixed_ps, ret);
+				dps->remaining_len = dps->string_len;
+				pthread_mutex_unlock(&dps->dynps_proc_mutex);
+				continue;
+			}
+
+			off = dps->string_len - dps->remaining_len;
+			segment_len = (dps->remaining_len >= RDS_PS_LENGTH) ?
+				      RDS_PS_LENGTH : dps->remaining_len;
+			memset(segment, 0, RDS_PS_LENGTH);
+			memcpy(segment, dps->string + off, segment_len);
+
+			ret = rds_set_ps(dps->st, segment);
+			utils_dbg("[DYNPS] %s, status: %i\n",segment, ret);
+
+			if(dps->remaining_len >= RDS_PS_LENGTH)
+				dps->remaining_len -= RDS_PS_LENGTH;
+			else
+				dps->remaining_len = 0;
+		}
 		pthread_mutex_unlock(&dps->dynps_proc_mutex);
-		rds_dynps_sleep(dps);
+		rds_dynpsrt_cond_sleep(&dps->sleep_trig, &dps->sleep_mutex,
+				       DYNPS_DELAY_SECS);
 	}
 
+	utils_dbg("[DYNPS] Consumer terminated\n");
 	return arg;
 }
 
@@ -120,18 +146,27 @@ static void*
 rds_dynps_filemon_thread(void *arg)
 {
 	struct rds_dynps_state *dps = (struct rds_dynps_state *) arg;
+	struct inotify_event *event = (struct inotify_event*) dps->event_buf;
 	char *res = NULL;
 	int ret = 0;
+	int len = 0;
 	FILE *file = NULL;
 
 	while(dps->active) {
 		/* Blocking read until we get an event */
-		if(dps->opened)
-			ret = read(dps->inotify_fd, dps->event_buf, EVENT_LEN);
+		ret = read(dps->inotify_fd, dps->event_buf, EVENT_LEN);
 		if(ret < 0) {
+			if (errno == EINTR)
+				continue;
 			utils_perr("[DYNPS] Failed to read inotify fd, read()");
 			continue;
 		}
+
+		utils_dbg("[DYNPS] filemon unblocked\n");
+
+		/* Got an ignore event, terminate */
+		if(event->mask & IN_IGNORED)
+			break;
 
 		file = fopen(dps->filepath, "r");
 		if(!file) {
@@ -139,42 +174,53 @@ rds_dynps_filemon_thread(void *arg)
 			continue;
 		}
 
-		dps->opened = 1;
-
 		pthread_mutex_lock(&dps->dynps_proc_mutex);
-		res = fgets(dps->string, DYNPS_MAX_CHARS - 1, file);
+		memset(dps->string, 0, DYNPS_MAX_CHARS);
+		res = fgets(dps->string, DYNPS_MAX_CHARS, file);
 		if(!res) {
 			utils_perr("[DYNPS] Failed to get string from file, fgets()");
-			fclose(file);
-			continue;
+			dps->string_len = 0;
+		} else {
+			ret = rds_string_sanitize(dps->string, DYNPS_MAX_CHARS);
+			if(ret > 0) {
+				dps->string_len = ret;
+				dps->remaining_len = ret;
+			} else
+				dps->string_len = 0;
 		}
-		rds_dynps_sanitize(dps);
-		dps->curr_segment = 0;
 		pthread_mutex_unlock(&dps->dynps_proc_mutex);
 		fclose(file);
 	}
 
+	utils_dbg("[DYNPS] Filemon terminated\n");
 	return arg;
 }
 
 void
 rds_dynps_destroy(struct rds_dynps_state *dps)
 {
-	struct rds_encoder_state *st = dps->st;
+	utils_dbg("[DYNPS] Graceful exit\n");
+
 	dps->active = 0;
+
 	pthread_mutex_lock(&dps->sleep_mutex);
 	pthread_cond_signal(&dps->sleep_trig);
 	pthread_mutex_unlock(&dps->sleep_mutex);
+
+	if(dps->dynps_consumer_tid)
+		pthread_join(dps->dynps_consumer_tid, NULL);
+
 	if(dps->inotify_fd && dps->watch_fd)
 		inotify_rm_watch(dps->inotify_fd, dps->watch_fd);
+
 	if(dps->inotify_fd)
 		close(dps->inotify_fd);
-	if(dps->dynps_filemon_tid)
-		pthread_cancel(dps->dynps_filemon_tid);
-	if(dps->dynps_consumer_tid)
-		pthread_cancel(dps->dynps_consumer_tid);
 
-	rds_set_ps(st, dps->fixed_ps);
+	if(dps->dynps_filemon_tid)
+		pthread_join(dps->dynps_filemon_tid, NULL);
+
+	rds_set_ps(dps->st, dps->fixed_ps);
+
 	pthread_mutex_destroy(&dps->dynps_proc_mutex);
 	pthread_mutex_destroy(&dps->sleep_mutex);
 	pthread_cond_destroy(&dps->sleep_trig);
@@ -207,7 +253,7 @@ rds_dynps_init(struct rds_dynps_state *dps, struct rds_encoder_state *st, const 
 	}
 
 	dps->filepath = filepath;
-	dps->watch_fd = inotify_add_watch(dps->inotify_fd, dps->filepath, IN_MODIFY);
+	dps->watch_fd = inotify_add_watch(dps->inotify_fd, dps->filepath, IN_MODIFY | IN_IGNORED);
 	if(dps->watch_fd < 0) {
 		utils_perr("[DYNPS] Unable to add inotify watch, inotify_add_watch()");
 		ret = -3;
@@ -227,7 +273,7 @@ rds_dynps_init(struct rds_dynps_state *dps, struct rds_encoder_state *st, const 
 			     rds_dynps_consumer_thread, (void*) dps);
 	if(ret != 0) {
 		utils_err("[DYNPS] Unable to create file monitor thread, pthred_create(): %d", ret);
-		ret = -4;
+		ret = -5;
 		goto cleanup;
 	}
 
@@ -243,58 +289,29 @@ rds_dynps_init(struct rds_dynps_state *dps, struct rds_encoder_state *st, const 
 * DYNAMIC RadioText *
 \*******************/
 
-static void
-rds_dynrt_sanitize(struct rds_dynrt_state *drt)
-{
-	/* TODO: Maybe clean up symbols, dots etc */
-	drt->no_segments = (strnlen(drt->string, DYNRT_MAX_CHARS)  + 7) / RDS_RT_LENGTH;
-	return;
-}
-
-static char*
-rds_dynrt_get_next_str_segment(struct rds_dynrt_state *drt)
-{
-	static char segment[RDS_RT_LENGTH + 1] = {0};
-
-	if(drt->curr_segment + 1 > drt->no_segments)
-		drt->curr_segment = 0;
-
-	strncpy(segment, drt->string + (drt->curr_segment * RDS_RT_LENGTH),
-		RDS_RT_LENGTH);
-	drt->curr_segment++;
-
-	return segment;
-}
-
-static void
-rds_dynrt_sleep(struct rds_dynrt_state *drt)
-{
-	rds_dynpsrt_cond_sleep(&drt->sleep_trig, &drt->sleep_mutex, DYNRT_DELAY_SECS);
-}
-
-static void
-rds_dynrt_update(struct rds_dynrt_state *drt, const char* segment)
-{
-	struct rds_encoder_state *st = drt->st;
-	int ret = 0;
-	ret = rds_set_rt(st, segment, 1);
-	utils_dbg("[DYNRT] %s, status: %i\n",segment, ret);
-}
-
 static void*
 rds_dynrt_consumer_thread(void *arg)
 {
 	struct rds_dynrt_state *drt = (struct rds_dynrt_state *) arg;
-	char* segment = NULL;
+	int ret = 0;
 
 	while(drt->active) {
 		pthread_mutex_lock(&drt->dynrt_proc_mutex);
-		segment = rds_dynrt_get_next_str_segment(drt);
-		rds_dynrt_update(drt, segment);
+		if(drt->num_segments) {
+			/* Just rotate between the segments, ignore fixed_rt */
+			if(drt->curr_segment >= drt->num_segments)
+				drt->curr_segment = 0;
+			ret = rds_set_rt(drt->st, drt->rt_segments[drt->curr_segment], 1);
+			utils_dbg("[DYNRT] %s, status: %i\n",
+				  drt->rt_segments[drt->curr_segment], ret);
+			drt->curr_segment++;
+		}
 		pthread_mutex_unlock(&drt->dynrt_proc_mutex);
-		rds_dynrt_sleep(drt);
+		rds_dynpsrt_cond_sleep(&drt->sleep_trig, &drt->sleep_mutex,
+				       DYNPS_DELAY_SECS);
 	}
 
+	utils_dbg("[DYNRT] Consumer terminated\n");
 	return arg;
 }
 
@@ -302,61 +319,102 @@ static void*
 rds_dynrt_filemon_thread(void *arg)
 {
 	struct rds_dynrt_state *drt = (struct rds_dynrt_state *) arg;
+	struct inotify_event *event = (struct inotify_event*) drt->event_buf;
 	char *res = NULL;
 	int ret = 0;
+	size_t len = 0;
 	FILE *file = NULL;
+	int i = 0;
 
 	while(drt->active) {
 		/* Blocking read until we get an event */
-		if(drt->opened)
-			ret = read(drt->inotify_fd, drt->event_buf, EVENT_LEN);
+		ret = read(drt->inotify_fd, drt->event_buf, EVENT_LEN);
 		if(ret < 0) {
+			if (errno == EINTR)
+				continue;
 			utils_perr("[DYNRT] Failed to read inotify fd, read()");
 			continue;
 		}
 
+		utils_dbg("[DYNRT] filemon unblocked\n");
+
+		/* Got an ignore event, terminate */
+		if(event->mask & IN_IGNORED)
+			break;
+
 		file = fopen(drt->filepath, "r");
 		if(!file) {
-			utils_perr("[DYNRT] Failed to open %s for reading PS, fopen()");
+			utils_perr("[DYNRT] Failed to open %s for reading RT segments, fopen()");
 			continue;
 		}
-
-		drt->opened = 1;
 
 		pthread_mutex_lock(&drt->dynrt_proc_mutex);
-		res = fgets(drt->string, DYNRT_MAX_CHARS - 1, file);
-		if(!res) {
-			utils_perr("[DYNRT] Failed to get string from file, fgets()");
-			fclose(file);
-			continue;
+		drt->num_segments = 0;
+		for(i = 0; i < DYNRT_MAX_SEGMENTS; i++) {
+			ret = getline(&res, &len, file);
+			if(ret > RDS_RT_LENGTH) {
+				utils_wrn("[DYNRT] Ignoring line longer than 64 chars\n");
+				break;
+			} else if(ret < 0) {
+				if(errno)
+					utils_perr("[DYNRT] Failed to read from file, getline()");
+				else if(i == 0)
+					utils_wrn("[DYNRT] Failed to read any lines from file\n");
+				else
+					utils_dbg("[DYNRT] Got %u lines from file\n", i);
+				break;
+			}
+
+			ret = rds_string_sanitize(res, len);
+			if(ret < 0) {
+				utils_wrn("[DYNRT] Malformed string, error: %i\n", ret);
+				break;
+			}
+
+			memset(drt->rt_segments[drt->num_segments], 0, RDS_RT_LENGTH + 1);
+			strncpy(drt->rt_segments[drt->num_segments], res, ret);
+			drt->num_segments++;
 		}
-		rds_dynrt_sanitize(drt);
-		drt->curr_segment = 0;
 		pthread_mutex_unlock(&drt->dynrt_proc_mutex);
 		fclose(file);
+
+		/* If we didn't get anything, fallback to fixed_rt */
+		if(drt->num_segments == 0) {
+			ret = rds_set_rt(drt->st, drt->fixed_rt, 1);
+			utils_dbg("[DYNRT] %s, status: %i (fallback)\n", drt->fixed_rt, ret);
+		}
 	}
 
+	free(res);
+	utils_dbg("[DYNRT] Filemon terminated\n");
 	return arg;
 }
 
 void
 rds_dynrt_destroy(struct rds_dynrt_state *drt)
 {
-	struct rds_encoder_state *st = drt->st;
+	utils_dbg("[DYNRT] Graceful exit\n");
+
 	drt->active = 0;
+
 	pthread_mutex_lock(&drt->sleep_mutex);
 	pthread_cond_signal(&drt->sleep_trig);
 	pthread_mutex_unlock(&drt->sleep_mutex);
+
+	if(drt->dynrt_consumer_tid)
+		pthread_join(drt->dynrt_consumer_tid, NULL);
+
 	if(drt->inotify_fd && drt->watch_fd)
 		inotify_rm_watch(drt->inotify_fd, drt->watch_fd);
+
 	if(drt->inotify_fd)
 		close(drt->inotify_fd);
-	if(drt->dynrt_filemon_tid)
-		pthread_cancel(drt->dynrt_filemon_tid);
-	if(drt->dynrt_consumer_tid)
-		pthread_cancel(drt->dynrt_consumer_tid);
 
-	rds_set_rt(st, drt->fixed_rt, 1);
+	if(drt->dynrt_filemon_tid)
+		pthread_join(drt->dynrt_filemon_tid, NULL);
+
+	rds_set_rt(drt->st, drt->fixed_rt, 1);
+
 	pthread_mutex_destroy(&drt->dynrt_proc_mutex);
 	pthread_mutex_destroy(&drt->sleep_mutex);
 	pthread_cond_destroy(&drt->sleep_trig);
@@ -389,7 +447,7 @@ rds_dynrt_init(struct rds_dynrt_state *drt, struct rds_encoder_state *st, const 
 	}
 
 	drt->filepath = filepath;
-	drt->watch_fd = inotify_add_watch(drt->inotify_fd, drt->filepath, IN_MODIFY);
+	drt->watch_fd = inotify_add_watch(drt->inotify_fd, drt->filepath, IN_MODIFY | IN_IGNORED);
 	if(drt->watch_fd < 0) {
 		utils_perr("[DYNRT] Unable to add inotify watch, inotify_add_watch()");
 		ret = -3;
@@ -409,7 +467,7 @@ rds_dynrt_init(struct rds_dynrt_state *drt, struct rds_encoder_state *st, const 
 			     rds_dynrt_consumer_thread, (void*) drt);
 	if(ret != 0) {
 		utils_err("[DYNRT] Unable to create file monitor thread, pthred_create(): %d", ret);
-		ret = -4;
+		ret = -5;
 		goto cleanup;
 	}
 

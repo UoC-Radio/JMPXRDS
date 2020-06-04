@@ -242,7 +242,7 @@ class jmpxrds_rx(grc_wxgui.top_block_gui):
         self.blocks_complex_to_real_0_0 = blocks.complex_to_real(1)
         self.blocks_complex_to_real_0 = blocks.complex_to_real(1)
         self.blocks_add_xx_0 = blocks.add_vff(1)
-        self.audio_sink_0 = audio.sink(audio_samp_rate, '', False)
+        self.audio_sink_0 = audio.sink(audio_samp_rate, '', True)
         self.analog_frequency_modulator_fc_0 = analog.frequency_modulator_fc(1)
         self.analog_fm_deemph_0_0_0 = analog.fm_deemph(fs=mpx_samp_rate, tau=50e-6)
         self.analog_fm_deemph_0_0 = analog.fm_deemph(fs=mpx_samp_rate, tau=50e-6)
