@@ -101,7 +101,7 @@ osc_increase_phase(struct osc_state *osc)
  *				at the current phase.
  */
 float
-osc_get_sample_for_freq(struct osc_state *osc, float freq)
+osc_get_sample_for_freq(const struct osc_state *osc, float freq)
 {
 	double phase = osc->current_phase * (double) freq;
 

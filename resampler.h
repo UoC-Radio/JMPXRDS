@@ -59,8 +59,8 @@ int resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 int resampler_upsample_audio(struct resampler_data *rsmpl, const float *in_l,
 			     const float *in_r, float *out_l, float *out_r,
 			     uint32_t inframes, uint32_t outframes);
-int resampler_upsample_rds(struct resampler_data *rsmpl, const float *in, float *out,
+int resampler_upsample_rds(const struct resampler_data *rsmpl, const float *in, float *out,
 			   uint32_t inframes, uint32_t outframes);
-int resampler_downsample_mpx(struct resampler_data *rsmpl, const float *in,
+int resampler_downsample_mpx(const struct resampler_data *rsmpl, const float *in,
 			     float *out, uint32_t inframes, uint32_t outframes);
 void resampler_destroy(struct resampler_data *rsmpl);

@@ -260,7 +260,7 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, const float* lpr,
 	struct osc_state *cos_osc = &fmmod->cos_osc;
 	const struct fmmod_control *ctl = fmmod->ctl;
 	struct fmmod_flts *flts = &fmmod->flts;
-	struct hilbert_transformer_data *ht = &flts->ht;
+	const struct hilbert_transformer_data *ht = &flts->ht;
 	float carrier_freq = 38000.0;
 	int i = 0;
 
@@ -648,7 +648,7 @@ fmmod_init_locks(struct fmmod_instance *fmmod)
 }
 
 static void
-fmmod_free_buffers(struct fmmod_instance *fmmod)
+fmmod_free_buffers(const struct fmmod_instance *fmmod)
 {
 	if (fmmod->inbuf_l != NULL)
 		free(fmmod->inbuf_l);
@@ -872,7 +872,7 @@ fmmod_init_outsock(void)
 }
 
 static void
-fmmod_outsock_destroy(struct fmmod_instance *fmmod)
+fmmod_outsock_destroy(const struct fmmod_instance *fmmod)
 {
 	uint32_t uid = 0;
 	char sock_path[32] = { 0 };

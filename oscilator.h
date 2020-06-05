@@ -60,7 +60,7 @@ struct osc_state {
 int osc_initialize(struct osc_state *, uint32_t, int);
 void osc_increase_phase(struct osc_state *);
 void osc_shift_90deg(struct osc_state *sinwg);
-float osc_get_sample_for_freq(struct osc_state *osc, float freq);
+float osc_get_sample_for_freq(const struct osc_state *osc, float freq);
 float osc_get_19Khz_sample(struct osc_state *);
 float osc_get_38Khz_sample(struct osc_state *);
 float osc_get_57Khz_sample(struct osc_state *);

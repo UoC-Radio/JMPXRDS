@@ -491,7 +491,7 @@ rds_generate_group_15(const struct rds_encoder *enc, struct rds_group *group,
 /* Wrapper to handle common group characteristics and call
  * the propper group-specific function */
 static int
-rds_generate_group(struct rds_encoder *enc, struct rds_group *group,
+rds_generate_group(const struct rds_encoder *enc, struct rds_group *group,
 		   uint8_t code, uint8_t version)
 {
 	const struct rds_encoder_state *st = enc->state;
@@ -704,7 +704,7 @@ rds_main_loop(void *arg)
 float
 rds_get_next_sample(struct rds_encoder *enc)
 {
-	struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
+	const struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
 	const struct rds_encoder_state *st = enc->state;
 	static int samples_out = 0;
 	float out = 0;
@@ -828,13 +828,12 @@ rds_encoder_destroy(struct rds_encoder *enc)
 	/* Trigger main loop so that it gets un-stuck and
 	 * can properly exit */
 	pthread_cond_signal(&enc->rds_process_trigger);
-	pthread_mutex_lock(&enc->rds_process_mutex);
+	if(enc->tid)
+		pthread_join(enc->tid, NULL);
 
  inactive:
 	/* Cleanup */
 	utils_shm_destroy(enc->state_map, 1);
-
-	pthread_mutex_unlock(&enc->rds_process_mutex);
 	pthread_mutex_destroy(&enc->rds_process_mutex);
 	pthread_cond_destroy(&enc->rds_process_trigger);
 

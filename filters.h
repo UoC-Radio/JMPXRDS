@@ -56,9 +56,9 @@ struct lpf_filter_data {
 #define	AFLT_LPF_OVERLAP_FACTOR 3
 #define SSB_LPF_OVERLAP_FACTOR 3
 
-void lpf_filter_destroy(struct lpf_filter_data *);
+void lpf_filter_destroy(const struct lpf_filter_data *);
 int lpf_filter_init(struct lpf_filter_data *, uint32_t, uint32_t, uint16_t, uint8_t);
-int lpf_filter_apply(struct lpf_filter_data *, const float*, float*, uint16_t, float);
+int lpf_filter_apply(const struct lpf_filter_data *, const float*, float*, uint16_t, float);
 
 
 /* FM Preemphasis IIR filter */
@@ -97,5 +97,5 @@ struct hilbert_transformer_data {
 };
 
 int hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t);
-void hilbert_transformer_destroy(struct hilbert_transformer_data *ht);
-int hilbert_transformer_apply(struct hilbert_transformer_data *ht, const float *, uint16_t);
+void hilbert_transformer_destroy(const struct hilbert_transformer_data *ht);
+int hilbert_transformer_apply(const struct hilbert_transformer_data *ht, const float *, uint16_t);

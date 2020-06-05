@@ -40,7 +40,7 @@ main(int argc, char *argv[])
 {
 	union sigval value;
 	struct shm_mapping *shmem = NULL;
-	struct rtp_server_control *ctl = NULL;
+	const struct rtp_server_control *ctl = NULL;
 	struct in_addr ipv4addr = { 0 };
 	int opt = 0;
 	int ret = 0;

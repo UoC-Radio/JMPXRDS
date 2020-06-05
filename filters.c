@@ -227,7 +227,7 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
 \*****************************/
 
 void
-lpf_filter_destroy(struct lpf_filter_data *lpf)
+lpf_filter_destroy(const struct lpf_filter_data *lpf)
 {
 	if(lpf->filter_resp)
 		fftwf_free(lpf->filter_resp);
@@ -331,7 +331,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 }
 
 int
-lpf_filter_apply(struct lpf_filter_data *lpf, const float *in, float *out,
+lpf_filter_apply(const struct lpf_filter_data *lpf, const float *in, float *out,
 		 uint16_t num_samples, float gain)
 {
 	float ratio = 0.0;
@@ -408,7 +408,7 @@ lpf_filter_apply(struct lpf_filter_data *lpf, const float *in, float *out,
  */
 
 void
-hilbert_transformer_destroy(struct hilbert_transformer_data *ht)
+hilbert_transformer_destroy(const struct hilbert_transformer_data *ht)
 {
 	if(ht->real_buff)
 		fftwf_free(ht->real_buff);
@@ -468,7 +468,7 @@ hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 }
 
 int
-hilbert_transformer_apply(struct hilbert_transformer_data *ht, const float *in,
+hilbert_transformer_apply(const struct hilbert_transformer_data *ht, const float *in,
 			  uint16_t num_samples)
 {
 	float ratio = 0.0;

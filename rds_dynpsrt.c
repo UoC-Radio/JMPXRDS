@@ -51,8 +51,8 @@ rds_string_sanitize(char *string, size_t max_len)
 	int i = 1;
 	int off = 0;
 
-	/* Empty string ? */
-	if(len == 0)
+	/* Sanity check */
+	if(len <= 0)
 		return -1;
 
 	/* Trim trailing white space */
@@ -66,7 +66,7 @@ rds_string_sanitize(char *string, size_t max_len)
 		return -2;
 
 	/* Trim leading white space */
-	while(isspace(string[off]) && off < len)
+	while(isspace(string[off]) && off < len - 1)
 		off++;
 
 	/* Move the string in place */
@@ -146,10 +146,9 @@ static void*
 rds_dynps_filemon_thread(void *arg)
 {
 	struct rds_dynps_state *dps = (struct rds_dynps_state *) arg;
-	struct inotify_event *event = (struct inotify_event*) dps->event_buf;
-	char *res = NULL;
+	const struct inotify_event *event = (struct inotify_event*) dps->event_buf;
+	const char *res = NULL;
 	int ret = 0;
-	int len = 0;
 	FILE *file = NULL;
 
 	while(dps->active) {
@@ -319,7 +318,7 @@ static void*
 rds_dynrt_filemon_thread(void *arg)
 {
 	struct rds_dynrt_state *drt = (struct rds_dynrt_state *) arg;
-	struct inotify_event *event = (struct inotify_event*) drt->event_buf;
+	const struct inotify_event *event = (struct inotify_event*) drt->event_buf;
 	char *res = NULL;
 	int ret = 0;
 	size_t len = 0;

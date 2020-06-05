@@ -221,7 +221,7 @@ rtp_server_send_buffer(const struct rtp_server *rtpsrv, const float *buff,
 	GST_BUFFER_FLAG_SET(gstbuff, GST_BUFFER_FLAG_LIVE);
 
 	/* Push the buffer to the pipeline through appsrc */
-	ret = gst_app_src_push_buffer(GST_APP_SRC(rtpsrv->appsrc), gstbuff);
+	gst_app_src_push_buffer(GST_APP_SRC(rtpsrv->appsrc), gstbuff);
 
 	/* Ignore any errors for now */
 	return;
