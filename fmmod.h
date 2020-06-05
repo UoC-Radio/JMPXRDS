@@ -134,7 +134,7 @@ struct fmmod_instance {
 	struct fmmod_control *ctl;
 };
 
-typedef int (*mpx_generator) (struct fmmod_instance *, float*, float*, int, float*);
+typedef int (*mpx_generator) (struct fmmod_instance *, const float*, const float*, int, float*);
 
 int fmmod_initialize(struct fmmod_instance *fmmod);
 void fmmod_destroy(struct fmmod_instance *fmmod, int shutdown);

@@ -61,11 +61,11 @@ int rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
 static gboolean
 rtp_server_update_stats(gpointer user_data)
 {
-	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
+	const struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
 	struct rtp_server_control *ctl = rtpsrv->ctl;
 	struct in_addr ipv4addr = { 0 };
 	gchar *clients = NULL;
-	char *token = NULL;
+	const char *token = NULL;
 	char *str_ptr = NULL;
 	char *delim_ptr = NULL;
 	int i = 0;
@@ -143,7 +143,7 @@ rtp_server_request_pt_map_cb(__attribute__((unused)) GstElement *rtpbin,
 			     __attribute__((unused)) guint session,
 			     guint pt, gpointer user_data)
 {
-	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
+	const struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
 	GstCaps *caps = NULL;
 	if (pt == 96)
 		caps = gst_app_src_get_caps(GST_APP_SRC(rtpsrv->appsrc));
@@ -155,7 +155,8 @@ rtp_server_request_aux_sender_cb(__attribute__((unused)) GstElement *rtpbin,
 				 guint sessid,
 				 __attribute__((unused)) gpointer user_data)
 {
-	GstElement *rtx, *bin;
+	GstElement *rtx;
+	GstElement *bin;
 	GstPad *pad;
 	gchar *name;
 	GstStructure *pt_map;
@@ -184,7 +185,8 @@ rtp_server_request_aux_sender_cb(__attribute__((unused)) GstElement *rtpbin,
 }
 
 void
-rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff, int num_samples)
+rtp_server_send_buffer(const struct rtp_server *rtpsrv, const float *buff,
+		       int num_samples)
 {
 	GstBuffer *gstbuff = NULL;
 	GstFlowReturn ret = GST_FLOW_OK;
@@ -232,7 +234,7 @@ rtp_server_add_receiver(int addr)
 	char *ipv4string;
 	struct in_addr ipv4addr = { 0 };
 	struct shm_mapping *shmem = NULL;
-	struct rtp_server_control *ctl = NULL;
+	const struct rtp_server_control *ctl = NULL;
 	struct rtp_server *rtpsrv = NULL;
 	gchar *clients = NULL;
 	int rtpsinkok = 0;
@@ -293,7 +295,7 @@ rtp_server_remove_receiver(int addr)
 	char *ipv4string;
 	struct in_addr ipv4addr = { 0 };
 	struct shm_mapping *shmem = NULL;
-	struct rtp_server_control *ctl = NULL;
+	const struct rtp_server_control *ctl = NULL;
 	struct rtp_server *rtpsrv = NULL;
 	gchar *clients = NULL;
 	int rtpsinkok = 0;

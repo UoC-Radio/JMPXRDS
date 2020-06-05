@@ -182,31 +182,31 @@ void rds_encoder_destroy(struct rds_encoder *enc);
 float rds_get_next_sample(struct rds_encoder *enc);
 
 /* Getters/Setters */
-uint16_t rds_get_pi(struct rds_encoder_state *st);
+uint16_t rds_get_pi(const struct rds_encoder_state *st);
 int rds_set_pi(struct rds_encoder_state *st, uint16_t pi);
-uint8_t rds_get_ecc(struct rds_encoder_state *st);
+uint8_t rds_get_ecc(const struct rds_encoder_state *st);
 int rds_set_ecc(struct rds_encoder_state *st, uint8_t ecc);
-uint16_t rds_get_lic(struct rds_encoder_state *st);
+uint16_t rds_get_lic(const struct rds_encoder_state *st);
 int rds_set_lic(struct rds_encoder_state *st, uint16_t lic);
-uint8_t rds_get_pty(struct rds_encoder_state *st);
+uint8_t rds_get_pty(const struct rds_encoder_state *st);
 int rds_set_pty(struct rds_encoder_state *st, uint8_t pty);
-uint8_t rds_get_ta(struct rds_encoder_state *st);
+uint8_t rds_get_ta(const struct rds_encoder_state *st);
 int rds_set_ta(struct rds_encoder_state *st, uint8_t ta);
-uint8_t rds_get_tp(struct rds_encoder_state * st);
+uint8_t rds_get_tp(const struct rds_encoder_state * st);
 int rds_set_tp(struct rds_encoder_state *st, uint8_t tp);
-uint8_t rds_get_ms(struct rds_encoder_state *st);
+uint8_t rds_get_ms(const struct rds_encoder_state *st);
 int rds_set_ms(struct rds_encoder_state *st, uint8_t ms);
-uint8_t rds_get_di(struct rds_encoder_state *st);
+uint8_t rds_get_di(const struct rds_encoder_state *st);
 int rds_set_di(struct rds_encoder_state *st, uint8_t di);
-char *rds_get_ps(struct rds_encoder_state *st);
+char *rds_get_ps(const struct rds_encoder_state *st);
 int rds_set_ps(struct rds_encoder_state *st, const char *ps);
-char *rds_get_ptyn(struct rds_encoder_state *st);
+char *rds_get_ptyn(const struct rds_encoder_state *st);
 int rds_set_ptyn(struct rds_encoder_state *st, const char *ptyn);
-char *rds_get_rt(struct rds_encoder_state *st);
+char *rds_get_rt(const struct rds_encoder_state *st);
 int rds_set_rt(struct rds_encoder_state *st, const char *rt, int flush);
 
 /* Abstract getter/setter for bit fields */
-typedef uint8_t (*rds_bf_getter) (struct rds_encoder_state *);
+typedef uint8_t (*rds_bf_getter) (const struct rds_encoder_state *);
 typedef int (*rds_bf_setter) (struct rds_encoder_state *, uint8_t);
 
 /* Dynamic PS */

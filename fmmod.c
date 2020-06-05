@@ -50,7 +50,7 @@ num_resampled_samples(int in_srate, int out_srate, int num_samples)
 
 
 static int
-write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
+write_to_sock(struct fmmod_instance *fmmod, const float *samples, int num_samples)
 {
 	char sock_path[32] = { 0 };
 	int uid = 0;
@@ -94,12 +94,12 @@ write_to_sock(struct fmmod_instance *fmmod, float *samples, int num_samples)
  * available
  */
 static int
-fmmod_mono_generator(struct fmmod_instance *fmmod, float* lpr,
-		     __attribute__((unused)) float* lmr,
+fmmod_mono_generator(struct fmmod_instance *fmmod, const float* lpr,
+		     __attribute__((unused)) const float* lmr,
 		     int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
-	struct fmmod_control *ctl = fmmod->ctl;
+	const struct fmmod_control *ctl = fmmod->ctl;
 	int i = 0;
 
 	/* No stereo pilot / subcarrier */
@@ -127,11 +127,11 @@ fmmod_mono_generator(struct fmmod_instance *fmmod, float* lpr,
  * at 38KHz (twice the pilot's frequency)
  */
 static int
-fmmod_dsb_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-		    int num_samples, float* out)
+fmmod_dsb_generator(struct fmmod_instance *fmmod, const float* lpr,
+		    const float* lmr, int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
-	struct fmmod_control *ctl = fmmod->ctl;
+	const struct fmmod_control *ctl = fmmod->ctl;
 	int i = 0;
 
 	for(i = 0; i < num_samples; i++) {
@@ -184,11 +184,11 @@ fmmod_dsb_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
  * the carrier (the upper side band).
  */
 static int
-fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-			int num_samples, float* out)
+fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, const float* lpr,
+			const float* lmr, int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
-	struct fmmod_control *ctl = fmmod->ctl;
+	const struct fmmod_control *ctl = fmmod->ctl;
 	struct fmmod_flts *flts = &fmmod->flts;
 	double saved_phase = 0.0L;
 	int i = 0;
@@ -253,12 +253,12 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
  * http://dp.nonoo.hu/projects/ham-dsp-tutorial/09-ssb-hartley/
  */
 static int
-fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr,
-			   int num_samples, float* out)
+fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, const float* lpr,
+			   const float* lmr, int num_samples, float* out)
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
-	struct fmmod_control *ctl = fmmod->ctl;
+	const struct fmmod_control *ctl = fmmod->ctl;
 	struct fmmod_flts *flts = &fmmod->flts;
 	struct hilbert_transformer_data *ht = &flts->ht;
 	float carrier_freq = 38000.0;
@@ -267,7 +267,7 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, float* lpr, float* lmr
 	/* Phase shift L-R by 90deg using the Hilbert transformer */
 	hilbert_transformer_apply(&flts->ht, lmr, num_samples);
 
-	/* Now shifted L+R signal is in ht->real_buff */
+	/* Now shifted L-R signal is in ht->real_buff */
 
 	for(i = 0; i < num_samples; i++) {
 		/* Phase lock the ssb oscilator to the master
@@ -480,8 +480,8 @@ fmmod_process_cb(jack_nframes_t num_samples, void *arg)
 	struct fmmod_instance *fmmod = (struct fmmod_instance *)arg;
 	struct fmmod_flts *flts = &fmmod->flts;
 	struct fmmod_control *ctl = fmmod->ctl;
-	jack_default_audio_sample_t *left_in = NULL;
-	jack_default_audio_sample_t *right_in = NULL;
+	const jack_default_audio_sample_t *left_in = NULL;
+	const jack_default_audio_sample_t *right_in = NULL;
 	float tmp_gain_l = 0.0;
 	float tmp_gain_r = 0.0;
 	int i = 0;
@@ -852,7 +852,7 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 }
 
 static int
-fmmod_init_outsock(struct fmmod_instance *fmmod)
+fmmod_init_outsock(void)
 {
 	uint32_t uid = 0;
 	char sock_path[32] = { 0 };
@@ -984,7 +984,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	}
 
 	/* Initialize output socket */
-	ret = fmmod_init_outsock(fmmod);
+	ret = fmmod_init_outsock();
 	if (ret < 0)
 		goto cleanup;
 
@@ -1044,8 +1044,6 @@ void
 fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 {
 	struct fmmod_flts *flts = &fmmod->flts;
-	char sock_path[32] = { 0 };
-	int uid = 0;
 
 	if (!shutdown) {
 		utils_dbg("[FMMOD] graceful exit\n");

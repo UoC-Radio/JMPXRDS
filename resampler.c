@@ -117,7 +117,7 @@ resampler_init_upsampler_threads(struct resampler_data *rsmpl)
 /* Upsample audio to the main oscilator's sampling rate */
 int
 resampler_upsample_audio(struct resampler_data *rsmpl,
-			 float *in_l, float *in_r,
+			 const float *in_l, const float *in_r,
 			 float *out_l, float *out_r,
 			 uint32_t inframes, uint32_t outframes)
 {
@@ -182,7 +182,7 @@ resampler_upsample_audio(struct resampler_data *rsmpl,
 
 /* Upsample RDS waveform to the main oscilator's sampling rate */
 int
-resampler_upsample_rds(struct resampler_data *rsmpl, float *in, float *out,
+resampler_upsample_rds(struct resampler_data *rsmpl, const float *in, float *out,
 		       uint32_t inframes, uint32_t outframes)
 {
 	soxr_error_t error;
@@ -199,7 +199,7 @@ resampler_upsample_rds(struct resampler_data *rsmpl, float *in, float *out,
 
 /* Downsample MPX signal to JACK's sample rate */
 int
-resampler_downsample_mpx(struct resampler_data *rsmpl, float *in, float *out,
+resampler_downsample_mpx(struct resampler_data *rsmpl, const float *in, float *out,
 			 uint32_t inframes, uint32_t outframes)
 {
 	soxr_error_t error;

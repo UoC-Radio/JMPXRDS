@@ -22,7 +22,7 @@
 #include <string.h>		/* For memset/memcpy/strnlen */
 
 uint16_t
-rds_get_pi(struct rds_encoder_state *st)
+rds_get_pi(const struct rds_encoder_state *st)
 {
 	if (st == NULL)
 		return -1;
@@ -39,7 +39,7 @@ rds_set_pi(struct rds_encoder_state *st, uint16_t pi)
 }
 
 uint8_t
-rds_get_ecc(struct rds_encoder_state * st)
+rds_get_ecc(const struct rds_encoder_state * st)
 {
 	if (st == NULL)
 		return 0;
@@ -63,7 +63,7 @@ rds_set_ecc(struct rds_encoder_state *st, uint8_t ecc)
 }
 
 uint16_t
-rds_get_lic(struct rds_encoder_state * st)
+rds_get_lic(const struct rds_encoder_state * st)
 {
 	if (st == NULL)
 		return 0;
@@ -87,7 +87,7 @@ rds_set_lic(struct rds_encoder_state *st, uint16_t lic)
 }
 
 uint8_t
-rds_get_pty(struct rds_encoder_state * st)
+rds_get_pty(const struct rds_encoder_state * st)
 {
 	return st->pty;
 }
@@ -106,7 +106,7 @@ rds_set_pty(struct rds_encoder_state *st, uint8_t pty)
 }
 
 uint8_t
-rds_get_ta(struct rds_encoder_state * st)
+rds_get_ta(const struct rds_encoder_state * st)
 {
 	if (st == NULL)
 		return 0;
@@ -123,7 +123,7 @@ rds_set_ta(struct rds_encoder_state *st, uint8_t ta)
 }
 
 uint8_t
-rds_get_tp(struct rds_encoder_state * st)
+rds_get_tp(const struct rds_encoder_state * st)
 {
 	if (st == NULL)
 		return 0;
@@ -140,7 +140,7 @@ rds_set_tp(struct rds_encoder_state *st, uint8_t tp)
 }
 
 uint8_t
-rds_get_ms(struct rds_encoder_state * st)
+rds_get_ms(const struct rds_encoder_state * st)
 {
 	if (st == NULL)
 		return 0;
@@ -157,7 +157,7 @@ rds_set_ms(struct rds_encoder_state *st, uint8_t ms)
 }
 
 uint8_t
-rds_get_di(struct rds_encoder_state * st)
+rds_get_di(const struct rds_encoder_state * st)
 {
 	if (st == NULL)
 		return 0;
@@ -175,7 +175,7 @@ rds_set_di(struct rds_encoder_state *st, uint8_t di)
 }
 
 char *
-rds_get_ps(struct rds_encoder_state *st)
+rds_get_ps(const struct rds_encoder_state *st)
 {
 	static char ps[RDS_PS_LENGTH + 1];
 	if (st == NULL)
@@ -218,7 +218,7 @@ rds_set_ps(struct rds_encoder_state *st, const char *ps)
 }
 
 char *
-rds_get_ptyn(struct rds_encoder_state *st)
+rds_get_ptyn(const struct rds_encoder_state *st)
 {
 	static char ptyn[RDS_PTYN_LENGTH + 1];
 	if (st == NULL || !st->ptyn_set)
@@ -268,7 +268,7 @@ rds_set_ptyn(struct rds_encoder_state *st, const char *ptyn)
 }
 
 char *
-rds_get_rt(struct rds_encoder_state *st)
+rds_get_rt(const struct rds_encoder_state *st)
 {
 	static char rt[RDS_RT_LENGTH + 1];
 

@@ -74,7 +74,7 @@ struct rtp_server_control {
 
 int rtp_server_add_receiver(int addr);
 int rtp_server_remove_receiver(int addr);
-void rtp_server_send_buffer(struct rtp_server *rtpsrv, float *buff,
+void rtp_server_send_buffer(const struct rtp_server *rtpsrv, const float *buff,
 			    int num_samples);
 void rtp_server_destroy(struct rtp_server *rtpsrv);
 int rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,

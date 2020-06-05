@@ -218,7 +218,7 @@ rds_generate_group_samples(struct rds_group *group)
 /* Group 0A/0B: Basic tuning and switching information
  * (Section 6.1.5.1) */
 static int
-rds_generate_group_0(struct rds_encoder *enc, struct rds_group *group,
+rds_generate_group_0(const struct rds_encoder *enc, struct rds_group *group,
 		     uint8_t version)
 {
 	struct rds_encoder_state *st = enc->state;
@@ -265,10 +265,10 @@ rds_generate_group_0(struct rds_encoder *enc, struct rds_group *group,
 /* Group 1A/B PIN and Slow labeling codes
  * (Section 6.1.5.2) */
 static int
-rds_generate_group_1(struct rds_encoder *enc, struct rds_group *group,
+rds_generate_group_1(const struct rds_encoder *enc, struct rds_group *group,
 		     uint8_t version)
 {
-	struct rds_encoder_state *st = enc->state;
+	const struct rds_encoder_state *st = enc->state;
 	static int vcode = 0;
 
 	/*
@@ -298,7 +298,7 @@ rds_generate_group_1(struct rds_encoder *enc, struct rds_group *group,
 /* Group 2A/2B: RadioText
  * (Section 6.1.5.3) */
 static int
-rds_generate_group_2(struct rds_encoder *enc, struct rds_group *group,
+rds_generate_group_2(const struct rds_encoder *enc, struct rds_group *group,
 		     uint8_t version)
 {
 	struct rds_encoder_state *st = enc->state;
@@ -349,7 +349,7 @@ rds_generate_group_2(struct rds_encoder *enc, struct rds_group *group,
 /* Group 4A: Clock-time and date
  * (Section 6.1.5.6) */
 static int
-rds_generate_group_4(__attribute__((unused)) struct rds_encoder *enc,
+rds_generate_group_4(__attribute__((unused)) const struct rds_encoder *enc,
 		     struct rds_group *group, uint8_t version)
 {
 	struct tm utc;
@@ -417,7 +417,7 @@ rds_generate_group_4(__attribute__((unused)) struct rds_encoder *enc,
 /* Group 10A: Programme type name (PTYN)
  * (Section 6.1.5.14) */
 static int
-rds_generate_group_10(struct rds_encoder *enc, struct rds_group *group,
+rds_generate_group_10(const struct rds_encoder *enc, struct rds_group *group,
 		      uint8_t version)
 {
 	struct rds_encoder_state *st = enc->state;
@@ -453,7 +453,7 @@ rds_generate_group_10(struct rds_encoder *enc, struct rds_group *group,
 /* Group 15B: Fast basic tuning and switching information
  * (Section 6.1.5.21) */
 static int
-rds_generate_group_15(struct rds_encoder *enc, struct rds_group *group,
+rds_generate_group_15(const struct rds_encoder *enc, struct rds_group *group,
 		      uint8_t version)
 {
 	struct rds_encoder_state *st = enc->state;
@@ -494,7 +494,7 @@ static int
 rds_generate_group(struct rds_encoder *enc, struct rds_group *group,
 		   uint8_t code, uint8_t version)
 {
-	struct rds_encoder_state *st = enc->state;
+	const struct rds_encoder_state *st = enc->state;
 	int i = 0;
 	int ret = 0;
 
@@ -564,7 +564,7 @@ rds_generate_group(struct rds_encoder *enc, struct rds_group *group,
 static int
 rds_get_next_group(struct rds_encoder *enc, struct rds_group *group)
 {
-	struct rds_encoder_state *st = enc->state;
+	const struct rds_encoder_state *st = enc->state;
 	static int8_t groups_per_sec_counter = 0;
 	static uint16_t groups_per_min_counter = 0;
 	static uint8_t ptyn_cnt = 0;
@@ -705,9 +705,8 @@ float
 rds_get_next_sample(struct rds_encoder *enc)
 {
 	struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
-	struct rds_encoder_state *st = enc->state;
+	const struct rds_encoder_state *st = enc->state;
 	static int samples_out = 0;
-	int ret = 0;
 	float out = 0;
 
 	/* Encoder is disabled, don't do any processing */

@@ -178,8 +178,8 @@ fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
 		       float sample, enum fmpreemph_mode tau_mode)
 {
 	float out = 0.0;
-	float *ataps = NULL;
-	float *btaps = NULL;
+	const float *ataps = NULL;
+	const float *btaps = NULL;
 	static enum fmpreemph_mode prev_tau_mode = LPF_PREEMPH_NONE;
 
 	switch (tau_mode) {
@@ -331,7 +331,7 @@ lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
 }
 
 int
-lpf_filter_apply(struct lpf_filter_data *lpf, float *in, float *out,
+lpf_filter_apply(struct lpf_filter_data *lpf, const float *in, float *out,
 		 uint16_t num_samples, float gain)
 {
 	float ratio = 0.0;
@@ -468,7 +468,7 @@ hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
 }
 
 int
-hilbert_transformer_apply(struct hilbert_transformer_data *ht, float *in,
+hilbert_transformer_apply(struct hilbert_transformer_data *ht, const float *in,
 			  uint16_t num_samples)
 {
 	float ratio = 0.0;

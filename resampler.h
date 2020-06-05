@@ -24,7 +24,7 @@
 
 struct resampler_thread_data {
 	soxr_t resampler;
-	float *in;
+	const float *in;
 	float *out;
 	uint32_t inframes;
 	uint32_t outframes;
@@ -56,11 +56,11 @@ struct resampler_data {
 int resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 		jack_client_t *fmmod_client, uint32_t osc_samplerate,
 		uint32_t rds_samplerate, uint32_t output_samplerate);
-int resampler_upsample_audio(struct resampler_data *rsmpl, float *in_l,
-			     float *in_r, float *out_l, float *out_r,
+int resampler_upsample_audio(struct resampler_data *rsmpl, const float *in_l,
+			     const float *in_r, float *out_l, float *out_r,
 			     uint32_t inframes, uint32_t outframes);
-int resampler_upsample_rds(struct resampler_data *rsmpl, float *in, float *out,
+int resampler_upsample_rds(struct resampler_data *rsmpl, const float *in, float *out,
 			   uint32_t inframes, uint32_t outframes);
-int resampler_downsample_mpx(struct resampler_data *rsmpl, float *in,
+int resampler_downsample_mpx(struct resampler_data *rsmpl, const float *in,
 			     float *out, uint32_t inframes, uint32_t outframes);
 void resampler_destroy(struct resampler_data *rsmpl);
