@@ -1,0 +1,524 @@
+        -:    0:Source:filters.c
+        -:    1:/*
+        -:    2: * JMPXRDS, an FM MPX signal generator with RDS support on
+        -:    3: * top of Jack Audio Connection Kit - Various filter implementations
+        -:    4: *
+        -:    5: * Copyright (C) 2015 Nick Kossifidis <mickflemm@gmail.com>
+        -:    6: *
+        -:    7: * This program is free software: you can redistribute it and/or modify
+        -:    8: * it under the terms of the GNU General Public License as published by
+        -:    9: * the Free Software Foundation, either version 3 of the License, or
+        -:   10: * (at your option) any later version.
+        -:   11: *
+        -:   12: * This program is distributed in the hope that it will be useful,
+        -:   13: * but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   14: * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   15: * GNU General Public License for more details.
+        -:   16: *
+        -:   17: * You should have received a copy of the GNU General Public License
+        -:   18: * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+        -:   19: */
+        -:   20:#include "filters.h"
+        -:   21:#include <stdlib.h>		/* For NULL */
+        -:   22:#include <string.h>		/* For memset */
+        -:   23:#include <math.h>		/* For exp() */
+        -:   24:
+        -:   25:/*********\
+        -:   26:* HELPERS *
+        -:   27:\*********/
+        -:   28:
+        -:   29:/*
+        -:   30: * Sinc = sin(pi* x)/(pi * x)
+        -:   31: * https://en.wikipedia.org/wiki/Sinc_function
+        -:   32: */
+        -:   33:inline static double
+    35840:   34:sinc(double phase)
+        -:   35:{
+    35840:   36:	return (sin(M_PI * phase) / (M_PI * phase));
+        -:   37:}
+        -:   38:
+        -:   39:/*
+        -:   40: * Nutall window
+        -:   41: * https://en.wikipedia.org/wiki/Window_function
+        -:   42: */
+        -:   43:inline static double
+    35840:   44:nutall_window(uint16_t bin, uint16_t num_bins)
+        -:   45:{
+    35840:   46:	double width = (double) num_bins - 1.0L;
+        -:   47:
+    35840:   48:	double a0 = 0.355768L;
+    35840:   49:	double a1 = 0.487396L;
+    35840:   50:	double a2 = 0.144232L;
+    35840:   51:	double a3 = 0.012604L;
+        -:   52:
+    35840:   53:	return (a0 - a1 * cos((2.0L * M_PI * (double) bin) / width) +
+    71680:   54:		a2 * cos((4.0L * M_PI * (double) bin) / width) -
+    35840:   55:		a3 * cos((6.0L * M_PI * (double) bin) / width));
+        -:   56:}
+        -:   57:
+        -:   58:static void
+        3:   59:generate_lpf_impulse(float* out, uint16_t num_bins,
+        -:   60:			float cutoff_freq, float sample_rate)
+        -:   61:{
+        3:   62:	double fc_pre_warped = 2.0L * ((double) cutoff_freq / (double) sample_rate);
+        3:   63:	double middle_bin = ((double) num_bins - 1.0L) / 2.0L;
+        3:   64:	double phase = 0;
+        3:   65:	int i = 0;
+        -:   66:
+        -:   67:	/*
+        -:   68:	 * Sinc impulse: h[n] = sinc(2*fc * (n - (N-1/2))
+        -:   69:	 */
+    35843:   70:	for(i = 0; i < num_bins; i++) {
+    35840:   71:		phase = ((double) i - middle_bin) * fc_pre_warped;
+    35840:   72:		out[i] = (float) (0.2L * sinc(phase) * nutall_window(i, num_bins));
+        -:   73:	}
+        3:   74:}
+        -:   75:
+        -:   76:
+        -:   77:/******************************\
+        -:   78:* FM PRE-EMPHASIS AUDIO FILTER *
+        -:   79:\******************************/
+        -:   80:
+        -:   81:/*
+        -:   82: * The FM Pre-emphasis filter is an RC high-shelf filter with
+        -:   83: * one pole tap and one zero tap. After the zero, the filter's Bode diagram
+        -:   84: * gives a 20dB/decade until we reach the pole, which means that when the
+        -:   85: * frequency is multiplied by 10 the gain is increased by 20dB. If we make
+        -:   86: * this mapping between amplitude and frequency we'll get (1, 10^(0/20)),
+        -:   87: * (10, 10^(20/20)), (100, 10^(40/20)), (1000, 10^(60/20))...
+        -:   88: * This becomes (1,1), (10,10), (100, 100), (1000, 1000)... which is a
+        -:   89: * straight line, so the response is a linear function of the frequency.
+        -:   90: *
+        -:   91: * The cutoff frequency is calculated from the time constant of the analog
+        -:   92: * RC filter (tau) and is different on US (75us) and EU (50us) radios.
+        -:   93: *
+        -:   94: * For more information check out:
+        -:   95: * https://www.radiomuseum.org/forum/fm_pre_emphasis_and_de_emphasis.html
+        -:   96: */
+        -:   97:
+        -:   98:
+        -:   99:static int
+        4:  100:fmpreemph_filter_init_mode(struct fmpreemph_filter_data *fmprf,
+        -:  101:			   float sample_rate,
+        -:  102:			   float high_corner_freq,
+        -:  103:			   uint8_t preemph_tau_usecs)
+        -:  104:{
+        4:  105:	double tau = 0.000001 * (double) preemph_tau_usecs;
+        -:  106:
+        -:  107:	/* Corner angular frequencies (w -> omega) */
+        -:  108:	/* t = R*C = 1 / wc
+        -:  109:	 * wc = 1 / t */
+        4:  110:	double cutoff_w_low = 1.0L / tau;
+        4:  111:	double cutoff_w_high = 2.0L * M_PI * (double) high_corner_freq;
+        -:  112:
+        -:  113:	/* Corner angular cutoff frequency relative to the sampling rate */
+        4:  114:	double pre_warped_wc = tan(cutoff_w_low /  (2.0L * (double) sample_rate));
+        -:  115:
+        -:  116:	/* V0 = 10^gain/20, however as we saw above that
+        -:  117:	 * increases proportionaly with the frequency so
+        -:  118:	 * for a given high corner frequency we are going
+        -:  119:	 * to get an increase in gain of high_corner / low_corner */
+        4:  120:	double V0 = log10(cutoff_w_high / cutoff_w_low);
+        4:  121:	double H0 = V0 - 1;
+        -:  122:
+        4:  123:	double B = V0 * pre_warped_wc;
+        -:  124:
+        -:  125:	/* Forward taps */
+        4:  126:	double ataps_0 = 1.0L;
+        4:  127:	double ataps_1 = (B - 1) / (B + 1);
+        -:  128:
+        -:  129:	/* Backwards taps */
+        4:  130:	double btaps_0 = (1.0L + (1.0L - ataps_1) * H0 / 2.0L);
+        4:  131:	double btaps_1 = (ataps_1 + (ataps_1 - 1.0L) * H0 / 2.0L);
+        -:  132:
+        4:  133:	switch (preemph_tau_usecs) {
+        2:  134:		case 50:
+        2:  135:			fmprf->ataps_50[0] = (float) ataps_0;
+        2:  136:			fmprf->ataps_50[1] = (float) ataps_1;
+        -:  137:
+        2:  138:			fmprf->btaps_50[0] = (float) btaps_0;
+        2:  139:			fmprf->btaps_50[1] = (float) btaps_1;
+        2:  140:			break;
+        2:  141:		case 75:
+        2:  142:			fmprf->ataps_75[0] = (float) ataps_0;
+        2:  143:			fmprf->ataps_75[1] = (float) ataps_1;
+        -:  144:
+        2:  145:			fmprf->btaps_75[0] = (float) btaps_0;
+        2:  146:			fmprf->btaps_75[1] = (float) btaps_1;
+        2:  147:			break;
+    #####:  148:		default:
+    #####:  149:			return -1;
+        -:  150:	}
+        -:  151:
+        4:  152:	return 0;
+        -:  153:}
+        -:  154:
+        -:  155:int
+        2:  156:fmpreemph_filter_init(struct fmpreemph_filter_data *fmprf,
+        -:  157:		      float sample_rate)
+        -:  158:{
+        2:  159:	int ret = 0;
+        -:  160:
+        2:  161:	ret = fmpreemph_filter_init_mode(fmprf,
+        -:  162:			   sample_rate,
+        -:  163:			   (float) AFLT_CUTOFF_FREQ,
+        -:  164:			   50);
+        2:  165:	if (ret < 0)
+    #####:  166:		return ret;
+        -:  167:
+        2:  168:	ret = fmpreemph_filter_init_mode(fmprf,
+        -:  169:			   sample_rate,
+        -:  170:			   (float) AFLT_CUTOFF_FREQ,
+        -:  171:			   75);
+        -:  172:
+        2:  173:	return ret;
+        -:  174:}
+        -:  175:
+        -:  176:float
+ 37761024:  177:fmpreemph_filter_apply(struct fmpreemph_filter_data *fmprf,
+        -:  178:		       float sample, enum fmpreemph_mode tau_mode)
+        -:  179:{
+ 37761024:  180:	float out = 0.0;
+ 37761024:  181:	const float *ataps = NULL;
+ 37761024:  182:	const float *btaps = NULL;
+        -:  183:	static enum fmpreemph_mode prev_tau_mode = LPF_PREEMPH_NONE;
+        -:  184:
+ 37761024:  185:	switch (tau_mode) {
+     2720:  186:		case LPF_PREEMPH_NONE:
+     2720:  187:			return sample;
+        -:  188:
+   184320:  189:		case LPF_PREEMPH_75US:
+   184320:  190:			ataps = fmprf->ataps_75;
+   184320:  191:			btaps = fmprf->btaps_75;
+   184320:  192:			break;
+        -:  193:
+ 37573984:  194:		case LPF_PREEMPH_50US:
+        -:  195:		default:
+ 37573984:  196:			ataps = fmprf->ataps_50;
+ 37573984:  197:			btaps = fmprf->btaps_50;
+ 37573984:  198:			break;
+        -:  199:	}
+        -:  200:
+ 37758304:  201:	out += ataps[0] * sample;
+        -:  202:
+        -:  203:	/* When switching modes don't use the previous
+        -:  204:	 * input/output. */
+ 37758304:  205:	if (prev_tau_mode != tau_mode) {
+        3:  206:		fmprf->last_in = sample;
+        3:  207:		fmprf->last_out[0] = out;
+        3:  208:		prev_tau_mode = tau_mode;
+        3:  209:		return out;
+        -:  210:	}
+        -:  211:
+ 37758301:  212:	out += ataps[1] * fmprf->last_in;
+        -:  213:
+ 37758301:  214:	fmprf->last_in = sample;
+        -:  215:
+ 37758301:  216:	out += btaps[0] * fmprf->last_out[0];
+ 37758301:  217:	out += btaps[1] * fmprf->last_out[1];
+        -:  218:
+ 37758301:  219:	fmprf->last_out[1] = fmprf->last_out[0];
+ 37758301:  220:	fmprf->last_out[0] = out;
+        -:  221:
+ 37758301:  222:	return out * 8.0;
+        -:  223:}
+        -:  224:
+        -:  225:/*****************************\
+        -:  226:* GENERIC FFT LOW-PASS FILTER *
+        -:  227:\*****************************/
+        -:  228:
+        -:  229:void
+        3:  230:lpf_filter_destroy(const struct lpf_filter_data *lpf)
+        -:  231:{
+        3:  232:	if(lpf->filter_resp)
+        3:  233:		fftwf_free(lpf->filter_resp);
+        3:  234:	if(lpf->real_in)
+        3:  235:		fftwf_free(lpf->real_in);
+        3:  236:	if(lpf->real_out)
+        3:  237:		fftwf_free(lpf->real_out);
+        3:  238:	if(lpf->complex_buff)
+        3:  239:		fftwf_free(lpf->complex_buff);
+        3:  240:	if(lpf->dft_plan)
+        3:  241:		fftwf_destroy_plan(lpf->dft_plan);
+        3:  242:	if(lpf->ift_plan)
+        3:  243:		fftwf_destroy_plan(lpf->ift_plan);
+        3:  244:}
+        -:  245:
+        -:  246:int
+        3:  247:lpf_filter_init(struct lpf_filter_data *lpf, uint32_t cutoff_freq,
+        -:  248:		uint32_t sample_rate, uint16_t max_frames,
+        -:  249:		uint8_t overlap_factor)
+        -:  250:{
+        3:  251:	float nyquist_freq = 0.0;
+        3:  252:	int ret = 0;
+        -:  253:
+        -:  254:	/* Initialize filter parameters */
+        3:  255:	lpf->period_size = max_frames;
+        3:  256:	lpf->num_bins = (overlap_factor + 1) * lpf->period_size;
+        3:  257:	lpf->sample_rate = sample_rate;
+        3:  258:	lpf->middle_bin = (lpf->num_bins / 2) + 1;
+        3:  259:	nyquist_freq = (float) lpf->sample_rate / 2.0;
+        3:  260:	lpf->bin_bw = (nyquist_freq / (float) lpf->num_bins);
+        3:  261:	lpf->overlap_len = overlap_factor * lpf->period_size;
+        -:  262:
+        -:  263:
+        -:  264:	/* Allocate buffers for DFT/IFT */
+        3:  265:	lpf->real_in = fftwf_alloc_real(lpf->num_bins);
+        3:  266:	if(!lpf->real_in) {
+    #####:  267:		ret = -2;
+    #####:  268:		goto cleanup;
+        -:  269:	}
+        3:  270:	memset(lpf->real_in, 0, lpf->num_bins * sizeof(float));
+        -:  271:
+        3:  272:	lpf->real_out = fftwf_alloc_real(lpf->num_bins);
+        3:  273:	if(!lpf->real_out) {
+    #####:  274:		ret = -3;
+    #####:  275:		goto cleanup;
+        -:  276:	}
+        3:  277:	memset(lpf->real_out, 0, lpf->num_bins * sizeof(float));
+        -:  278:
+        3:  279:	lpf->complex_buff = fftwf_alloc_complex(lpf->middle_bin - 0);
+        3:  280:	if(!lpf->complex_buff) {
+    #####:  281:		ret = -4;
+    #####:  282:		goto cleanup;
+        -:  283:	}
+        3:  284:	memset(lpf->complex_buff, 0, sizeof(fftwf_complex) *
+        3:  285:				     (lpf->middle_bin - 0));
+        -:  286:
+        -:  287:
+        -:  288:	/* Allocate buffer for the filter's responce */
+        3:  289:	lpf->filter_resp = fftwf_alloc_complex(lpf->middle_bin - 0);
+        3:  290:	if(!lpf->filter_resp) {
+    #####:  291:		ret = -4;
+    #####:  292:		goto cleanup;
+        -:  293:	}
+        -:  294:
+        -:  295:
+        -:  296:	/* Create DFT plan */
+        3:  297:	lpf->dft_plan = fftwf_plan_dft_r2c_1d(lpf->num_bins, lpf->real_in,
+        -:  298:					     lpf->complex_buff, FFTW_MEASURE);
+        3:  299:	if(!lpf->dft_plan) {
+    #####:  300:		ret = -5;
+    #####:  301:		goto cleanup;
+        -:  302:	}
+        -:  303:
+        -:  304:
+        -:  305:	/* Create IFT plan */
+        3:  306:	lpf->ift_plan = fftwf_plan_dft_c2r_1d(lpf->num_bins, lpf->complex_buff,
+        -:  307:					     lpf->real_out, FFTW_MEASURE);
+        3:  308:	if(!lpf->ift_plan)
+    #####:  309:		ret = -6;
+        -:  310:
+        -:  311:
+        -:  312:	/* Generate filter's responce on time domain on lpf->real_in and
+        -:  313:	 * calculate its responce on the frequency domain */
+        3:  314:	generate_lpf_impulse(lpf->real_in, lpf->num_bins,
+        -:  315:			     (float) cutoff_freq, (float) sample_rate);
+        -:  316:
+        3:  317:	fftwf_execute(lpf->dft_plan);
+        -:  318:
+        -:  319:	/* Store the result on lpf->filter_resp and clear the complex
+        -:  320:	 * buffer */
+        3:  321:	memcpy(lpf->filter_resp, lpf->complex_buff,
+        3:  322:	       sizeof(fftwf_complex) * (lpf->middle_bin - 0));
+        3:  323:	memset(lpf->complex_buff, 0, sizeof(fftwf_complex) *
+        3:  324:					(lpf->middle_bin - 0));
+        -:  325:
+        -:  326:
+        3:  327: cleanup:
+        3:  328:	if(ret < 0)
+    #####:  329:		lpf_filter_destroy(lpf);
+        3:  330:	return ret;
+        -:  331:}
+        -:  332:
+        -:  333:int
+    18343:  334:lpf_filter_apply(const struct lpf_filter_data *lpf, const float *in, float *out,
+        -:  335:		 uint16_t num_samples, float gain)
+        -:  336:{
+    18343:  337:	float ratio = 0.0;
+    18343:  338:	fftw_complex tmp = {0};
+    18343:  339:	int i = 0;
+        -:  340:
+        -:  341:	/* Shift the buffer's content to make room for the new
+        -:  342:	 * period on its end and then put the new data there. */
+    18343:  343:	memmove(lpf->real_in, lpf->real_in + lpf->period_size,
+    18343:  344:		lpf->overlap_len * sizeof(float));
+    18343:  345:	memcpy(lpf->real_in + lpf->overlap_len, in,
+        -:  346:		num_samples * sizeof(float));
+        -:  347:
+        -:  348:	/* Run the DFT plan to get the freq domain (complex or
+        -:  349:	 * analytical) representation of the signal */
+    18343:  350:	fftwf_execute(lpf->dft_plan);
+        -:  351:
+        -:  352:	/* Now signal is on the complex buffer, convolution of 1d
+        -:  353:	 * signals on the time domain equals piecewise multiplication
+        -:  354:	 * on the frequency domain, so we multiply the complex
+        -:  355:	 * representation of the signal with the complex representation
+        -:  356:	 * of the filter's impulse. */
+ 75468110:  357:	for(i = 0; i < lpf->middle_bin; i++) {
+        -:  358:		/* Real part */
+ 75449767:  359:		tmp[0] = lpf->filter_resp[i][0] * lpf->complex_buff[i][0] -
+ 75449767:  360:			 lpf->filter_resp[i][1] * lpf->complex_buff[i][1];
+        -:  361:		/* Imaginary part */
+ 75449767:  362:		tmp[1] = lpf->filter_resp[i][0] * lpf->complex_buff[i][1] +
+ 75449767:  363:			 lpf->filter_resp[i][1] * lpf->complex_buff[i][0];
+        -:  364:
+ 75449767:  365:		lpf->complex_buff[i][0] = tmp[0];
+ 75449767:  366:		lpf->complex_buff[i][1] = tmp[1];
+        -:  367:	}
+        -:  368:
+        -:  369:	/* Switch the signal back to the time domain */
+    18343:  370:	fftwf_execute(lpf->ift_plan);
+        -:  371:
+        -:  372:	/* Note that FFTW returns unnormalized data so the IFT output
+        -:  373:	 * is multiplied with the product of the logical dimentions
+        -:  374:	 * which in our case is bins.
+        -:  375:	 * To make things simpler and more efficient, we calculate a gain
+        -:  376:	 * ratio that will handle both the requested gain and the
+        -:  377:	 * normalization (multiplication is cheaper than division). */
+    18343:  378:	ratio = (float) gain / (float) lpf->num_bins;
+        -:  379:
+        -:  380:	/* Output the begining of the real_out buffer and discard the overlap
+        -:  381:	 * that follows */
+ 37734055:  382:	for(i = 0; i < num_samples; i++)
+ 37715712:  383:		out[i] = lpf->real_out[i] * ratio;
+        -:  384:
+    18343:  385:	return 0;
+        -:  386:}
+        -:  387:
+        -:  388:
+        -:  389:/***********************************************\
+        -:  390:* HILBERT TRANSFORMER FOR THE HARTLEY MODULATOR *
+        -:  391:\***********************************************/
+        -:  392:
+        -:  393:/*
+        -:  394: * The Hilbert transformer is an all-pass filter that shifts
+        -:  395: * the phase of the input signal by -pi/2 (90deg). To understand
+        -:  396: * this implementation think of the signal as a vector on the I/Q
+        -:  397: * plane. To rotate the vector by -pi/2 we need to swap Q with I.
+        -:  398: * We need to do that for both positive and negative frequencies
+        -:  399: * (it's not like the LP filter, we need the whole thing). This is
+        -:  400: * equivalent to multiplying positive frequencies with i
+        -:  401: * (so it's (0 +i) * (Re -iIm) = -Im +iRe) and negative frequencies
+        -:  402: * with -i (so it's (0 -i) * (Re +iIm) = Im -iRe). Note that if
+        -:  403: * we wanted +pi/2 we would do the oposite (-i for positive freqs
+        -:  404: * and i for negative).
+        -:  405: *
+        -:  406: * For more information about Hilbert transformation check out
+        -:  407: * http://www.katjaas.nl/hilbert/hilbert.html
+        -:  408: */
+        -:  409:
+        -:  410:void
+        1:  411:hilbert_transformer_destroy(const struct hilbert_transformer_data *ht)
+        -:  412:{
+        1:  413:	if(ht->real_buff)
+        1:  414:		fftwf_free(ht->real_buff);
+        1:  415:	if(ht->complex_buff)
+        1:  416:		fftwf_free(ht->complex_buff);
+        1:  417:	if(ht->dft_plan)
+        1:  418:		fftwf_destroy_plan(ht->dft_plan);
+        1:  419:	if(ht->ift_plan)
+        1:  420:		fftwf_destroy_plan(ht->ift_plan);
+        1:  421:}
+        -:  422:
+        -:  423:int
+        1:  424:hilbert_transformer_init(struct hilbert_transformer_data *ht, uint16_t num_bins)
+        -:  425:{
+        1:  426:	int ret = 0;
+        1:  427:	ht->num_bins = num_bins;
+        -:  428:
+        -:  429:	/* Allocate buffers */
+        1:  430:	ht->real_buff = fftwf_alloc_real(num_bins);
+        1:  431:	if(!ht->real_buff) {
+    #####:  432:		ret = -1;
+    #####:  433:		goto cleanup;
+        -:  434:	}
+        1:  435:	memset(ht->real_buff, 0, num_bins * sizeof(float));
+        -:  436:
+        -:  437:
+        -:  438:	/* Note: Instead of allocating bins / 2 + 1 as we did with
+        -:  439:	 * the FIR filter, we allocate the full thing to get the mirroring
+        -:  440:	 * effect. */
+        1:  441:	ht->complex_buff = fftwf_alloc_complex(num_bins);
+        1:  442:	if(!ht->complex_buff) {
+    #####:  443:		ret = -2;
+    #####:  444:		goto cleanup;
+        -:  445:	}
+        1:  446:	memset(ht->complex_buff, 0, num_bins * sizeof(fftwf_complex));
+        -:  447:
+        -:  448:
+        -:  449:	/* Create DFT plan */
+        1:  450:	ht->dft_plan = fftwf_plan_dft_r2c_1d(num_bins, ht->real_buff,
+        -:  451:					     ht->complex_buff, FFTW_MEASURE);
+        1:  452:	if(!ht->dft_plan) {
+    #####:  453:		ret = -3;
+    #####:  454:		goto cleanup;
+        -:  455:	}
+        -:  456:
+        -:  457:
+        -:  458:	/* Create IFT plan */
+        1:  459:	ht->ift_plan = fftwf_plan_dft_c2r_1d(num_bins, ht->complex_buff,
+        -:  460:					    ht->real_buff, FFTW_MEASURE);
+        1:  461:	if(!ht->ift_plan)
+    #####:  462:		ret = -4;
+        -:  463:
+        1:  464: cleanup:
+        1:  465:	if(ret < 0)
+    #####:  466:		hilbert_transformer_destroy(ht);
+        1:  467:	return ret;
+        -:  468:}
+        -:  469:
+        -:  470:int
+       46:  471:hilbert_transformer_apply(const struct hilbert_transformer_data *ht, const float *in,
+        -:  472:			  uint16_t num_samples)
+        -:  473:{
+       46:  474:	float ratio = 0.0;
+       46:  475:	float tmp = 0.0L;
+       46:  476:	int middle_point = 0;
+       46:  477:	int i = 0;
+        -:  478:
+        -:  479:	/* Clear and fill the real buffer */
+       46:  480:	memset(ht->real_buff, 0, ht->num_bins * sizeof(float));
+       46:  481:	memcpy(ht->real_buff, in, num_samples * sizeof(float));
+        -:  482:
+        -:  483:	/* Run the DFT plan to transform signal */
+       46:  484:	fftwf_execute(ht->dft_plan);
+        -:  485:
+        -:  486:	/* Now signal is on the complex buffer. */
+        -:  487:
+        -:  488:	/* Get the first half (+1 here is to cover odd bins) */
+       46:  489:	middle_point = (ht->num_bins + 1) / 2;
+        -:  490:
+        -:  491:	/* -Im +iRe */
+   111918:  492:	for(i = 0; i < middle_point; i++) {
+   111872:  493:		ht->complex_buff[i][1] *= -1.0L;
+   111872:  494:		tmp = ht->complex_buff[i][1];
+   111872:  495:		ht->complex_buff[i][1] = ht->complex_buff[i][0];
+   111872:  496:		ht->complex_buff[i][0] = tmp;
+        -:  497:	}
+        -:  498:
+        -:  499:	/* Middle point */
+       46:  500:	ht->complex_buff[i][0] = 0.0L;
+       46:  501:	ht->complex_buff[i][1] = 0.0L;
+        -:  502:
+        -:  503:	/* Im -iRe */
+   111872:  504:	for(i = middle_point + 1; i < ht->num_bins; i++) {
+   111826:  505:		ht->complex_buff[i][0] *= -1.0L;
+   111826:  506:		tmp = ht->complex_buff[i][1];
+   111826:  507:		ht->complex_buff[i][1] = ht->complex_buff[i][0];
+   111826:  508:		ht->complex_buff[i][0] = tmp;
+        -:  509:	}
+        -:  510:
+        -:  511:	/* Switch the signal back to the time domain */
+       46:  512:	fftwf_execute(ht->ift_plan);
+        -:  513:
+        -:  514:	/* Note that FFTW returns unnormalized data so the IFT output
+        -:  515:	 * is multiplied with the product of the logical dimentions
+        -:  516:	 * which in our case is num_bins.*/
+       46:  517:	ratio = 1.0 / (float) ht->num_bins;
+        -:  518:
+   223790:  519:	for(i = 0; i < num_samples; i++)
+   223744:  520:		ht->real_buff[i] *= ratio;
+        -:  521:
+       46:  522:	return 0;
+        -:  523:}

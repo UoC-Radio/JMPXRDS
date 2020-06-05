@@ -1,0 +1,90 @@
+        -:    0:Source:gui/jmrg_set_button.c
+        -:    1:#include <stdlib.h>	/* For strtol() */
+        -:    2:#include "jmpxrds_gui.h"
+        -:    3:#include "rds_codes.h"
+        -:    4:
+        -:    5:/*****************\
+        -:    6:* SIGNAL HANDLERS *
+        -:    7:\*****************/
+        -:    8:
+        -:    9:static void
+        6:   10:jmrg_set_button_clicked(__attribute__((unused)) GtkButton *button, gpointer data)
+        -:   11:{
+        6:   12:	struct value_map *vmap = (struct value_map*) data;
+        6:   13:	struct rds_encoder_state *st = vmap->st;
+        6:   14:	const char *text = NULL;
+        6:   15:	int flag = 0;
+        6:   16:	int val = 0;
+        6:   17:	int tmp = 0;
+        -:   18:
+        6:   19:	switch(vmap->type) {
+        1:   20:	case RDS_FIELD_PI:
+        1:   21:		text = gtk_entry_get_text(GTK_ENTRY(vmap->entry));
+        1:   22:		val = (unsigned int) strtol(text, NULL, 16);
+        1:   23:		val &= 0xFFFF;
+        1:   24:		rds_set_pi(st, (uint16_t) val);
+        1:   25:		gtk_entry_set_text(GTK_ENTRY(vmap->entry), "");
+        1:   26:		return;
+        1:   27:	case RDS_FIELD_PS:
+        1:   28:		text = gtk_entry_get_text(GTK_ENTRY(vmap->entry));
+        1:   29:		rds_set_ps(st, text);
+        1:   30:		gtk_entry_set_text(GTK_ENTRY(vmap->entry), "");
+        1:   31:		return;
+        1:   32:	case RDS_FIELD_RT:
+        1:   33:		text = gtk_entry_get_text(GTK_ENTRY(vmap->entry));
+        1:   34:		flag = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(vmap->flag));
+        1:   35:		rds_set_rt(st, text, flag);
+        1:   36:		gtk_entry_set_text(GTK_ENTRY(vmap->entry), "");
+        1:   37:		return;
+        1:   38:	case RDS_FIELD_PTYN:
+        1:   39:		text = gtk_entry_get_text(GTK_ENTRY(vmap->entry));
+        1:   40:		rds_set_ptyn(st, text);
+        1:   41:		gtk_entry_set_text(GTK_ENTRY(vmap->entry), "");
+        1:   42:		return;
+        1:   43:	case RDS_FIELD_ECC:
+        1:   44:		val = vmap->acentry_match_idx;
+        1:   45:		if(val < 0)
+    #####:   46:			return;
+        1:   47:		tmp = rds_codes_get_ecc_by_ctry_idx(val);
+        1:   48:		if(tmp < 0)
+    #####:   49:			return;
+        1:   50:		rds_set_ecc(st, tmp);
+        1:   51:		return;
+        1:   52:	case RDS_FIELD_LIC:
+        1:   53:		val = vmap->acentry_match_idx;
+        1:   54:		if(val < 0)
+    #####:   55:			return;
+        1:   56:		tmp = rds_codes_get_lic_by_lang_idx(val);
+        1:   57:		if(tmp < 0)
+    #####:   58:			return;
+        1:   59:		rds_set_lic(st, tmp);
+        1:   60:		return;
+    #####:   61:	default:
+    #####:   62:		return;
+        -:   63:	};
+        -:   64:}
+        -:   65:
+        -:   66:
+        -:   67:/*************\
+        -:   68:* ENTRY POINT *
+        -:   69:\*************/
+        -:   70:
+        -:   71:GtkWidget*
+        6:   72:jmrg_set_button_init(const char* label, struct value_map *vmap)
+        -:   73:{
+        6:   74:	GtkWidget *button = NULL;
+        -:   75:
+        6:   76:	if(!vmap)
+    #####:   77:		goto cleanup;
+        -:   78:
+        6:   79:	button = gtk_button_new_with_label(label);
+        6:   80:	if(!button)
+    #####:   81:		goto cleanup;
+        -:   82:
+        6:   83:	g_signal_connect(button, "clicked",
+        -:   84:			 G_CALLBACK(jmrg_set_button_clicked),
+        -:   85:			 vmap);
+        6:   86:	return button;
+    #####:   87: cleanup:
+    #####:   88:	return NULL;
+        -:   89:}

@@ -1,0 +1,531 @@
+        -:    0:Source:gui/rds_codes.c
+        -:    1:#include <string.h>	/* For strncmp() */
+        -:    2:#include "rds_codes.h"
+        -:    3:
+        -:    4:struct rds_code_map {
+        -:    5:	uint16_t	code;
+        -:    6:	const char*	name;
+        -:    7:};
+        -:    8:
+        -:    9:/*******************\
+        -:   10:* RDS COUNTRY CODES *
+        -:   11:\*******************/
+        -:   12:
+        -:   13:/*
+        -:   14: * These codes are used to fully determine the station's
+        -:   15: * country, using the first symbol of PI (country code)
+        -:   16: * and the extended country code. The format of the data
+        -:   17: * is <country code>(bits 8-4)<extended country code>
+        -:   18: * (bits 4-1). The values here come from the RDS standard.
+        -:   19: */
+        -:   20:
+        -:   21:/* European Broadcasting Area */
+        -:   22:static const struct rds_code_map ctry_codes[] = {
+        -:   23:	{ 0x09E0, "Albania" },
+        -:   24:	{ 0x02E0, "Algeria" },
+        -:   25:	{ 0x03E0, "Andorra" },
+        -:   26:	{ 0x0AE4, "Armenia" },
+        -:   27:	{ 0x0AE0, "Austria" },
+        -:   28:	{ 0x0BE3, "Azerbaijan" },
+        -:   29:	{ 0x08E4, "Azores (Portugal)" },
+        -:   30:	{ 0x06E0, "Belgium" },
+        -:   31:	{ 0x0FE3, "Belarus" },
+        -:   32:	{ 0x0FE4, "Bosnia Herzegovina" },
+        -:   33:	{ 0x08E1, "Bulgaria" },
+        -:   34:	{ 0x0EE2, "Canaries (Spain)" },
+        -:   35:	{ 0x0CE3, "Croatia" },
+        -:   36:	{ 0x02E1, "Cyprus" },
+        -:   37:	{ 0x02E2, "Czech Republic" },
+        -:   38:	{ 0x09E1, "Denmark" },
+        -:   39:	{ 0x0FE0, "Egypt" },
+        -:   40:	{ 0x02E4, "Estonia" },
+        -:   41:	{ 0x09E1, "Faroe (Denmark)" },
+        -:   42:	{ 0x06E1, "Finland" },
+        -:   43:	{ 0x0FE1, "France" },
+        -:   44:	{ 0x0CE4, "Georgia" },
+        -:   45:	{ 0x0DE0, "Germany (East)" },
+        -:   46:	{ 0x01E0, "Germany (West)" },
+        -:   47:	{ 0x0AE1, "Gibraltar (United Kingdom)" },
+        -:   48:	{ 0x01E1, "Greece" },
+        -:   49:	{ 0x0BE0, "Hungary" },
+        -:   50:	{ 0x0AE2, "Iceland" },
+        -:   51:	{ 0x0BE1, "Iraq" },
+        -:   52:	{ 0x02E3, "Ireland" },
+        -:   53:	{ 0x04E0, "Israel" },
+        -:   54:	{ 0x05E0, "Italy" },
+        -:   55:	{ 0x05E1, "Jordan" },
+        -:   56:	{ 0x09E3, "Latvia" },
+        -:   57:	{ 0x0AE3, "Lebanon" },
+        -:   58:	{ 0x0DE1, "Libya" },
+        -:   59:	{ 0x09E2, "Liechtenstein" },
+        -:   60:	{ 0x0CE2, "Lithuania" },
+        -:   61:	{ 0x07E1, "Luxembourg" },
+        -:   62:	{ 0x04E3, "Macedonia" },
+        -:   63:	{ 0x08E4, "Madeira (Portugal)" },
+        -:   64:	{ 0x0CE0, "Malta" },
+        -:   65:	{ 0x01E4, "Moldova" },
+        -:   66:	{ 0x0BE2, "Monaco" },
+        -:   67:	{ 0x01E3, "Montenegro" },
+        -:   68:	{ 0x01E2, "Morocco" },
+        -:   69:	{ 0x08E3, "Netherlands" },
+        -:   70:	{ 0x0FE2, "Norway" },
+        -:   71:	{ 0x08E0, "Palestine" },
+        -:   72:	{ 0x03E2, "Poland" },
+        -:   73:	{ 0x08E4, "Portugal" },
+        -:   74:	{ 0x0EE1, "Romania" },
+        -:   75:	{ 0x07E0, "Russian Federation" },
+        -:   76:	{ 0x03E1, "San Marino" },
+        -:   77:	{ 0x0DE2, "Serbia" },
+        -:   78:	{ 0x05E2, "Slovakia" },
+        -:   79:	{ 0x09E4, "Slovenia" },
+        -:   80:	{ 0x0EE2, "Spain" },
+        -:   81:	{ 0x0EE3, "Sweden" },
+        -:   82:	{ 0x04E1, "Switzerland" },
+        -:   83:	{ 0x06E2, "Syrian Arab Republic" },
+        -:   84:	{ 0x07E2, "Tunisia" },
+        -:   85:	{ 0x03E3, "Turkey" },
+        -:   86:	{ 0x06E4, "Ukraine" },
+        -:   87:	{ 0x0CE1, "United Kingdom" },
+        -:   88:	{ 0x04E2, "Vatican City State" },
+        -:   89:	/* African Broadcasting Area */
+        -:   90:	{ 0x06D0, "Angola" },
+        -:   91:	{ 0x09D1, "Burundi" },
+        -:   92:	{ 0x0ED0, "Benin" },
+        -:   93:	{ 0x0BD0, "Burkina Faso" },
+        -:   94:	{ 0x0BD1, "Botswana" },
+        -:   95:	{ 0x01D0, "Cameroon" },
+        -:   96:	{ 0x06D1, "Cape Verde" },
+        -:   97:	{ 0x02D0, "Central African Republic" },
+        -:   98:	{ 0x09D2, "Chad" },
+        -:   99:	{ 0x0CD1, "Comoros" },
+        -:  100:	{ 0x0BD2, "Democratic Republic of Congo" },
+        -:  101:	{ 0x0CD0, "Congo" },
+        -:  102:	{ 0x0CD2, "Cote d'Ivoire" },
+        -:  103:	{ 0x03D0, "Djibouti" },
+        -:  104:	{ 0x07D0, "Equatorial Guinea" },
+        -:  105:	{ 0x0FD2, "Eritrea" },
+        -:  106:	{ 0x0ED1, "Ethiopia" },
+        -:  107:	{ 0x08D0, "Gabon" },
+        -:  108:	{ 0x08D1, "Gambia" },
+        -:  109:	{ 0x03D1, "Ghana" },
+        -:  110:	{ 0x0AD2, "Guinea-Bissau" },
+        -:  111:	{ 0x07D0, "Equatorial Guinea" },
+        -:  112:	{ 0x09D0, "Republic of Guinea" },
+        -:  113:	{ 0x06D2, "Kenya" },
+        -:  114:	{ 0x02D1, "Liberia" },
+        -:  115:	{ 0x06D3, "Lesotho" },
+        -:  116:	{ 0x0AD3, "Mauritius" },
+        -:  117:	{ 0x04D0, "Madagascar" },
+        -:  118:	{ 0x0FD0, "Malawi" },
+        -:  119:	{ 0x05D0, "Mali" },
+        -:  120:	{ 0x04D1, "Mauritania" },
+        -:  121:	{ 0x03D2, "Mozambique" },
+        -:  122:	{ 0x01D1, "Namibia" },
+        -:  123:	{ 0x08D2, "Niger" },
+        -:  124:	{ 0x0FD1, "Nigeria" },
+        -:  125:	{ 0x05D3, "Rwanda" },
+        -:  126:	{ 0x05D1, "Sao Tome & Principe" },
+        -:  127:	{ 0x08D3, "Seychelles" },
+        -:  128:	{ 0x07D1, "Senegal" },
+        -:  129:	{ 0x01D2, "Sierra Leone" },
+        -:  130:	{ 0x07D2, "Somalia" },
+        -:  131:	{ 0x0AD0, "South Africa" },
+        -:  132:	{ 0x0CD3, "Sudan" },
+        -:  133:	{ 0x05D2, "Swaziland" },
+        -:  134:	{ 0x0DD0, "Togo" },
+        -:  135:	{ 0x0DD1, "Tanzania" },
+        -:  136:	{ 0x04D2, "Uganda" },
+        -:  137:	{ 0x03D3, "Western Sahara" },
+        -:  138:	{ 0x0ED2, "Zambia" },
+        -:  139:	{ 0x02D2, "Zimbabwe" },
+        -:  140:	/* ITU Region 2 */
+        -:  141:	{ 0x01A2, "Anguilla" },
+        -:  142:	{ 0x02A2, "Antigua and Barbuda" },
+        -:  143:	{ 0x0AA2, "Argentina" },
+        -:  144:	{ 0x03A4, "Aruba" },
+        -:  145:	{ 0x0FA2, "Bahamas" },
+        -:  146:	{ 0x05A2, "Barbados" },
+        -:  147:	{ 0x06A2, "Belize" },
+        -:  148:	{ 0x0CA2, "Bermuda" },
+        -:  149:	{ 0x01A3, "Bolivia" },
+        -:  150:	{ 0x0BA2, "Brazil" },
+        -:  151:	/* Canada - Multiple country codes */
+        -:  152:	{ 0x0BA1, "Canada" },
+        -:  153:	{ 0x0CA1, "Canada" },
+        -:  154:	{ 0x0DA1, "Canada" },
+        -:  155:	{ 0x0EA1, "Canada" },
+        -:  156:	{ 0x07A2, "Cayman Islands" },
+        -:  157:	{ 0x0CA3, "Chile" },
+        -:  158:	{ 0x02A3, "Colombia" },
+        -:  159:	{ 0x08A2, "Costa Rica" },
+        -:  160:	{ 0x09A2, "Cuba" },
+        -:  161:	{ 0x0AA3, "Dominica" },
+        -:  162:	{ 0x0BA3, "Dominican Republic" },
+        -:  163:	{ 0x03A2, "Ecuador" },
+        -:  164:	{ 0x0CA4, "El Salvador" },
+        -:  165:	{ 0x04A2, "Falkland Islands" },
+        -:  166:	{ 0x05A3, "French Guiana" },
+        -:  167:	{ 0x0FA1, "Greenland" },
+        -:  168:	{ 0x0DA3, "Grenada" },
+        -:  169:	{ 0x0EA2, "Guadeloupe" },
+        -:  170:	{ 0x01A4, "Guatemala" },
+        -:  171:	{ 0x0FA3, "Guyana" },
+        -:  172:	{ 0x0DA4, "Haiti" },
+        -:  173:	{ 0x02A4, "Honduras" },
+        -:  174:	{ 0x03A3, "Jamaica" },
+        -:  175:	{ 0x04A3, "Martinique" },
+        -:  176:	/* Mexico - Multiple country codes */
+        -:  177:	{ 0x0BA5, "Mexico" },
+        -:  178:	{ 0x0DA5, "Mexico" },
+        -:  179:	{ 0x0EA5, "Mexico" },
+        -:  180:	{ 0x0FA5, "Mexico" },
+        -:  181:	{ 0x05A4, "Montserrat" },
+        -:  182:	{ 0x0DA2, "Netherlands Antilles" },
+        -:  183:	{ 0x07A3, "Nicaragua" },
+        -:  184:	{ 0x09A3, "Panama" },
+        -:  185:	{ 0x06A3, "Paraguay" },
+        -:  186:	{ 0x07A4, "Peru" },
+        -:  187:	{ 0x0AA4, "Saint Kitts" },
+        -:  188:	{ 0x0BA4, "Saint Lucia" },
+        -:  189:	{ 0x0FA6, "St Pierre and Miquelon" },
+        -:  190:	{ 0x0CA5, "Saint Vincent" },
+        -:  191:	{ 0x08A4, "Suriname" },
+        -:  192:	{ 0x06A4, "Trinidad and Tobago" },
+        -:  193:	{ 0x0EA3, "Turks and Caicos Islands" },
+        -:  194:	{ 0x09A4, "Uruguay" },
+        -:  195:	{ 0x0EA4, "Venezuela" },
+        -:  196:	{ 0x0FA5, "Virgin Islands (British)" },
+        -:  197:	{ 0x0AF0, "Afghanistan" },
+        -:  198:	/* USA including unincorporated territories - Multiple country codes */
+        -:  199:	{ 0x01A0, "United States of America" },
+        -:  200:	{ 0x02A0, "United States of America" },
+        -:  201:	{ 0x03A0, "United States of America" },
+        -:  202:	{ 0x04A0, "United States of America" },
+        -:  203:	{ 0x05A0, "United States of America" },
+        -:  204:	{ 0x06A0, "United States of America" },
+        -:  205:	{ 0x07A0, "United States of America" },
+        -:  206:	{ 0x08A0, "United States of America" },
+        -:  207:	{ 0x09A0, "United States of America" },
+        -:  208:	{ 0x0AA0, "United States of America" },
+        -:  209:	{ 0x0BA0, "United States of America" },
+        -:  210:	{ 0x0DA0, "United States of America" },
+        -:  211:	{ 0x0EA0, "United States of America" },
+        -:  212:	/* ITU Region 3*/
+        -:  213:	{ 0x01F0, "Australia Capital Territory" },
+        -:  214:	{ 0x02F0, "New South Wales" },
+        -:  215:	{ 0x03F0, "Victoria" },
+        -:  216:	{ 0x04F0, "Queensland" },
+        -:  217:	{ 0x05F0, "South Australia" },
+        -:  218:	{ 0x06F0, "Western Australia" },
+        -:  219:	{ 0x07F0, "Tasmania" },
+        -:  220:	{ 0x08F0, "Northern Territory" },
+        -:  221:	{ 0x03F1, "Bangladesh" },
+        -:  222:	{ 0x0EF0, "Bahrain" },
+        -:  223:	{ 0x0BF1, "Brunei Darussalam" },
+        -:  224:	{ 0x02F1, "Bhutan" },
+        -:  225:	{ 0x03F2, "Cambodia" },
+        -:  226:	{ 0x0CF0, "China" },
+        -:  227:	{ 0x05F1, "Fiji" },
+        -:  228:	{ 0x0FF1, "Hong Kong" },
+        -:  229:	{ 0x05F2, "India" },
+        -:  230:	{ 0x0CF2, "Indonesia" },
+        -:  231:	{ 0x08F1, "Iran" },
+        -:  232:	{ 0x09F2, "Japan" },
+        -:  233:	{ 0x0DE3, "Kazakhstan" },
+        -:  234:	{ 0x01F1, "Kiribati" },
+        -:  235:	{ 0x0EF1, "Korea (South)" },
+        -:  236:	{ 0x0DF0, "Korea (North)" },
+        -:  237:	{ 0x01F2, "Kuwait" },
+        -:  238:	{ 0x03E4, "Kyrghyzstan" },
+        -:  239:	{ 0x01F3, "Laos" },
+        -:  240:	{ 0x06F2, "Macao" },
+        -:  241:	{ 0x0FF0, "Malaysia" },
+        -:  242:	{ 0x0BF2, "Maldives" },
+        -:  243:	{ 0x0EF3, "Micronesia" },
+        -:  244:	{ 0x0FF3, "Mongolia" },
+        -:  245:	{ 0x0BF0, "Myanmar (Burma)" },
+        -:  246:	{ 0x0EF2, "Nepal" },
+        -:  247:	{ 0x07F1, "Nauru" },
+        -:  248:	{ 0x09F1, "New Zealand" },
+        -:  249:	{ 0x06F1, "Oman" },
+        -:  250:	{ 0x04F1, "Pakistan" },
+        -:  251:	{ 0x08F2, "Philippines" },
+        -:  252:	{ 0x09F3, "Papua New Guinea" },
+        -:  253:	{ 0x02F2, "Qatar" },
+        -:  254:	{ 0x09F0, "Saudi Arabia" },
+        -:  255:	{ 0x0AF1, "Soloman Islands" },
+        -:  256:	{ 0x04F2, "Samoa" },
+        -:  257:	{ 0x0AF2, "Singapore" },
+        -:  258:	{ 0x0CF1, "Sri Lanka" },
+        -:  259:	{ 0x0DF1, "Taiwan" },
+        -:  260:	{ 0x05E3, "Tajikistan" },
+        -:  261:	{ 0x02F3, "Thailand" },
+        -:  262:	{ 0x03F3, "Tonga" },
+        -:  263:	{ 0x0EE4, "Turkmenistan" },
+        -:  264:	{ 0x0DF2, "United Arab Emirates" },
+        -:  265:	{ 0x0BE4, "Uzbekistan" },
+        -:  266:	{ 0x07F2, "Vietnam" },
+        -:  267:	{ 0x0FF2, "Vanuatu" },
+        -:  268:	{ 0x0BF3, "Yemen" },
+        -:  269:};
+        -:  270:
+        -:  271:/***********************************\
+        -:  272:* RDS LANGUAGE IDENTIFICATION CODES *
+        -:  273:\***********************************/
+        -:  274:
+        -:  275:/*
+        -:  276: * 8bin LICs as defined on annex J of
+        -:  277: * the RDS standard
+        -:  278: */
+        -:  279:
+        -:  280:static const struct rds_code_map li_codes[] = {
+        -:  281:	{ 0x0, "Unknown/NA" },
+        -:  282:	{ 0x1, "Albanian" },
+        -:  283:	{ 0x2, "Breton" },
+        -:  284:	{ 0x3, "Catalan" },
+        -:  285:	{ 0x4, "Croatian" },
+        -:  286:	{ 0x5, "Welsh" },
+        -:  287:	{ 0x6, "Czech" },
+        -:  288:	{ 0x7, "Danish" },
+        -:  289:	{ 0x8, "German" },
+        -:  290:	{ 0x9, "English" },
+        -:  291:	{ 0xA, "Spanish" },
+        -:  292:	{ 0xB, "Esperando" },
+        -:  293:	{ 0xC, "Estonian" },
+        -:  294:	{ 0xD, "Basque" },
+        -:  295:	{ 0xE, "Faroese" },
+        -:  296:	{ 0xF, "French" },
+        -:  297:	{ 0x10, "Frisian" },
+        -:  298:	{ 0x11, "Irish" },
+        -:  299:	{ 0x12, "Gaelic" },
+        -:  300:	{ 0x13, "Galician" },
+        -:  301:	{ 0x14, "Icelandic" },
+        -:  302:	{ 0x15, "Italian" },
+        -:  303:	{ 0x16, "Lappish" },
+        -:  304:	{ 0x17, "Latin" },
+        -:  305:	{ 0x18, "Lativian" },
+        -:  306:	{ 0x19, "Lusembourgian" },
+        -:  307:	{ 0x1A, "Lithuanian" },
+        -:  308:	{ 0x1B, "Hungarian" },
+        -:  309:	{ 0x1C, "Malteze" },
+        -:  310:	{ 0x1D, "Dutch" },
+        -:  311:	{ 0x1E, "Norwegian" },
+        -:  312:	{ 0x1F, "Occitan" },
+        -:  313:	{ 0x20, "Polish" },
+        -:  314:	{ 0x21, "Portuguese" },
+        -:  315:	{ 0x22, "Romanian" },
+        -:  316:	{ 0x23, "Romansh" },
+        -:  317:	{ 0x24, "Serbian" },
+        -:  318:	{ 0x25, "Slovak" },
+        -:  319:	{ 0x26, "Slovene" },
+        -:  320:	{ 0x27, "Finnish" },
+        -:  321:	{ 0x28, "Swedish" },
+        -:  322:	{ 0x29, "Turkish" },
+        -:  323:	{ 0x2A, "Flemish" },
+        -:  324:	{ 0x2B, "Walloon" },
+        -:  325:	{ 0x7F, "Amharic" },
+        -:  326:	{ 0x7E, "Arabic" },
+        -:  327:	{ 0x7D, "Armenian" },
+        -:  328:	{ 0x7C, "Assamese" },
+        -:  329:	{ 0x7B, "Azerbijani" },
+        -:  330:	{ 0x7A, "Bambora" },
+        -:  331:	{ 0x79, "Belorussian" },
+        -:  332:	{ 0x78, "Bengali" },
+        -:  333:	{ 0x77, "Bulgarian" },
+        -:  334:	{ 0x76, "Burmese" },
+        -:  335:	{ 0x75, "Chinese" },
+        -:  336:	{ 0x74, "Churash" },
+        -:  337:	{ 0x73, "Dari" },
+        -:  338:	{ 0x72, "Funali" },
+        -:  339:	{ 0x71, "Georgian" },
+        -:  340:	{ 0x70, "Greek" },
+        -:  341:	{ 0x6F, "Gujurati" },
+        -:  342:	{ 0x6E, "Gurani" },
+        -:  343:	{ 0x6D, "Hausa" },
+        -:  344:	{ 0x6C, "Hebrew" },
+        -:  345:	{ 0x6B, "Hindi" },
+        -:  346:	{ 0x6A, "Indonesian" },
+        -:  347:	{ 0x69, "Japanese" },
+        -:  348:	{ 0x68, "Kannada" },
+        -:  349:	{ 0x67, "Kazakh" },
+        -:  350:	{ 0x66, "Khmer" },
+        -:  351:	{ 0x65, "Korean" },
+        -:  352:	{ 0x64, "Laotian" },
+        -:  353:	{ 0x63, "Macedonian" },
+        -:  354:	{ 0x62, "Malagasay" },
+        -:  355:	{ 0x61, "Malaysian" },
+        -:  356:	{ 0x60, "Moldavian" },
+        -:  357:	{ 0x5F, "Marathi" },
+        -:  358:	{ 0x5E, "Ndebele" },
+        -:  359:	{ 0x5D, "Nepali" },
+        -:  360:	{ 0x5C, "Oriya" },
+        -:  361:	{ 0x5B, "Papamiento" },
+        -:  362:	{ 0x5A, "Persian" },
+        -:  363:	{ 0x59, "Punjabi" },
+        -:  364:	{ 0x58, "Pushtu" },
+        -:  365:	{ 0x57, "Quechua" },
+        -:  366:	{ 0x56, "Russian" },
+        -:  367:	{ 0x55, "Ruthenian" },
+        -:  368:	{ 0x54, "Serbo-Croat" },
+        -:  369:	{ 0x53, "Shoma" },
+        -:  370:	{ 0x52, "Sinhalese" },
+        -:  371:	{ 0x51, "Somali" },
+        -:  372:	{ 0x50, "Sranan Tongo" },
+        -:  373:	{ 0x4F, "Swahili" },
+        -:  374:	{ 0x4E, "Tadzhik" },
+        -:  375:	{ 0x4D, "Tamil" },
+        -:  376:	{ 0x4C, "Tatar" },
+        -:  377:	{ 0x4B, "Telugu" },
+        -:  378:	{ 0x4A, "Thai" },
+        -:  379:	{ 0x49, "Ukranian" },
+        -:  380:	{ 0x48, "Urdu" },
+        -:  381:	{ 0x47, "Uzbek" },
+        -:  382:	{ 0x46, "Vietnamese" },
+        -:  383:	{ 0x45, "Zulu" },
+        -:  384:	{ 0x40, "Background sound / Clean feed" },
+        -:  385:};
+        -:  386:
+        -:  387:/****************************\
+        -:  388:* PROGRAMME TYPE (PTY) CODES *
+        -:  389:\****************************/
+        -:  390:
+        -:  391:const char *pty_codes[32] ={"None", "News", "Current Afairs", "Information",
+        -:  392:			     "Sport", "Education", "Drama", "Culture",
+        -:  393:			     "Science", "Varied Speech", "Pop Music",
+        -:  394:			     "Rock Music", "Easy Listening", "Light Classics",
+        -:  395:			     "Serious Classics", "Other Music", "Weather",
+        -:  396:			     "Finance", "Children's Progs", "Social Affairs",
+        -:  397:			     "Religion", "Phone In", "Travel & Touring",
+        -:  398:			     "Leisure & Hobby", "Jazz Music", "Country Music",
+        -:  399:			     "National Music", "Oldies", "Folk Music",
+        -:  400:			     "Documentary", "Alarm Test", "Alarm !"};
+        -:  401:
+        -:  402:/**************\
+        -:  403:* ENTRY POINTS *
+        -:  404:\**************/
+        -:  405:
+        -:  406:int
+    #####:  407:rds_codes_get_ctry_idx(const char *ctry_name)
+        -:  408:{
+        -:  409:	static int num_countries = sizeof(ctry_codes) / sizeof(ctry_codes[0]);
+    #####:  410:	int i = 0;
+        -:  411:
+    #####:  412:	for(i = 0; i < num_countries; i++)
+    #####:  413:		if(!strncmp(ctry_name, ctry_codes[i].name, 32))
+    #####:  414:			return i;
+    #####:  415:	return -1;
+        -:  416:}
+        -:  417:
+        -:  418:const char*
+      621:  419:rds_codes_get_ctry_name(int idx)
+        -:  420:{
+        -:  421:	static int num_countries = sizeof(ctry_codes) / sizeof(ctry_codes[0]);
+        -:  422:
+      621:  423:	if(idx >= num_countries)
+        1:  424:		return "";
+        -:  425:
+      620:  426:	return ctry_codes[idx].name;
+        -:  427:}
+        -:  428:
+        -:  429:int
+    #####:  430:rds_codes_get_ctry_code_by_ctry_idx(int ctry_idx)
+        -:  431:{
+        -:  432:	static int num_countries = sizeof(ctry_codes) / sizeof(ctry_codes[0]);
+    #####:  433:	const char *curr = NULL;
+    #####:  434:	const char *next = NULL;
+        -:  435:
+    #####:  436:	if(ctry_idx >= num_countries)
+    #####:  437:		return -1;
+        -:  438:	
+        -:  439:	/* Check if country has multiple country codes */
+    #####:  440:	if(ctry_idx < num_countries - 2) {
+    #####:  441:		curr = rds_codes_get_ctry_name(ctry_idx);
+    #####:  442:		next = rds_codes_get_ctry_name(ctry_idx + 1);
+    #####:  443:		if(!strcmp(curr, next))
+    #####:  444:			return -2;
+        -:  445:	}
+        -:  446:
+    #####:  447:	return (ctry_codes[ctry_idx].code & 0x0F00) >> 4;
+        -:  448:}
+        -:  449:
+        -:  450:int
+        1:  451:rds_codes_get_ecc_by_ctry_idx(int ctry_idx)
+        -:  452:{
+        -:  453:	static int num_countries = sizeof(ctry_codes) / sizeof(ctry_codes[0]);
+        -:  454:	
+        1:  455:	if(ctry_idx >= num_countries)
+    #####:  456:		return -1;
+        -:  457:
+        1:  458:	return (ctry_codes[ctry_idx].code & 0x00FF);
+        -:  459:}
+        -:  460:
+        -:  461:int
+      380:  462:rds_codes_get_ctry_idx_from_ctry_codes(uint8_t ctry_code, uint8_t ecc)
+        -:  463:{
+        -:  464:	static int num_countries = sizeof(ctry_codes) / sizeof(ctry_codes[0]);
+      380:  465:	int ctry_id = ((ctry_code & 0xF) << 8) | ecc;
+      380:  466:	int i = 0;
+        -:  467:
+    19340:  468:	for(i = 0; i < num_countries; i++)
+    19296:  469:		if(ctry_codes[i].code == ctry_id)
+      336:  470:			return i;
+        -:  471:
+       44:  472:	return -1;
+        -:  473:}
+        -:  474:
+        -:  475:int
+    #####:  476:rds_codes_get_lang_idx(const char* lang)
+        -:  477:{
+        -:  478:	static int num_langs = sizeof(li_codes) / sizeof(li_codes[0]);
+    #####:  479:	int i = 0;
+        -:  480:
+    #####:  481:	for(i = 0; i < num_langs; i++)
+    #####:  482:		if(!strncmp(lang, li_codes[i].name, 32))
+    #####:  483:			return i;
+    #####:  484:	return -1;
+        -:  485:}
+        -:  486:
+        -:  487:const char*
+      480:  488:rds_codes_get_lang_name(uint8_t lang_idx)
+        -:  489:{
+        -:  490:	static int num_langs = sizeof(li_codes) / sizeof(li_codes[0]);
+        -:  491:
+      480:  492:	if(lang_idx >= num_langs)
+        1:  493:		return "";
+        -:  494:
+      479:  495:	return li_codes[lang_idx].name;
+        -:  496:}
+        -:  497:
+        -:  498:int
+        1:  499:rds_codes_get_lic_by_lang_idx(uint8_t lang_idx)
+        -:  500:{
+        -:  501:	static int num_langs = sizeof(li_codes) / sizeof(li_codes[0]);
+        -:  502:
+        1:  503:	if(lang_idx >= num_langs)
+    #####:  504:		return -1;
+        -:  505:
+        1:  506:	return li_codes[lang_idx].code;
+        -:  507:}
+        -:  508:
+        -:  509:int
+      375:  510:rds_codes_get_lang_idx_from_lic(uint8_t lic)
+        -:  511:{
+        -:  512:	static int num_langs = sizeof(li_codes) / sizeof(li_codes[0]);
+      375:  513:	int i = 0;
+        -:  514:
+    19137:  515:	for(i = 0; i < num_langs; i++)
+    19137:  516:		if(li_codes[i].code == lic)
+      375:  517:			return i;
+    #####:  518:	return -1;
+        -:  519:}
+        -:  520:
+        -:  521:const char*
+       33:  522:rds_codes_get_pty_name(uint8_t pty)
+        -:  523:{
+        -:  524:	static int num_ptys = sizeof(pty_codes) / sizeof(pty_codes[0]);
+        -:  525:
+       33:  526:	if(pty >= num_ptys)
+        1:  527:		return "";
+        -:  528:
+       32:  529:	return pty_codes[pty];
+        -:  530:}

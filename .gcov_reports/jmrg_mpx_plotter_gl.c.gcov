@@ -1,0 +1,419 @@
+        -:    0:Source:gui/jmrg_mpx_plotter_gl.c
+        -:    1:#include "jmrg_mpx_plotter.h"
+        -:    2:
+        -:    3:/*********\
+        -:    4:* SHADERS *
+        -:    5:\*********/
+        -:    6:
+        -:    7:const char *plot_vs_source =
+        -:    8:	"#version 120\n"
+        -:    9:	"attribute float in_x;"
+        -:   10:	"attribute float in_y;"
+        -:   11:	"varying vec4 f_color;"
+        -:   12:	"void main(void) {"
+        -:   13:	"  gl_Position = vec4(in_x, in_y, 0.0, 1.0);"
+        -:   14:	"  f_color = vec4(in_y / 2 + 0.5, 0.4, 0.4, 1);"
+        -:   15:	"}";
+        -:   16:
+        -:   17:const char *plot_fs_source =
+        -:   18:	"#version 120\n"
+        -:   19:	"varying vec4 f_color;"
+        -:   20:	"void main(void) {"
+        -:   21:	"  gl_FragColor = f_color;"
+        -:   22:	"}";
+        -:   23:
+        -:   24:const char *mh_vs_source =
+        -:   25:	"#version 120\n"
+        -:   26:	"attribute float in_x;"
+        -:   27:	"attribute float in_y;"
+        -:   28:	"void main(void) {"
+        -:   29:	"  gl_Position = vec4(in_x, in_y, 0.0, 1.0);"
+        -:   30:	"}";
+        -:   31:
+        -:   32:
+        -:   33:const char *grid_vs_source =
+        -:   34:	"#version 120\n"
+        -:   35:	"attribute vec2 in_gp;"
+        -:   36:	"void main(void) {"
+        -:   37:	"  gl_Position = vec4(in_gp.xy, 0.0, 1.0);"
+        -:   38:	"}";
+        -:   39:
+        -:   40:const char *common_fs_source =
+        -:   41:	"#version 120\n"
+        -:   42:	"uniform vec4 f_color;"
+        -:   43:	"void main(void) {"
+        -:   44:	"  gl_FragColor = f_color;"
+        -:   45:	"}";
+        -:   46:
+        -:   47:enum gl_programs {
+        -:   48:	GLP_PLOT = 0,
+        -:   49:	GLP_MAX_HOLD = 1,
+        -:   50:	GLP_GRID = 2,
+        -:   51:};
+        -:   52:
+        -:   53:
+        -:   54:/***********************\
+        -:   55:* OPENGL INITIALIZATION *
+        -:   56:\***********************/
+        -:   57:
+        -:   58:static GLuint
+        3:   59:jmrg_mpxp_gl_program_init(struct mpx_plotter *mpxp, int type)
+        -:   60:{
+        3:   61:	GLuint program = GL_FALSE;
+        3:   62:	GLint compile_ok = GL_FALSE;
+        3:   63:	GLint link_ok = GL_FALSE;
+        3:   64:	GLuint vs = GL_FALSE;
+        3:   65:	GLuint fs = GL_FALSE;
+        3:   66:	int ret = 0;
+        -:   67:	const char* vs_source;
+        -:   68:	const char* fs_source;
+        -:   69:
+        3:   70:	switch(type) {
+        1:   71:	case GLP_PLOT:
+        1:   72:		vs_source = plot_vs_source;
+        1:   73:		fs_source = plot_fs_source;
+        1:   74:		break;
+        1:   75:	case GLP_MAX_HOLD:
+        1:   76:		vs_source = mh_vs_source;
+        1:   77:		fs_source = common_fs_source;
+        1:   78:		break;
+        1:   79:	case GLP_GRID:
+        1:   80:		vs_source = grid_vs_source;
+        1:   81:		fs_source = common_fs_source;
+        1:   82:		break;
+    #####:   83:	default:
+    #####:   84:		return -1;
+        -:   85:	}
+        -:   86:
+        -:   87:	/* Create vertex shader */	
+        3:   88:	vs = glCreateShader(GL_VERTEX_SHADER);
+        3:   89:	glShaderSource(vs, 1, &vs_source, NULL);
+        3:   90:	glCompileShader(vs);
+        3:   91:	glGetShaderiv(vs, GL_COMPILE_STATUS, &compile_ok);
+        3:   92:	if(!compile_ok) {
+    #####:   93:		ret = -2;
+    #####:   94:		goto cleanup;
+        -:   95:	}
+        -:   96:
+        -:   97:	/* Create fragment shader */
+        3:   98:	fs = glCreateShader(GL_FRAGMENT_SHADER);
+        3:   99:	glShaderSource(fs, 1, &fs_source, NULL);
+        3:  100:	glCompileShader(fs);
+        3:  101:	glGetShaderiv(fs, GL_COMPILE_STATUS, &compile_ok);
+        3:  102:	if(!compile_ok) {
+    #####:  103:		ret = -3;
+    #####:  104:		goto cleanup;
+        -:  105:	}
+        -:  106:
+        -:  107:	/* Create a program and attach the shaders on it */
+        3:  108:	program = glCreateProgram();
+        3:  109:	glAttachShader(program, vs);
+        3:  110:	glAttachShader(program, fs);
+        -:  111:
+        -:  112:	/* Bind attribute indices */
+        3:  113:	mpxp->in_x_idx = 0;
+        3:  114:	mpxp->in_y_idx = 1;
+        3:  115:	mpxp->in_gp_idx = 2;
+        -:  116:
+        3:  117:	switch(type) {
+        2:  118:	case GLP_MAX_HOLD:
+        -:  119:	case GLP_PLOT:
+        2:  120:		glBindAttribLocation(program, mpxp->in_x_idx, "in_x");
+        2:  121:		glBindAttribLocation(program, mpxp->in_y_idx, "in_y");
+        2:  122:		break;
+        1:  123:	case GLP_GRID:
+        1:  124:		glBindAttribLocation(program, mpxp->in_gp_idx, "in_gp");
+        1:  125:		break;
+    #####:  126:	default:
+    #####:  127:		return -1;
+        -:  128:	}
+        -:  129:
+        3:  130:	glLinkProgram(program);
+        3:  131:	glGetProgramiv(program, GL_LINK_STATUS, &link_ok);
+        3:  132:	if(!link_ok) {
+    #####:  133:		ret = -4;
+    #####:  134:		goto cleanup;
+        -:  135:	}
+        -:  136:
+        3:  137: cleanup:
+        -:  138:	/* the individual shaders can be detached and destroyed */
+        3:  139:	if(vs) {
+        3:  140:		glDetachShader(program, vs);
+        3:  141:		glDeleteShader(vs);
+        -:  142:	}
+        3:  143:	if(fs) {
+        3:  144:		glDetachShader(program, fs);
+        3:  145:		glDeleteShader(vs);
+        -:  146:	}
+        3:  147:	if(ret < 0) {
+    #####:  148:		if(link_ok)
+    #####:  149:			glDeleteProgram(program);
+    #####:  150:		return (GLuint) ret;
+        -:  151:	}
+        3:  152:	return program;
+        -:  153:}
+        -:  154:
+        -:  155:static int
+        1:  156:jmrg_mpxp_gl_buffers_init(struct mpx_plotter *mpxp)
+        -:  157:{
+        -:  158:	/* Init VAO and bind it as the currently used object */
+        1:  159:	glGenVertexArrays(1, &mpxp->vao);
+        1:  160:	glBindVertexArray(mpxp->vao);
+        -:  161:
+        -:  162:	/* Init VBO buffers for x_vals, y_vals
+        -:  163:	 * and grid points */
+        1:  164:	glGenBuffers(3, mpxp->vbos);
+        -:  165:
+        -:  166:	/* Initialize x axis for plot */
+        -:  167:
+        -:  168:	/* Mark the first vbo as being the active one */
+        1:  169:	glBindBuffer(GL_ARRAY_BUFFER, mpxp->vbos[0]);
+        -:  170:
+        -:  171:	/* Copy x_vals array to the vbo, x coords
+        -:  172:	 * for the plot are static, so is the vbo  */
+        1:  173:	glBufferData(GL_ARRAY_BUFFER, mpxp->drawable_bins * sizeof(float),
+        1:  174:		     mpxp->x_vals, GL_STATIC_DRAW);
+        -:  175:
+        -:  176:	/* Specify that the above data goes to in_x attribute
+        -:  177:	 * as a 1d float array */
+        1:  178:	glVertexAttribPointer(mpxp->in_x_idx, 1,
+        -:  179:			      GL_FLOAT, GL_FALSE, 0, (GLvoid*) 0);
+        -:  180:
+        -:  181:
+        -:  182:	/* Prepare the y buffer for the plot */
+        -:  183:
+        -:  184:	/* Mark the second vbo as being the active one */
+        1:  185:	glBindBuffer(GL_ARRAY_BUFFER, mpxp->vbos[1]);
+        -:  186:
+        -:  187:	/* Allocate a buffer with no data and mark it as dynamic
+        -:  188:	 * since its's going to be updated frequently */
+        1:  189:	glBufferData(GL_ARRAY_BUFFER, mpxp->drawable_bins * sizeof(float),
+        -:  190:		     NULL, GL_DYNAMIC_DRAW);
+        -:  191:
+        -:  192:	/* Same as above */
+        1:  193:	glVertexAttribPointer(mpxp->in_y_idx, 1,
+        -:  194:			      GL_FLOAT, GL_FALSE, 0, (GLvoid*) 0);
+        -:  195:
+        -:  196:	/* Initialize buffer for grid points */
+        1:  197:	glBindBuffer(GL_ARRAY_BUFFER, mpxp->vbos[2]);
+        1:  198:	glBufferData(GL_ARRAY_BUFFER, 48 * sizeof(struct grid_point),
+        1:  199:		     mpxp->points, GL_STATIC_DRAW);
+        1:  200:	glVertexAttribPointer(mpxp->in_gp_idx, 2,	/* 2d array */
+        -:  201:			      GL_FLOAT, GL_FALSE, 0, (GLvoid*) 0);
+        -:  202:
+        -:  203:	/* Reset state */
+        1:  204:	glBindBuffer(GL_ARRAY_BUFFER, 0);
+        1:  205:	glBindVertexArray(0);
+        -:  206:
+        1:  207:	return 0;
+        -:  208:}
+        -:  209:
+        -:  210:void
+        1:  211:jmrg_mpxp_gl_destroy(GtkGLArea *area, struct mpx_plotter *mpxp)
+        -:  212:{
+        -:  213:	/* Switch the current context to area's context
+        -:  214:	 * in order to be able to call the GL API */
+        1:  215:	gtk_gl_area_make_current(area);
+        -:  216:
+        1:  217:	if(gtk_gl_area_get_error(area) != NULL)
+    #####:  218:		return;
+        -:  219:
+        1:  220:	glDisableVertexAttribArray(mpxp->in_gp_idx);
+        1:  221:	glDisableVertexAttribArray(mpxp->in_x_idx);
+        1:  222:	glDisableVertexAttribArray(mpxp->in_y_idx);
+        1:  223:	glDeleteProgram(mpxp->plot_program);
+        1:  224:	glDeleteProgram(mpxp->mh_program);
+        1:  225:	glDeleteProgram(mpxp->grid_program);
+        1:  226:	glDeleteBuffers(3, mpxp->vbos);
+        1:  227:	glDeleteVertexArrays(1, &mpxp->vao);
+        -:  228:}
+        -:  229:
+        -:  230:void
+        1:  231:jmrg_mpxp_gl_init(GtkGLArea *area, gpointer data)
+        -:  232:{
+        1:  233:	GError *err = NULL;
+        1:  234:	GLint ret = 0;
+        1:  235:	struct mpx_plotter *mpxp = (struct mpx_plotter*) data;
+        -:  236:
+        -:  237:	/* Switch the current context to area's context
+        -:  238:	 * in order to be able to call the GL API */
+        1:  239:	gtk_gl_area_make_current(area);
+        -:  240:
+        1:  241:	if(gtk_gl_area_get_error(area) != NULL)
+    #####:  242:		return;
+        -:  243:
+        1:  244:	ret = jmrg_mpxp_gl_program_init(mpxp, GLP_PLOT);
+        1:  245:	if(ret < 0) {
+    #####:  246:		err = g_error_new(1, (int) ret, "GLSL setup failed for PLOT"
+        -:  247:				  " with code: %i\n", (int) ret);
+    #####:  248:		gtk_gl_area_set_error(area, err);
+    #####:  249:		g_error_free(err);
+    #####:  250:		return;
+        -:  251:	} else
+        1:  252:		mpxp->plot_program = ret;
+        -:  253:
+        1:  254:	ret = jmrg_mpxp_gl_program_init(mpxp, GLP_MAX_HOLD);
+        1:  255:	if(ret < 0) {
+    #####:  256:		err = g_error_new(1, (int) ret, "GLSL setup failed for MAX_HOLD"
+        -:  257:				  " with code: %i\n", (int) ret);
+    #####:  258:		gtk_gl_area_set_error(area, err);
+    #####:  259:		g_error_free (err);
+    #####:  260:		return;
+        -:  261:	} else
+        1:  262:		mpxp->mh_program = ret;
+        -:  263:
+        1:  264:	mpxp->f_color_mh = glGetUniformLocation(mpxp->mh_program, "f_color");
+        1:  265:	if(mpxp->f_color_mh == -1) {
+    #####:  266:		err = g_error_new(1, -1, "Could not bind f_color_mh\n");
+    #####:  267:		gtk_gl_area_set_error(area, err);
+    #####:  268:		g_error_free(err);
+    #####:  269:		return;
+        -:  270:	}
+        -:  271:
+        1:  272:	ret = jmrg_mpxp_gl_program_init(mpxp, GLP_GRID);
+        1:  273:	if(ret < 0) {
+    #####:  274:		err = g_error_new(1, (int) ret, "GLSL setup failed for GRID"
+        -:  275:				  " with code: %i\n", (int) ret);
+    #####:  276:		gtk_gl_area_set_error(area, err);
+    #####:  277:		g_error_free(err);
+    #####:  278:		return;
+        -:  279:	} else
+        1:  280:		mpxp->grid_program = ret;
+        -:  281:
+        1:  282:	mpxp->f_color_grid = glGetUniformLocation(mpxp->grid_program, "f_color");
+        1:  283:	if(mpxp->f_color_grid == -1) {
+    #####:  284:		err = g_error_new(1, -1, "Could not bind f_color_grid\n");
+    #####:  285:		gtk_gl_area_set_error(area, err);
+    #####:  286:		g_error_free(err);
+    #####:  287:		return;
+        -:  288:	}
+        -:  289:
+        1:  290:	ret = jmrg_mpxp_gl_buffers_init(mpxp);
+        1:  291:	if(ret < 0) {
+    #####:  292:		err = g_error_new(1, (int) ret, "Buffer initialization failed"
+        -:  293:				  "with code: %i\n", (int) ret);
+    #####:  294:		gtk_gl_area_set_error(area, err);
+    #####:  295:		g_error_free(err);
+    #####:  296:		return;
+        -:  297:	}
+        -:  298:}
+        -:  299:
+        -:  300:
+        -:  301:/******************\
+        -:  302:* OPENGL RENDERING *
+        -:  303:\******************/
+        -:  304:
+        -:  305:static void
+      358:  306:jmrg_mpxp_gl_draw_grid(struct mpx_plotter *mpxp)
+        -:  307:{
+      358:  308:	GLfloat blueish[4] = {0.2, 0.0, 0.6, 1 };
+        -:  309:
+        -:  310:	/* Load program */
+      358:  311:	glUseProgram(mpxp->grid_program);
+        -:  312:
+        -:  313:	/* Bind VAO */
+      358:  314:	glBindVertexArray(mpxp->vao);
+        -:  315:
+        -:  316:	/* Set the color */
+      358:  317:	glUniform4fv(mpxp->f_color_grid, 1, blueish);
+        -:  318:
+        -:  319:	/* Enable usage of the in_gp attribute */
+      358:  320:	glEnableVertexAttribArray(mpxp->in_gp_idx);
+        -:  321:
+        -:  322:	/* Draw lines between pairs of points */
+      358:  323:	glDrawArrays(GL_LINES, 0, 48);
+        -:  324:
+        -:  325:	/* Done, reset state */
+      358:  326:	glDisableVertexAttribArray(mpxp->in_gp_idx);
+      358:  327:	glBindBuffer(GL_ARRAY_BUFFER, 0);
+      358:  328:	glBindVertexArray(0);
+      358:  329:	glUseProgram(0);
+      358:  330:}
+        -:  331:
+        -:  332:static void
+      358:  333:jmrg_mpxp_gl_draw_plot(struct mpx_plotter *mpxp)
+        -:  334:{
+        -:  335:	/* Load program */
+      358:  336:	glUseProgram(mpxp->plot_program);
+        -:  337:
+        -:  338:	/* Bind VAO */
+      358:  339:	glBindVertexArray(mpxp->vao);
+        -:  340:
+        -:  341:	/* Enable usage of the in_x and in_y attributes */
+      358:  342:	glEnableVertexAttribArray(mpxp->in_x_idx);
+      358:  343:	glEnableVertexAttribArray(mpxp->in_y_idx);
+        -:  344:
+        -:  345:	/* Overwrite the vbo with the updated y vals */
+      358:  346:	glBindBuffer(GL_ARRAY_BUFFER, mpxp->vbos[1]);
+      358:  347:	glBufferSubData(GL_ARRAY_BUFFER, 0, mpxp->drawable_bins *
+      358:  348:			sizeof(float), mpxp->y_vals);
+        -:  349:
+        -:  350:	/* Draw a line that connects all points */
+      358:  351:	glDrawArrays(GL_LINE_STRIP, 0, mpxp->drawable_bins);
+        -:  352:
+        -:  353:	/* Done, reset state */
+      358:  354:	glDisableVertexAttribArray(mpxp->in_x_idx);
+      358:  355:	glDisableVertexAttribArray(mpxp->in_y_idx);
+      358:  356:	glBindBuffer(GL_ARRAY_BUFFER, 0);
+      358:  357:	glBindVertexArray(0);
+      358:  358:	glUseProgram(0);
+      358:  359:}
+        -:  360:
+        -:  361:static void
+    #####:  362:jmrg_mpxp_gl_draw_peaks(struct mpx_plotter *mpxp)
+        -:  363:{
+    #####:  364:	GLfloat greenish[4] = { 0.0, 0.5, 0.0, 1 };
+        -:  365:
+        -:  366:	/* Load program */
+    #####:  367:	glUseProgram(mpxp->mh_program);
+        -:  368:
+        -:  369:	/* Bind VAO */
+    #####:  370:	glBindVertexArray(mpxp->vao);
+        -:  371:
+        -:  372:	/* Set the color */
+    #####:  373:	glUniform4fv(mpxp->f_color_mh, 1, greenish);
+        -:  374:
+        -:  375:	/* Enable usage of the in_x and in_y attributes */
+    #####:  376:	glEnableVertexAttribArray(mpxp->in_x_idx);
+    #####:  377:	glEnableVertexAttribArray(mpxp->in_y_idx);
+        -:  378:
+        -:  379:	/* Overwrite the vbo with y_peak_vals */
+    #####:  380:	glBindBuffer(GL_ARRAY_BUFFER, mpxp->vbos[1]);
+    #####:  381:	glBufferSubData(GL_ARRAY_BUFFER, 0, mpxp->drawable_bins *
+    #####:  382:			sizeof(float), mpxp->y_peak_vals);
+        -:  383:
+        -:  384:	/* Draw a line that connects all points */
+    #####:  385:	glDrawArrays(GL_LINE_STRIP, 0, mpxp->drawable_bins);
+        -:  386:
+        -:  387:	/* Done, reset state */
+    #####:  388:	glDisableVertexAttribArray(mpxp->in_x_idx);
+    #####:  389:	glDisableVertexAttribArray(mpxp->in_y_idx);
+    #####:  390:	glBindBuffer(GL_ARRAY_BUFFER, 0);
+    #####:  391:	glBindVertexArray(0);
+    #####:  392:	glUseProgram(0);
+    #####:  393:}
+        -:  394:
+        -:  395:gboolean
+      358:  396:jmrg_mpxp_gl_render(__attribute__((unused)) GtkGLArea *area,
+        -:  397:		    __attribute__((unused)) GdkGLContext *context,
+        -:  398:		    gpointer data)
+        -:  399:{
+      358:  400:	struct mpx_plotter *mpxp = (struct mpx_plotter*) data;
+        -:  401:
+        -:  402:	/* context and viewport already set from above */
+        -:  403:
+        -:  404:	/* Clear up the buffer with black color */
+      358:  405:	glClearColor(0, 0, 0, 0);
+      358:  406:	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        -:  407:
+      358:  408:	jmrg_mpxp_gl_draw_grid(mpxp);
+        -:  409:
+      358:  410:	jmrg_mpxp_gl_draw_plot(mpxp);
+        -:  411:
+      358:  412:	if(mpxp->max_hold)
+    #####:  413:		jmrg_mpxp_gl_draw_peaks(mpxp);
+        -:  414:
+      358:  415:	glFlush();
+        -:  416:
+      358:  417:	return TRUE;
+        -:  418:}

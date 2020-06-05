@@ -1,0 +1,845 @@
+        -:    0:Source:rds_encoder.c
+        -:    1:/*
+        -:    2: * JMPXRDS, an FM MPX signal generator with RDS support on
+        -:    3: * top of Jack Audio Connection Kit - RDS Encoder
+        -:    4: *
+        -:    5: * Copyright (C) 2015 Nick Kossifidis <mickflemm@gmail.com>
+        -:    6: *
+        -:    7: * This program is free software: you can redistribute it and/or modify
+        -:    8: * it under the terms of the GNU General Public License as published by
+        -:    9: * the Free Software Foundation, either version 3 of the License, or
+        -:   10: * (at your option) any later version.
+        -:   11: *
+        -:   12: * This program is distributed in the hope that it will be useful,
+        -:   13: * but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   14: * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   15: * GNU General Public License for more details.
+        -:   16: *
+        -:   17: * You should have received a copy of the GNU General Public License
+        -:   18: * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+        -:   19: */
+        -:   20:#include "resampler.h"
+        -:   21:#include "utils.h"
+        -:   22:#include "rds_encoder.h"
+        -:   23:#include <time.h>		/* For gmtime, localtime etc (group 4A) */
+        -:   24:#include <arpa/inet.h>		/* For htons() */
+        -:   25:#include <string.h>		/* For memset/memcpy/strnlen */
+        -:   26:#include <stdlib.h>		/* For malloc/free */
+        -:   27:#include <stdio.h>		/* For printf */
+        -:   28:#include <unistd.h>		/* For ftruncate(), close() */
+        -:   29:#include <sys/mman.h>		/* For shm_open */
+        -:   30:#include <sys/stat.h>		/* For mode constants */
+        -:   31:#include <fcntl.h>		/* For O_* and F_* constants */
+        -:   32:#include <math.h>		/* For fabs */
+        -:   33:#include <jack/thread.h>	/* For thread handling through jack */
+        -:   34:
+        -:   35:/*********\
+        -:   36:* HELPERS *
+        -:   37:\*********/
+        -:   38:
+        -:   39:static inline int
+        1:   40:num_resampled_samples(int in_srate, int out_srate, int num_samples)
+        -:   41:{
+        1:   42:	float ratio = (float) out_srate / (float) in_srate;
+        1:   43:	float olenf = ratio * ((float) num_samples);
+        -:   44:	/* Also cover the case where out_srate < in_srate */
+        1:   45:	olenf = fmax(olenf, num_samples - 1.0);
+        1:   46:	return (int) olenf;
+        -:   47:}
+        -:   48:
+        -:   49:/************\
+        -:   50:* MODULATION *
+        -:   51:\************/
+        -:   52:
+        -:   53:/* Loockup table with waveforms of pre-calculated biphase encoded and
+        -:   54: * filtered symbols. For more infos on this visit
+        -:   55: * http://www.langmeier.ch/docs/rds-biphase.pdf
+        -:   56: * 
+        -:   57: * Think of it as a moving 3bit window, for each new bit that comes in,
+        -:   58: * the window's value is used as an index to this table and the matching
+        -:   59: * waveform is appended to the previous one, creating a continuous waveform.
+        -:   60: *
+        -:   61: * E.g for the sequence "0100101110100010":
+        -:   62: *
+        -:   63: * [010] -> output waveform symbol_waveforms[2]
+        -:   64: * [100] -> output waveform symbol_waveforms[4]
+        -:   65: * [001] -> output waveform symbol_waveforms[1]
+        -:   66: * ...
+        -:   67: * [000] -> output waveform symbol_waveforms[0]
+        -:   68: * [001] -> output waveform symbol_waveforms[1]
+        -:   69: * [010] -> output waveform symbol_waveforms[2]
+        -:   70: *
+        -:   71: * Notice "[010]0101110100010" -> "0[100]101110100010" -> ...
+        -:   72: */
+        -:   73:float symbol_waveforms[8][40] = {
+        -:   74:	{-0.077944, -0.231941, -0.380444, -0.519913, -0.646931, -0.758415,
+        -:   75:	 -0.851558, -0.923948, -0.973663, -0.999298, -1.000000, -0.975585,
+        -:   76:	 -0.926511, -0.853877, -0.759453, -0.647450, -0.521073, -0.381756,
+        -:   77:	 -0.232917, -0.078280, +0.078280, +0.232917, +0.381756, +0.521073,
+        -:   78:	 +0.647450, +0.759453, +0.853877, +0.926511, +0.975585, +1.000000,
+        -:   79:	 +0.999298, +0.973663, +0.923948, +0.851558, +0.758415, +0.646931,
+        -:   80:	 +0.519913, +0.380444, +0.231941, +0.077944},
+        -:   81:
+        -:   82:	{-0.077944, -0.231941, -0.380444, -0.519913, -0.646931, -0.758415,
+        -:   83:	 -0.851558, -0.923948, -0.973663, -0.999298, -1.000000, -0.975585,
+        -:   84:	 -0.926511, -0.853877, -0.759453, -0.643818, -0.509690, -0.362621,
+        -:   85:	 -0.206824, -0.046876, +0.112461, +0.266518, +0.410932, +0.541642,
+        -:   86:	 +0.655263, +0.750847, +0.826167, +0.878414, +0.907712, +0.915311,
+        -:   87:	 +0.903409, +0.875057, +0.834101, +0.784753, +0.731498, +0.678793,
+        -:   88:	 +0.630879, +0.591418, +0.563372, +0.548814},
+        -:   89:
+        -:   90:	{+0.548814, +0.563372, +0.591418, +0.630879, +0.678793, +0.731498,
+        -:   91:	 +0.784753, +0.834101, +0.875057, +0.903409, +0.915311, +0.907712,
+        -:   92:	 +0.878414, +0.826167, +0.750847, +0.651601, +0.530259, +0.391766,
+        -:   93:	 +0.240425, +0.081057, -0.081057, -0.240425, -0.391766, -0.530259,
+        -:   94:	 -0.651601, -0.750847, -0.826167, -0.878414, -0.907712, -0.915311,
+        -:   95:	 -0.903409, -0.875057, -0.834101, -0.784753, -0.731498, -0.678793,
+        -:   96:	 -0.630879, -0.591418, -0.563372, -0.548814},
+        -:   97:
+        -:   98:	{+0.548814, +0.563372, +0.591418, +0.630879, +0.678793, +0.731498,
+        -:   99:	 +0.784753, +0.834101, +0.875057, +0.903409, +0.915311, +0.907712,
+        -:  100:	 +0.878414, +0.826167, +0.750847, +0.655263, +0.541642, +0.410932,
+        -:  101:	 +0.266518, +0.112461, -0.046876, -0.206824, -0.362621, -0.509690,
+        -:  102:	 -0.643818, -0.759453, -0.853877, -0.926511, -0.975585, -1.000000,
+        -:  103:	 -0.999298, -0.973663, -0.923948, -0.851558, -0.758415, -0.646931,
+        -:  104:	 -0.519913, -0.380444, -0.231941, -0.077944},
+        -:  105:
+        -:  106:	{-0.548814, -0.563372, -0.591418, -0.630879, -0.678793, -0.731498,
+        -:  107:	 -0.784753, -0.834101, -0.875057, -0.903409, -0.915311, -0.907712,
+        -:  108:	 -0.878414, -0.826167, -0.750847, -0.655263, -0.541642, -0.410932,
+        -:  109:	 -0.266518, -0.112461, +0.046876, +0.206824, +0.362621, +0.509690,
+        -:  110:	 +0.643818, +0.759453, +0.853877, +0.926511, +0.975585, +1.000000,
+        -:  111:	 +0.999298, +0.973663, +0.923948, +0.851558, +0.758415, +0.646931,
+        -:  112:	 +0.519913, +0.380444, +0.231941, +0.077944},
+        -:  113:
+        -:  114:	{-0.548814, -0.563372, -0.591418, -0.630879, -0.678793, -0.731498,
+        -:  115:	 -0.784753, -0.834101, -0.875057, -0.903409, -0.915311, -0.907712,
+        -:  116:	 -0.878414, -0.826167, -0.750847, -0.651601, -0.530259, -0.391766,
+        -:  117:	 -0.240425, -0.081057, +0.081057, +0.240425, +0.391766, +0.530259,
+        -:  118:	 +0.651601, +0.750847, +0.826167, +0.878414, +0.907712, +0.915311,
+        -:  119:	 +0.903409, +0.875057, +0.834101, +0.784753, +0.731498, +0.678793,
+        -:  120:	 +0.630879, +0.591418, +0.563372, +0.548814},
+        -:  121:
+        -:  122:	{+0.077944, +0.231941, +0.380444, +0.519913, +0.646931, +0.758415,
+        -:  123:	 +0.851558, +0.923948, +0.973663, +0.999298, +1.000000, +0.975585,
+        -:  124:	 +0.926511, +0.853877, +0.759453, +0.643818, +0.509690, +0.362621,
+        -:  125:	 +0.206824, +0.046876, -0.112461, -0.266518, -0.410932, -0.541642,
+        -:  126:	 -0.655263, -0.750847, -0.826167, -0.878414, -0.907712, -0.915311,
+        -:  127:	 -0.903409, -0.875057, -0.834101, -0.784753, -0.731498, -0.678793,
+        -:  128:	 -0.630879, -0.591418, -0.563372, -0.548814},
+        -:  129:
+        -:  130:	{+0.077944, +0.231941, +0.380444, +0.519913, +0.646931, +0.758415,
+        -:  131:	 +0.851558, +0.923948, +0.973663, +0.999298, +1.000000, +0.975585,
+        -:  132:	 +0.926511, +0.853877, +0.759453, +0.647450, +0.521073, +0.381756,
+        -:  133:	 +0.232917, +0.078280, -0.078280, -0.232917, -0.381756, -0.521073,
+        -:  134:	 -0.647450, -0.759453, -0.853877, -0.926511, -0.975585, -1.000000,
+        -:  135:	 -0.999298, -0.973663, -0.923948, -0.851558, -0.758415, -0.646931,
+        -:  136:	 -0.519913, -0.380444, -0.231941, -0.077944}
+        -:  137:};
+        -:  138:
+        -:  139:/* Offset words used for calculating checkwords(Anex A, table A.1) */
+        -:  140:static uint16_t offset_words[] = { 0x0FC,	//      A
+        -:  141:	0x198,			//      B
+        -:  142:	0x168,			//      C
+        -:  143:	0x1B4,			//      D
+        -:  144:	0x350,			//      C'
+        -:  145:};
+        -:  146:
+        -:  147:#define RDS_ALT_OFFSET_WORD_C_IDX	4
+        -:  148:/* Note: Offset word E (all zeroes) is deprecated */
+        -:  149:
+        -:  150:/* Generator matrix for the CRC polynomial
+        -:  151: * g(x) = x^10 + x^8 + x^7 + x^5 + x^4 + x^3 + 1 (0x1B9)
+        -:  152: * (Anex B, figure B.1) - This is used to make CRC calculations
+        -:  153: * faster (it's basicaly 0x1B9, "shifted" 15 times). */
+        -:  154:static uint16_t G[] = { 0x1B9, 0x372, 0x35D, 0x303, 0x3BF,
+        -:  155:	0x2C7, 0x037, 0x06E, 0x0DC, 0x1B8,
+        -:  156:	0x370, 0x359, 0x30B, 0x3AF, 0x2E7,
+        -:  157:	0x077
+        -:  158:};
+        -:  159:
+        -:  160:/* Generate a block's checkword and
+        -:  161: * assemble the block as a 32bit int */
+        -:  162:static uint32_t
+     6116:  163:rds_generate_block(struct rds_block *block)
+        -:  164:{
+     6116:  165:	uint32_t encoded_block = 0;
+     6116:  166:	int i = 0;
+        -:  167:
+   103972:  168:	for (i = RDS_INFOWORD_SIZE_BITS - 1; i >= 0; i--)
+    97856:  169:		if (block->infoword & (1 << i))
+    19783:  170:			block->checkword ^= G[i];
+     6116:  171:	block->checkword ^= block->offset_word;
+        -:  172:
+     6116:  173:	encoded_block |= block->checkword | (block->infoword << 10);
+        -:  174:
+     6116:  175:	return encoded_block;
+        -:  176:}
+        -:  177:
+        -:  178:/* Get a group and generate its waveform (this is
+        -:  179: * where the modulation happens as described on
+        -:  180: * section 4 of the standard) */
+        -:  181:static int
+     1529:  182:rds_generate_group_samples(struct rds_group *group)
+        -:  183:{
+        -:  184:	static uint8_t moving_window = 0;
+     1529:  185:	uint8_t current_bit = 0;
+     1529:  186:	uint8_t previous_bit = 0;
+     1529:  187:	uint32_t current_block = 0;
+     1529:  188:	float *buffer = group->samples_buffer;
+     1529:  189:	uint16_t buffer_offset = 0;
+     1529:  190:	int i = 0;
+     1529:  191:	int j = 0;
+        -:  192:
+     7645:  193:	for (i = 0; i < RDS_BLOCKS_PER_GROUP; i++) {
+     6116:  194:		current_block = rds_generate_block(&group->blocks[i]);
+   165132:  195:		for (j = RDS_BLOCK_SIZE_BITS - 1; j >= 0; j--) {
+   159016:  196:			previous_bit = (moving_window & 1);
+   159016:  197:			current_bit = (current_block & (1 << j)) ? 1 : 0;
+        -:  198:			/* Differential coding (Section 4.7) */
+   159016:  199:			current_bit ^= previous_bit;
+        -:  200:			/* Put current bit on the window and
+        -:  201:			 * append the waveform */
+   159016:  202:			moving_window <<= 1;
+   159016:  203:			moving_window |= current_bit;
+   159016:  204:			memcpy(buffer + buffer_offset,
+   159016:  205:			       &symbol_waveforms[moving_window & 0x7][0],
+        -:  206:			       RDS_SAMPLES_PER_SYMBOL * sizeof(float));
+   159016:  207:			buffer_offset += RDS_SAMPLES_PER_SYMBOL;
+        -:  208:		}
+        -:  209:	}
+        -:  210:
+     1529:  211:	return 0;
+        -:  212:}
+        -:  213:
+        -:  214:/******************\
+        -:  215:* GROUP GENERATION *
+        -:  216:\******************/
+        -:  217:
+        -:  218:/* Group 0A/0B: Basic tuning and switching information
+        -:  219: * (Section 6.1.5.1) */
+        -:  220:static int
+      511:  221:rds_generate_group_0(const struct rds_encoder *enc, struct rds_group *group,
+        -:  222:		     uint8_t version)
+        -:  223:{
+      511:  224:	struct rds_encoder_state *st = enc->state;
+      511:  225:	uint16_t temp_infoword = 0;
+        -:  226:
+        -:  227:	/*
+        -:  228:	 * Block 2 end -> one bit for TA, one bit for MS,
+        -:  229:	 *              one bit from the 4bit DI field in reverse order
+        -:  230:	 *              (bit number maps to the idx so it's 0 - 3), and
+        -:  231:	 *              2 bits for the ps index.
+        -:  232:	 */
+      511:  233:	temp_infoword = st->ps_idx | ((st->di >> (3 - st->ps_idx)) & 1) << 2 |
+      511:  234:			(st->ms & 1) << 3 | (st->ta & 1) << 4;
+      511:  235:	group->blocks[1].infoword |= temp_infoword;
+        -:  236:
+        -:  237:	/* On Version A, 3rd block contains the AF information, we assume
+        -:  238:	 * the data on the af array are properly formatted according to
+        -:  239:	 * section 6.2.1.6 We only support method A */
+      511:  240:	if (version == RDS_GROUP_VERSION_A) {
+    #####:  241:		group->blocks[2].infoword = (st->af_data[st->af_idx] << 8) |
+    #####:  242:					     st->af_data[st->af_idx + 1];
+    #####:  243:		if (st->af_idx >= 10)
+    #####:  244:			st->af_idx = 0;
+        -:  245:		else
+    #####:  246:			st->af_idx += 2;
+    #####:  247:		group->blocks[2].infoword = temp_infoword;
+        -:  248:	}
+        -:  249:
+        -:  250:	/* 
+        -:  251:	 * Block 4 -> 2 characters from PS (depending on idx)
+        -:  252:	 *              (It takes 4 0A/0B groups to transmit the
+        -:  253:	 *              full DI and PS fields)
+        -:  254:	 */
+      511:  255:	group->blocks[3].infoword = (st->ps[2 * st->ps_idx] << 8) |
+      511:  256:				     st->ps[2 * st->ps_idx + 1];
+      511:  257:	if (st->ps_idx >= 3)
+      122:  258:		st->ps_idx = 0;
+        -:  259:	else
+      389:  260:		st->ps_idx++;
+        -:  261:
+      511:  262:	return 0;
+        -:  263:}
+        -:  264:
+        -:  265:/* Group 1A/B PIN and Slow labeling codes
+        -:  266: * (Section 6.1.5.2) */
+        -:  267:static int
+      127:  268:rds_generate_group_1(const struct rds_encoder *enc, struct rds_group *group,
+        -:  269:		     uint8_t version)
+        -:  270:{
+      127:  271:	const struct rds_encoder_state *st = enc->state;
+        -:  272:	static int vcode = 0;
+        -:  273:
+        -:  274:	/*
+        -:  275:	 * We only do this for Extended Country Code (ECC) and
+        -:  276:	 * Language Identification Cod e(LIC) on block 3, anything
+        -:  277:	 * else is not supported
+        -:  278:	 */
+      127:  279:	if (version != RDS_GROUP_VERSION_A)
+    #####:  280:		return -1;
+        -:  281:
+        -:  282:	/*
+        -:  283:	 * Block 2 end -> Radio Paging Codes (not supported)
+        -:  284:	 */
+        -:  285:
+        -:  286:	/*
+        -:  287:	 * Block 3 -> first bit is the Link Actuator (LA) (not usded)
+        -:  288:	 *              then comes the variant code (it's 0 for ECC
+        -:  289:	 *              and 3 for LIC)
+        -:  290:	 */
+      127:  291:	vcode = (vcode == 0) ? 3 : 0;
+      317:  292:	group->blocks[2].infoword = (vcode == 0 ? st->ecc & 0xFF :
+      127:  293:				     st->lic & 0xFFF) | (vcode << 12);
+        -:  294:
+      127:  295:	return 0;
+        -:  296:}
+        -:  297:
+        -:  298:/* Group 2A/2B: RadioText
+        -:  299: * (Section 6.1.5.3) */
+        -:  300:static int
+      635:  301:rds_generate_group_2(const struct rds_encoder *enc, struct rds_group *group,
+        -:  302:		     uint8_t version)
+        -:  303:{
+      635:  304:	struct rds_encoder_state *st = enc->state;
+      635:  305:	uint16_t temp_infoword = 0;
+        -:  306:
+        -:  307:	/*
+        -:  308:	 * Block 2 end -> one bit for the A/B flag (changing this clears
+        -:  309:	 *              the RT buffer on the receiver) next 4 bits is the
+        -:  310:	 *              index (0 - 14)
+        -:  311:	 */
+      635:  312:	temp_infoword = (st->rt_idx & 0xF) | (st->rt_flush & 1) << 4;
+      635:  313:	group->blocks[1].infoword |= temp_infoword;
+        -:  314:
+        -:  315:	/*
+        -:  316:	 * Version A:
+        -:  317:	 * Block 3/4 -> 2 characters from the RT
+        -:  318:	 * (a total of 64 characters per message)
+        -:  319:	 *
+        -:  320:	 * Version B:
+        -:  321:	 * 4th block -> 2 characters from the RT
+        -:  322:	 * (a total of 32 characters per message)
+        -:  323:	 *
+        -:  324:	 * Note:
+        -:  325:	 * It's not possible to mix A and B groups, either all message
+        -:  326:	 * is sent by using 2As or 2Bs
+        -:  327:	 *
+        -:  328:	 * To make things easier we only support version A here. This
+        -:  329:	 * way we won't need to verify if version changed when transmitting
+        -:  330:	 * a message + we'll get the maximum message length.
+        -:  331:	 */
+      635:  332:	if (version != RDS_GROUP_VERSION_A)
+    #####:  333:		return -1;
+        -:  334:
+      635:  335:	group->blocks[2].infoword = st->rt[4 * st->rt_idx] << 8 |
+      635:  336:				    st->rt[4 * st->rt_idx + 1];
+        -:  337:
+      635:  338:	group->blocks[3].infoword = st->rt[4 * st->rt_idx + 2] << 8 |
+      635:  339:				    st->rt[4 * st->rt_idx + 3];
+        -:  340:
+      635:  341:	st->rt_idx++;
+        -:  342:
+      635:  343:	if (st->rt_idx >= st->rt_segments)
+      531:  344:		st->rt_idx = 0;
+        -:  345:
+      635:  346:	return 0;
+        -:  347:}
+        -:  348:
+        -:  349:/* Group 4A: Clock-time and date
+        -:  350: * (Section 6.1.5.6) */
+        -:  351:static int
+        2:  352:rds_generate_group_4(__attribute__((unused)) const struct rds_encoder *enc,
+        -:  353:		     struct rds_group *group, uint8_t version)
+        -:  354:{
+        -:  355:	struct tm utc;
+        -:  356:	struct tm local_time;
+        2:  357:	double tz_offset = 0;
+        -:  358:	time_t now;
+        2:  359:	uint16_t temp_infoword = 0;
+        2:  360:	int min = 0;
+        2:  361:	int hour = 0;
+        2:  362:	int day = 0;
+        2:  363:	int month = 0;
+        2:  364:	int year = 0;
+        2:  365:	int leap_day = 0;
+        2:  366:	int mjd = 0;
+        -:  367:
+        -:  368:	/* Group 4B is Open Data and it's not supported */
+        2:  369:	if (version != RDS_GROUP_VERSION_A)
+    #####:  370:		return -1;
+        -:  371:
+        2:  372:	time(&now);
+        -:  373:
+        2:  374:	if(!gmtime_r(&now, &utc))
+    #####:  375:		return -2;
+        -:  376:
+        2:  377:	if(!localtime_r(&now, &local_time))
+    #####:  378:		return -3;
+        -:  379:
+        2:  380:	min = utc.tm_min;
+        2:  381:	hour = utc.tm_hour;
+        2:  382:	day = utc.tm_mday;
+        2:  383:	month = utc.tm_mon + 1;
+        2:  384:	year = utc.tm_year;
+        2:  385:	tz_offset = local_time.tm_hour - hour;
+        -:  386:
+        2:  387:	if (month <= 2)
+    #####:  388:		leap_day = 1;
+        -:  389:
+        -:  390:	/* Formula from Anex G */
+        2:  391:	mjd = 14956 + day + (int)((year - leap_day) * 365.25)
+        2:  392:	    + (int)((month + 1 + (leap_day * 12)) * 30.6001);
+        -:  393:
+        -:  394:	/*
+        -:  395:	 * Block 2 end -> first 2 bits of mjd
+        -:  396:	 */
+        2:  397:	temp_infoword = (mjd >> 15) & 0x3;
+        2:  398:	group->blocks[1].infoword |= temp_infoword;
+        -:  399:
+        -:  400:	/*
+        -:  401:	 * Block 3 -> Rest bits of mjd and first bit of hour
+        -:  402:	 */
+        2:  403:	group->blocks[2].infoword = ((mjd << 1) & 0xFFFE) | ((hour >> 4) & 0x1);
+        -:  404:
+        -:  405:	/*
+        -:  406:	 * Block 4 -> Rest of hour bits, minutes and local
+        -:  407:	 *              time offset (sign and value)
+        -:  408:	 */
+        2:  409:	group->blocks[3].infoword = ((hour & 0xf) << 12) |
+        2:  410:				    ((min & 0x1f) << 6) |
+        2:  411:				    ((tz_offset > 0 ? 0 : 1) << 5) |
+        2:  412:				    ((int)fabs(2 * tz_offset) & 0x1f);
+        -:  413:
+        2:  414:	return 0;
+        -:  415:}
+        -:  416:
+        -:  417:/* Group 10A: Programme type name (PTYN)
+        -:  418: * (Section 6.1.5.14) */
+        -:  419:static int
+      254:  420:rds_generate_group_10(const struct rds_encoder *enc, struct rds_group *group,
+        -:  421:		      uint8_t version)
+        -:  422:{
+      254:  423:	struct rds_encoder_state *st = enc->state;
+      254:  424:	int temp_infoword = 0;
+        -:  425:
+        -:  426:	/* Group 10B is Open Data and it's not supported */
+      254:  427:	if (version != RDS_GROUP_VERSION_A)
+    #####:  428:		return -1;
+        -:  429:
+        -:  430:	/*
+        -:  431:	 * Block 2 end -> A/B (flush) flag, 3 zeroes and the 1bit index
+        -:  432:	 */
+      254:  433:	temp_infoword = st->ptyn_idx | st->ptyn_flush << 4;
+      254:  434:	group->blocks[1].infoword |= temp_infoword;
+        -:  435:
+        -:  436:	/*
+        -:  437:	 * Block 3/4 -> 2 characters from the PTYN
+        -:  438:	 */
+      254:  439:	group->blocks[2].infoword = st->ptyn[4 * st->ptyn_idx] << 8 |
+      254:  440:				    st->ptyn[4 * st->ptyn_idx + 1];
+        -:  441:
+      254:  442:	group->blocks[3].infoword = st->ptyn[4 * st->ptyn_idx + 2] << 8 |
+      254:  443:				    st->ptyn[4 * st->ptyn_idx + 3];
+        -:  444:
+      254:  445:	if (st->ptyn_idx == 1)
+      127:  446:		st->ptyn_idx = 0;
+        -:  447:	else
+      127:  448:		st->ptyn_idx = 1;
+        -:  449:
+      254:  450:	return 0;
+        -:  451:}
+        -:  452:
+        -:  453:/* Group 15B: Fast basic tuning and switching information
+        -:  454: * (Section 6.1.5.21) */
+        -:  455:static int
+    #####:  456:rds_generate_group_15(const struct rds_encoder *enc, struct rds_group *group,
+        -:  457:		      uint8_t version)
+        -:  458:{
+    #####:  459:	struct rds_encoder_state *st = enc->state;
+    #####:  460:	uint16_t temp_infoword = 0;
+        -:  461:
+        -:  462:	/*
+        -:  463:	 * Block 2 end -> one bit for TA, one bit for MS,
+        -:  464:	 *              one bit from the 4bit DI field in reverse order
+        -:  465:	 *              (bit number maps to the idx so it's 0 - 3), and
+        -:  466:	 *              2 bits for the ps index.
+        -:  467:	 */
+    #####:  468:	temp_infoword = st->ps_idx | ((st->di >> (3 - st->ps_idx)) & 1) << 2 |
+    #####:  469:			(st->ms & 1) << 3 | (st->ta & 1) << 4;
+    #####:  470:	group->blocks[1].infoword |= temp_infoword;
+        -:  471:
+        -:  472:	/* Group 15A is Open Data and it's not supported */
+    #####:  473:	if (version != RDS_GROUP_VERSION_B)
+    #####:  474:		return -1;
+        -:  475:
+        -:  476:	/* 
+        -:  477:	 * Block 4 -> A copy of block 2
+        -:  478:	 */
+    #####:  479:	group->blocks[3].infoword = group->blocks[1].infoword;
+        -:  480:
+        -:  481:	/* Use PS index for this one too since we send this only if PS
+        -:  482:	 * is not set (if it is we send a 0B instead) */
+    #####:  483:	if (st->ps_idx >= 3)
+    #####:  484:		st->ps_idx = 0;
+        -:  485:	else
+    #####:  486:		st->ps_idx++;
+        -:  487:
+    #####:  488:	return 0;
+        -:  489:}
+        -:  490:
+        -:  491:/* Wrapper to handle common group characteristics and call
+        -:  492: * the propper group-specific function */
+        -:  493:static int
+     1529:  494:rds_generate_group(const struct rds_encoder *enc, struct rds_group *group,
+        -:  495:		   uint8_t code, uint8_t version)
+        -:  496:{
+     1529:  497:	const struct rds_encoder_state *st = enc->state;
+     1529:  498:	int i = 0;
+     1529:  499:	int ret = 0;
+        -:  500:
+     1529:  501:	if (enc == NULL || group == NULL || version > RDS_GROUP_VERSION_MAX)
+    #####:  502:		return -1;
+        -:  503:
+     1529:  504:	memset(group, 0, sizeof(struct rds_group));
+        -:  505:
+        -:  506:	/* Fill in the offset words for each block */
+     7645:  507:	for (i = 0; i < RDS_BLOCKS_PER_GROUP; i++)
+     6116:  508:		group->blocks[i].offset_word = offset_words[i];
+        -:  509:
+        -:  510:	/*
+        -:  511:	 * For every group:
+        -:  512:	 * First block -> PI code
+        -:  513:	 * Second block -> First four bits = group type code,
+        -:  514:	 *              fifth bit = version (0 is A, 1 is B)
+        -:  515:	 *              sixth bit -> TP, next five bits -> PTY
+        -:  516:	 * If version -> B, 3rd block is also PI and the offset
+        -:  517:	 *              word of block 3 changes from C to C';
+        -:  518:	 */
+     1529:  519:	group->blocks[0].infoword = st->pi;
+     1529:  520:	group->blocks[1].infoword = (code & 0xF) << 12 |
+     1529:  521:				    (version & 1) << 11 |
+     1529:  522:				    (st->tp & 1) << 10 |
+     1529:  523:				    (st->pty & 0x1f) << 5;
+        -:  524:
+     1529:  525:	if (version == RDS_GROUP_VERSION_B) {
+      511:  526:		group->blocks[2].infoword = st->pi;
+      511:  527:		group->blocks[2].offset_word =
+      511:  528:			offset_words[RDS_ALT_OFFSET_WORD_C_IDX];
+        -:  529:	}
+        -:  530:
+     1529:  531:	switch (code) {
+      511:  532:	case 0:
+      511:  533:		ret = rds_generate_group_0(enc, group, version);
+      511:  534:		break;
+      127:  535:	case 1:
+      127:  536:		ret = rds_generate_group_1(enc, group, version);
+      127:  537:		break;
+      635:  538:	case 2:
+      635:  539:		ret = rds_generate_group_2(enc, group, version);
+      635:  540:		break;
+        2:  541:	case 4:
+        2:  542:		ret = rds_generate_group_4(enc, group, version);
+        2:  543:		break;
+      254:  544:	case 10:
+      254:  545:		ret = rds_generate_group_10(enc, group, version);
+      254:  546:		break;
+    #####:  547:	case 15:
+    #####:  548:		ret = rds_generate_group_15(enc, group, version);
+    #####:  549:		break;
+    #####:  550:	default:
+    #####:  551:		return -1;
+        -:  552:	}
+        -:  553:
+     1529:  554:	if (ret < 0)
+    #####:  555:		return ret;
+        -:  556:
+     1529:  557:	return rds_generate_group_samples(group);
+        -:  558:}
+        -:  559:
+        -:  560:/*****************\
+        -:  561:* GROUP SCHEDULER *
+        -:  562:\*****************/
+        -:  563:
+        -:  564:static int
+     1656:  565:rds_get_next_group(struct rds_encoder *enc, struct rds_group *group)
+        -:  566:{
+     1656:  567:	const struct rds_encoder_state *st = enc->state;
+        -:  568:	static int8_t groups_per_sec_counter = 0;
+        -:  569:	static uint16_t groups_per_min_counter = 0;
+        -:  570:	static uint8_t ptyn_cnt = 0;
+     1656:  571:	int ret = 0;
+        -:  572:
+        -:  573:	/* Every 1 min send the 4A (CT) group and reset
+        -:  574:	 * the counter */
+     1656:  575:	if (groups_per_min_counter >= RDS_GROUPS_PER_MIN) {
+        2:  576:		ret = rds_generate_group(enc, group, 4, RDS_GROUP_VERSION_A);
+        2:  577:		if (ret >= 0)
+        2:  578:			groups_per_min_counter = 0;
+        2:  579:		return ret;
+        -:  580:	}
+        -:  581:	/* On every second send the PS and the DI one time
+        -:  582:	 * (so 4 0A/OB groups). This matches table 4 that
+        -:  583:	 * shows the repetition rates of each group
+        -:  584:	 * and will also update TA, MS and AF */
+     1654:  585:	if (groups_per_sec_counter < 4) {
+      511:  586:		if (st->ps_set) {
+      511:  587:			if (st->af_set)
+    #####:  588:				ret = rds_generate_group(enc, group, 0,
+        -:  589:							 RDS_GROUP_VERSION_A);
+        -:  590:			else
+      511:  591:				ret = rds_generate_group(enc, group, 0,
+        -:  592:							 RDS_GROUP_VERSION_B);
+        -:  593:		} else
+    #####:  594:			ret = rds_generate_group(enc, group, 15,
+        -:  595:						 RDS_GROUP_VERSION_B);
+        -:  596:	}
+        -:  597:	/* Send a 1A group to update ECC / LIC on the receiver */
+    1143*:  598:	else if (groups_per_sec_counter < 5 && (st->ecc_set || st->lic_set)) {
+      127:  599:		ret = rds_generate_group(enc, group, 1, RDS_GROUP_VERSION_A);
+        -:  600:	}
+        -:  601:	/* Send 2 10A groups for PTYN if available */
+     1016:  602:	else if (groups_per_sec_counter < 7 && st->ptyn_set && ptyn_cnt < 2) {
+      254:  603:		ret = rds_generate_group(enc, group, 10, RDS_GROUP_VERSION_A);
+      254:  604:		ptyn_cnt++;
+        -:  605:	}
+        -:  606:	/* On the remaining slots send 2A groups to set
+        -:  607:	 * the RT buffer on the receiver */
+      762:  608:	else if (groups_per_sec_counter < RDS_GROUPS_PER_SEC && st->rt_set) {
+      635:  609:		ret = rds_generate_group(enc, group, 2, RDS_GROUP_VERSION_A);
+        -:  610:	} else {
+      127:  611:		groups_per_sec_counter = -1;
+      127:  612:		ret = rds_get_next_group(enc, group);
+        -:  613:	}
+        -:  614:
+     1654:  615:	if (ret >= 0) {
+     1654:  616:		groups_per_sec_counter++;
+     1654:  617:		groups_per_min_counter++;
+        -:  618:	}
+        -:  619:
+     1654:  620:	if (ptyn_cnt >= 2)
+      127:  621:		ptyn_cnt = 0;
+        -:  622:
+     1654:  623:	return ret;
+        -:  624:}
+        -:  625:
+        -:  626:/* Ask a group from the scheduler and upsample its
+        -:  627: * waveform to the oscilator's sample rate so that it
+        -:  628: * can be modulated by the 57KHz subcarrier */
+        -:  629:static struct rds_upsampled_group *
+     1529:  630:rds_get_next_upsampled_group(struct rds_encoder *enc)
+        -:  631:{
+     1529:  632:	struct resampler_data *rsmpl = enc->rsmpl;
+        -:  633:	struct rds_group next_group;
+     1529:  634:	struct rds_upsampled_group *outbuf = NULL;
+     1529:  635:	int out_idx = 0;
+     1529:  636:	int ret = 0;
+        -:  637:
+        -:  638:	/* Encoder is inactive or is being terminated
+        -:  639:	 * so skip processing */
+     1529:  640:	if (!enc->active)
+    #####:  641:		return NULL;
+        -:  642:
+        -:  643:	/* Only mess with the unused output buffer */
+     1529:  644:	out_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
+     1529:  645:	outbuf = &enc->outbuf[out_idx];
+        -:  646:
+        -:  647:	/* Update current group */
+     1529:  648:	ret = rds_get_next_group(enc, &next_group);
+     1529:  649:	if (ret < 0) {
+    #####:  650:		outbuf->result = -1;
+    #####:  651:		goto cleanup;
+        -:  652:	}
+        -:  653:
+        -:  654:	/* Resample current group's waveform to the
+        -:  655:	 * main oscilators sampling rate */
+     1529:  656:	outbuf->waveform_samples =
+     1529:  657:			resampler_upsample_rds(rsmpl,
+        -:  658:						next_group.
+        -:  659:						samples_buffer,
+        -:  660:						outbuf->waveform,
+        -:  661:						RDS_GROUP_SAMPLES,
+     1529:  662:						enc->upsampled_waveform_len);
+     1529:  663:	if (outbuf->waveform_samples < 0) {
+    #####:  664:		outbuf->waveform_samples = 0;
+    #####:  665:		outbuf->result = -1;
+    #####:  666:		goto cleanup;
+        -:  667:	} else
+     1529:  668:		outbuf->result = 0;
+        -:  669:
+     1529:  670: cleanup:
+     1529:  671:	return outbuf;
+        -:  672:}
+        -:  673:
+        -:  674:static void *
+        1:  675:rds_main_loop(void *arg)
+        -:  676:{
+        1:  677:	struct rds_encoder *enc = (struct rds_encoder *)arg;
+        -:  678:
+     1530:  679:	while (enc->active) {
+     1530:  680:		pthread_mutex_lock(&enc->rds_process_mutex);
+     1530:  681:		while (pthread_cond_wait(&enc->rds_process_trigger,
+        -:  682:					 &enc->rds_process_mutex) != 0);
+        -:  683:
+     1530:  684:		if (!enc->active) {
+        1:  685:			pthread_mutex_unlock(&enc->rds_process_mutex);
+        1:  686:			break;
+        -:  687:		}
+        -:  688:
+     1529:  689:		rds_get_next_upsampled_group(enc);
+        -:  690:
+     1529:  691:		pthread_mutex_unlock(&enc->rds_process_mutex);
+        -:  692:	}
+        -:  693:
+        1:  694:	return arg;
+        -:  695:}
+        -:  696:
+        -:  697:
+        -:  698:/*************\
+        -:  699:* ENTRY POINT *
+        -:  700:\*************/
+        -:  701:
+        -:  702:/* The callback from the main loop to get the
+        -:  703: * next -upsampled- waveform sample */
+        -:  704:float
+ 45055228:  705:rds_get_next_sample(struct rds_encoder *enc)
+        -:  706:{
+ 45055228:  707:	const struct rds_upsampled_group *outbuf = &enc->outbuf[enc->curr_outbuf_idx];
+ 45055228:  708:	const struct rds_encoder_state *st = enc->state;
+        -:  709:	static int samples_out = 0;
+ 45055228:  710:	float out = 0;
+        -:  711:
+        -:  712:	/* Encoder is disabled, don't do any processing */
+ 45055228:  713:	if (!enc->active || !st->enabled)
+ 14523900:  714:		return 0;
+        -:  715:
+        -:  716:	/* We have remaining samples from the last group */
+ 30531328:  717:	if (samples_out < outbuf->waveform_samples) {
+ 30528776:  718:		out = outbuf->waveform[samples_out++];
+ 30528776:  719:		return out;
+        -:  720:	}
+        -:  721:
+        -:  722:	/* Last group was sent, go for the next one */
+        -:  723:
+        -:  724:	/* Switch to the new output buffer */
+     2552:  725:	enc->curr_outbuf_idx = enc->curr_outbuf_idx == 0 ? 1 : 0;
+        -:  726:
+        -:  727:	/* Ask for a new group to be generated on the old buffer */
+     2552:  728:	pthread_cond_signal(&enc->rds_process_trigger);
+        -:  729:
+        -:  730:	/* Reset counter and start consuming the new buffer */
+     2552:  731:	samples_out = 0;
+     2552:  732:	outbuf = &enc->outbuf[enc->curr_outbuf_idx];
+     2552:  733:	out = outbuf->waveform[samples_out++];
+     2552:  734:	return out;
+        -:  735:}
+        -:  736:
+        -:  737:/****************\
+        -:  738:* INIT / DESTROY *
+        -:  739:\****************/
+        -:  740:
+        -:  741:int
+        1:  742:rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
+        -:  743:		 struct resampler_data *rsmpl)
+        -:  744:{
+        1:  745:	int rtprio = 0;
+        1:  746:	int ret = 0;
+        -:  747:
+        1:  748:	if (enc == NULL)
+    #####:  749:		return -1;
+        -:  750:
+        1:  751:	memset(enc, 0, sizeof(struct rds_encoder));
+        1:  752:	enc->rsmpl = rsmpl;
+        -:  753:
+        -:  754:	/* Initialize processing lock */
+        1:  755:	pthread_mutex_init(&enc->rds_process_mutex, NULL);
+        1:  756:	pthread_cond_init(&enc->rds_process_trigger, NULL);
+        -:  757:
+        -:  758:	/* Initialize I/O channel for encoder's state */
+        1:  759:	enc->state_map = utils_shm_init(RDS_ENC_SHM_NAME,
+        -:  760:					sizeof(struct rds_encoder_state));
+        1:  761:	if(!enc->state_map)
+    #####:  762:		return -2;
+        1:  763:	enc->state = (struct rds_encoder_state*) enc->state_map->mem;
+        -:  764:
+        -:  765:	/* Allocate buffers */
+        2:  766:	enc->upsampled_waveform_len = num_resampled_samples(RDS_SAMPLE_RATE,
+        1:  767:							    rsmpl->osc_samplerate,
+        -:  768:							    RDS_GROUP_SAMPLES);
+        1:  769:	enc->upsampled_waveform_len *= sizeof(float);
+        -:  770:
+        -:  771:
+        1:  772:	enc->outbuf[0].waveform = (float *) malloc(enc->upsampled_waveform_len);
+        1:  773:	if (enc->outbuf[0].waveform == NULL) {
+    #####:  774:		ret = -3;
+    #####:  775:		goto cleanup;
+        -:  776:	}
+        1:  777:	memset(enc->outbuf[0].waveform, 0, enc->upsampled_waveform_len);
+        -:  778:
+        1:  779:	enc->outbuf[1].waveform = (float *) malloc(enc->upsampled_waveform_len);
+        1:  780:	if (enc->outbuf[1].waveform == NULL) {
+    #####:  781:		ret = -4;
+    #####:  782:		goto cleanup;
+        -:  783:	}
+        1:  784:	memset(enc->outbuf[1].waveform, 0, enc->upsampled_waveform_len);
+        -:  785:
+        -:  786:	/* Set default state */
+        1:  787:	enc->state->ms = RDS_MS_DEFAULT;
+        1:  788:	enc->state->di = RDS_DI_STEREO | RDS_DI_DYNPTY;
+        -:  789:
+        -:  790:	/* Let main loop run */
+        1:  791:	enc->active = 1;
+        -:  792:
+        -:  793:	/* Create processing thread */
+        1:  794:	rtprio = jack_client_max_real_time_priority(client);
+        1:  795:	if (rtprio < 0) {
+    #####:  796:		ret = -1;
+    #####:  797:		goto cleanup;
+        -:  798:	}
+        -:  799:
+        1:  800:	ret = jack_client_create_thread(client, &enc->tid,
+        -:  801:					rtprio, 1,
+        -:  802:					rds_main_loop, (void *)enc);
+        1:  803: cleanup:
+        1:  804:	if (ret < 0)
+    #####:  805:		rds_encoder_destroy(enc);
+        -:  806:
+        1:  807:	return ret;
+        -:  808:}
+        -:  809:
+        -:  810:void
+        1:  811:rds_encoder_destroy(struct rds_encoder *enc)
+        -:  812:{
+        1:  813:	struct rds_encoder_state *st = enc->state;
+        -:  814:
+        -:  815:	/* Didn't initialize */
+        1:  816:	if(st == NULL)
+    #####:  817:		return;
+        -:  818:
+        -:  819:	/* Not active */
+        1:  820:	if(!enc->active)
+    #####:  821:		goto inactive;
+        -:  822:
+        -:  823:	/* Stop rds main loop and disable the encoder
+        -:  824:	 * so that future requests for rds samples are ignored */
+        1:  825:	enc->active = 0;
+        1:  826:	st->enabled = 0;
+        -:  827:
+        -:  828:	/* Trigger main loop so that it gets un-stuck and
+        -:  829:	 * can properly exit */
+        1:  830:	pthread_cond_signal(&enc->rds_process_trigger);
+        1:  831:	if(enc->tid)
+        1:  832:		pthread_join(enc->tid, NULL);
+        -:  833:
+    #####:  834: inactive:
+        -:  835:	/* Cleanup */
+        1:  836:	utils_shm_destroy(enc->state_map, 1);
+        1:  837:	pthread_mutex_destroy(&enc->rds_process_mutex);
+        1:  838:	pthread_cond_destroy(&enc->rds_process_trigger);
+        -:  839:
+        1:  840:	if (enc->outbuf[0].waveform != NULL)
+        1:  841:		free(enc->outbuf[0].waveform);
+        1:  842:	if (enc->outbuf[1].waveform != NULL)
+        1:  843:		free(enc->outbuf[1].waveform);
+        -:  844:}

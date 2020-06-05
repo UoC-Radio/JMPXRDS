@@ -1,0 +1,295 @@
+        -:    0:Source:gui/jmrg_iplist.c
+        -:    1:#include <stdlib.h>	/* For malloc() / free() */
+        -:    2:#include <string.h>	/* For memset() */
+        -:    3:#include <time.h>	/* For nanosleep() */
+        -:    4:#include <arpa/inet.h>	/* For inet_ntoa()  / inet_aton() */
+        -:    5:#include "jmpxrds_gui.h"
+        -:    6:
+        -:    7:/**********************\
+        -:    8:* IP ENTRY DECLARATION *
+        -:    9:\**********************/
+        -:   10:
+        -:   11:G_BEGIN_DECLS
+        -:   12:
+        -:   13:#define JMRG_TYPE_IPENTRY (jmrg_ipentry_get_type ())
+        -:   14:G_DECLARE_FINAL_TYPE(JMRG_IPEntry, jmrg_ipentry, JMRG, IPENTRY, GObject)
+        -:   15:
+        -:   16:G_END_DECLS
+        -:   17:
+        -:   18:struct _JMRG_IPEntry
+        -:   19:{
+        -:   20:	GObject		parent_instance;
+        -:   21:	in_addr_t	addr;
+        -:   22:};
+        -:   23:
+       4*:   24:G_DEFINE_TYPE(JMRG_IPEntry, jmrg_ipentry, G_TYPE_OBJECT)
+------------------
+jmrg_ipentry_get_type_once:
+        1:   24:G_DEFINE_TYPE(JMRG_IPEntry, jmrg_ipentry, G_TYPE_OBJECT)
+------------------
+jmrg_ipentry_get_type:
+        2:   24:G_DEFINE_TYPE(JMRG_IPEntry, jmrg_ipentry, G_TYPE_OBJECT)
+------------------
+jmrg_ipentry_class_intern_init:
+       1*:   24:G_DEFINE_TYPE(JMRG_IPEntry, jmrg_ipentry, G_TYPE_OBJECT)
+------------------
+        -:   25:
+        -:   26:void
+        1:   27:jmrg_ipentry_init(JMRG_IPEntry* entry) {
+        1:   28:	entry->addr = 0;
+        1:   29:}
+        -:   30:
+        -:   31:void
+        1:   32:jmrg_ipentry_class_init(__attribute__((unused)) JMRG_IPEntryClass *ipentry) {}
+        -:   33:
+        -:   34:JMRG_IPEntry*
+        1:   35:jmrg_ipentry_new(in_addr_t addr)
+        -:   36:{
+        1:   37:	JMRG_IPEntry* entry = NULL;
+        1:   38:	entry = (JMRG_IPEntry*) g_object_new(JMRG_TYPE_IPENTRY, NULL);
+        -:   39:
+        1:   40:	if(entry)
+        1:   41:		entry->addr = addr;
+        -:   42:
+        1:   43:	return entry;
+        -:   44:}
+        -:   45:
+        -:   46:
+        -:   47:/*********\
+        -:   48:* HELPERS *
+        -:   49:\*********/
+        -:   50:
+        -:   51:static GtkWidget *
+        1:   52:jmrg_iplist_create_label(gpointer item,
+        -:   53:			 __attribute__((unused)) gpointer data)
+        -:   54:{
+        1:   55:	struct in_addr ipv4addr = { 0 };
+        1:   56:	JMRG_IPEntry *entry = (JMRG_IPEntry*) item;
+        1:   57:	GtkWidget *label = NULL;
+        1:   58:	ipv4addr.s_addr = entry->addr;
+        1:   59:	label = gtk_label_new(inet_ntoa(ipv4addr));
+        1:   60:	return label;
+        -:   61:}
+        -:   62:
+        -:   63:static void
+        1:   64:jmrg_iplist_remove(__attribute__((unused)) GtkListBox *box,
+        -:   65:		   GtkListBoxRow *row, gpointer data)
+        -:   66:{
+        1:   67:	struct value_map *vmap = (struct value_map*) data;
+        1:   68:	struct rtp_server_control *ctl= vmap->rtp_ctl;
+        1:   69:	struct in_addr ipv4addr = {0};
+        1:   70:	union sigval value = {0};
+        1:   71:	struct timespec tv = {0, 2000000L};
+        1:   72:	GtkWidget *label = gtk_bin_get_child(GTK_BIN(row));
+        1:   73:	const char* label_text = gtk_label_get_text(GTK_LABEL(label));
+        -:   74:	static int active_ips = 0;
+        1:   75:	int i = 100;
+        -:   76:
+        1:   77:	active_ips = ctl->num_receivers;
+        1:   78:	inet_aton(label_text, &ipv4addr);
+        1:   79:	value.sival_int = ipv4addr.s_addr;
+        1:   80:	if(sigqueue(ctl->pid, SIGUSR2, value) != 0)
+    #####:   81:		utils_perr("Couldn't send signal, sigqueue()");
+        -:   82:
+        1:   83:	gtk_widget_destroy(label);
+        -:   84:
+        -:   85:	/* Wait for it to get removed before moving to the next one */
+       1*:   86:	while(active_ips == ctl->num_receivers && i > 0) {
+    #####:   87:		nanosleep(&tv, NULL);
+    #####:   88:		i--;
+        -:   89:	}
+        -:   90:
+        1:   91:	return;
+        -:   92:}
+        -:   93:
+        -:   94:
+        -:   95:/******************\
+        -:   96:* POLLING FUNCTION *
+        -:   97:\******************/
+        -:   98:
+        -:   99:static gboolean
+      568:  100:jmrg_iplist_poll(gpointer data)
+        -:  101:{
+      568:  102:	struct value_map *vmap = (struct value_map*) data;
+      568:  103:	struct rtp_server_control *ctl= vmap->rtp_ctl;
+      568:  104:	JMRG_IPEntry *entry = NULL;
+        -:  105:	static int active_entries = 0;
+      568:  106:	int i = 0;
+        -:  107:
+      568:  108:	if(!ctl || !vmap->iplstore)
+    #####:  109:		return FALSE;
+        -:  110:
+      568:  111:	if(!gtk_widget_is_visible(vmap->target))
+      508:  112:		return TRUE;
+        -:  113:
+        -:  114:	/* Don't update while removing IPs */
+       60:  115:	if(vmap->val == -1)
+    #####:  116:		return TRUE;
+        -:  117:
+       60:  118:	if(gtk_widget_has_focus(vmap->target) ||
+       60:  119:	   active_entries == ctl->num_receivers)
+       58:  120:		return TRUE;
+        -:  121:
+        -:  122:	/* Update list store */
+        2:  123:	g_list_store_remove_all(vmap->iplstore);
+        3:  124:	for(i = 0; i < ctl->num_receivers; i++) {
+        1:  125:		entry = jmrg_ipentry_new(ctl->receivers[i]);
+        1:  126:		g_list_store_insert(vmap->iplstore, i, (gpointer) entry);
+        1:  127:		g_object_unref(entry);
+        -:  128:	}
+        2:  129:	active_entries = ctl->num_receivers;
+        -:  130:
+        -:  131:	/* Now update listbox's model binding */
+        2:  132:	gtk_list_box_bind_model(GTK_LIST_BOX(vmap->target),
+        2:  133:				G_LIST_MODEL(vmap->iplstore),
+        -:  134:				jmrg_iplist_create_label,
+        -:  135:				NULL, NULL);
+        -:  136:
+        2:  137:	return TRUE;
+        -:  138:}
+        -:  139:
+        -:  140:
+        -:  141:/*****************\
+        -:  142:* SIGNAL HANDLERS *
+        -:  143:\*****************/
+        -:  144:
+        -:  145:static void
+        1:  146:jmrg_ipadd_button_clicked(__attribute__((unused)) GtkButton *button,
+        -:  147:			  gpointer data)
+        -:  148:{
+        1:  149:	struct value_map *vmap = (struct value_map*) data;
+        1:  150:	struct rtp_server_control *ctl= vmap->rtp_ctl;
+        1:  151:	struct in_addr ipv4addr = {0};
+        1:  152:	union sigval value = {0};
+        1:  153:	const char* ipentry = gtk_entry_get_text(GTK_ENTRY(vmap->entry));
+        1:  154:	int ret = 0;
+        -:  155:
+        1:  156:	ret = inet_aton(ipentry, &ipv4addr);
+        1:  157:	if (!ret) {
+    #####:  158:		utils_err("Invalid IP address !\n");
+    #####:  159:		return;
+        -:  160:	}
+        -:  161:
+        1:  162:	value.sival_int = ipv4addr.s_addr;
+        1:  163:	if (sigqueue(ctl->pid, SIGUSR1, value) != 0)
+    #####:  164:		utils_perr("Couldn't send signal, sigqueue()");
+        -:  165:
+        1:  166:	return;
+        -:  167:}
+        -:  168:
+        -:  169:static void
+        1:  170:jmrg_ipdel_button_clicked(__attribute__((unused)) GtkButton *button,
+        -:  171:			  gpointer data)
+        -:  172:{
+        1:  173:	struct value_map *vmap = (struct value_map*) data;
+        1:  174:	vmap->val = -1;
+        1:  175:	gtk_list_box_selected_foreach(GTK_LIST_BOX(vmap->target),
+        -:  176:                               jmrg_iplist_remove,
+        -:  177:                               data);
+        1:  178:	vmap->val = 0;	
+        1:  179:}
+        -:  180:
+        -:  181:
+        -:  182:/*************\
+        -:  183:* ENTRY POINT *
+        -:  184:\*************/
+        -:  185:
+        -:  186:GtkWidget*
+        1:  187:jmrg_iplist_init(struct rtp_server_control *ctl)
+        -:  188:{
+        1:  189:	GtkWidget *container = NULL;
+        1:  190:	GtkWidget *vbox = NULL;
+        1:  191:	GtkWidget *listbox = NULL;
+        1:  192:	GtkWidget *hbox = NULL;
+        1:  193:	GtkWidget *entry = NULL;
+        1:  194:	GtkWidget *add_button = NULL;
+        1:  195:	GtkWidget *del_button = NULL;
+        1:  196:	struct value_map *vmap = NULL;
+        -:  197:
+        -:  198:	/* Use a frame to also have a label there
+        -:  199:	 * for free */
+        1:  200:	container = gtk_frame_new("RTP Targets (IP Addresses)");
+        1:  201:	if(!container)
+    #####:  202:		goto cleanup;
+        1:  203:	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
+        1:  204:	gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:  205:				  GTK_SHADOW_ETCHED_IN);
+        -:  206:
+        -:  207:	/* Use a box to have better control */
+        1:  208:	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        1:  209:	if(!vbox)
+    #####:  210:		goto cleanup;
+        1:  211:	gtk_container_add(GTK_CONTAINER(container), vbox);
+        -:  212:
+        -:  213:	/* The listbox that contains a label for each IP */
+        1:  214:	listbox = gtk_list_box_new();
+        1:  215:	if(!listbox)
+    #####:  216:		goto cleanup;
+        1:  217:	gtk_box_pack_start(GTK_BOX(vbox), listbox, 1, 1, 6);
+        1:  218:	gtk_list_box_set_selection_mode(GTK_LIST_BOX(listbox), GTK_SELECTION_MULTIPLE);
+        -:  219:
+        -:  220:	/* And the final row with the entry and the set button */
+        1:  221:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        1:  222:	if(!hbox)
+    #####:  223:		goto cleanup;
+        1:  224:	gtk_box_pack_end(GTK_BOX(vbox), hbox, 0, 0, 6);
+        -:  225:
+        1:  226:	entry = gtk_entry_new();
+        1:  227:	if(!entry)
+    #####:  228:		goto cleanup;
+        1:  229:	gtk_box_pack_start(GTK_BOX(hbox), entry, 1, 1, 6);
+        -:  230:
+        1:  231:	add_button = gtk_button_new_with_label("Add");
+        1:  232:	if(!add_button)
+    #####:  233:		goto cleanup;
+        1:  234:	gtk_box_pack_start(GTK_BOX(hbox), add_button, 0, 0, 6);
+        -:  235:
+        1:  236:	del_button = gtk_button_new_with_label("Remove Selected");
+        1:  237:	if(!del_button)
+    #####:  238:		goto cleanup;
+        1:  239:	gtk_box_pack_start(GTK_BOX(hbox), del_button, 0, 0, 6);
+        -:  240:
+        -:  241:	/* Initialize value_map */
+        1:  242:	vmap = (struct value_map*) malloc(sizeof(struct value_map));
+        1:  243:	if(!vmap)
+    #####:  244:		goto cleanup;
+        1:  245:	memset(vmap, 0, sizeof(struct value_map));
+        -:  246:
+        1:  247:	vmap->target = listbox;
+        1:  248:	vmap->entry = entry;
+        1:  249:	vmap->rtp_ctl = ctl;
+        1:  250:	vmap->iplstore = g_list_store_new(JMRG_TYPE_IPENTRY);
+        -:  251:
+        -:  252:	/* Register polling function and signal handlers */
+        1:  253:	vmap->esid = g_timeout_add(200, jmrg_iplist_poll, vmap);
+        -:  254:
+        -:  255:
+        1:  256:	g_signal_connect(add_button, "clicked",
+        -:  257:			 G_CALLBACK(jmrg_ipadd_button_clicked),
+        -:  258:			 vmap);
+        -:  259:
+        1:  260:	g_signal_connect(del_button, "clicked",
+        -:  261:			 G_CALLBACK(jmrg_ipdel_button_clicked),
+        -:  262:			 vmap);
+        -:  263:
+        1:  264:	g_signal_connect(container, "unrealize", G_CALLBACK(jmrg_free_vmap),
+        -:  265:			 vmap);
+        -:  266:
+        1:  267:	return container;
+    #####:  268: cleanup:
+    #####:  269:	if(del_button)
+    #####:  270:		gtk_widget_destroy(del_button);
+    #####:  271:	if(add_button)
+    #####:  272:		gtk_widget_destroy(add_button);
+    #####:  273:	if(entry)
+    #####:  274:		gtk_widget_destroy(entry);
+    #####:  275:	if(hbox)
+    #####:  276:		gtk_widget_destroy(hbox);
+    #####:  277:	if(listbox)
+    #####:  278:		gtk_widget_destroy(listbox);
+    #####:  279:	if(vbox)
+    #####:  280:		gtk_widget_destroy(vbox);
+    #####:  281:	if(container)
+    #####:  282:		gtk_widget_destroy(container);
+    #####:  283:	return NULL;
+        -:  284:}

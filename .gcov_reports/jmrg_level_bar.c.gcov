@@ -1,0 +1,160 @@
+        -:    0:Source:gui/jmrg_level_bar.c
+        -:    1:#include <stdlib.h>	/* For malloc() */
+        -:    2:#include <string.h>	/* For memset() */
+        -:    3:#include <math.h>	/* For log10() */
+        -:    4:#include "jmpxrds_gui.h"
+        -:    5:
+        -:    6:/*********\
+        -:    7:* HELPERS *
+        -:    8:\*********/
+        -:    9:
+        -:   10:/**
+        -:   11: * IEC standard dB scaling, borrowed from meterbridge (c) Steve Harris
+        -:   12: */
+        -:   13:static float
+      858:   14:jmrg_level_bar_iec_scale(float db)
+        -:   15:{
+      858:   16:	float def = 0.0F;	/* Meter deflection %age */
+        -:   17:
+      858:   18:	if (db < -70.0F) {
+    #####:   19:		def = 0.0F;
+      858:   20:	} else if (db < -60.0F) {	/* 0.0 - 2.5 */
+    #####:   21:		def = (db + 70.0F) * 0.25F;
+      858:   22:	} else if (db < -50.0F) {	/* 2.5 - 7.5 */
+    #####:   23:		def = (db + 60.0F) * 0.5F + 2.5F;
+      858:   24:	} else if (db < -40.0F) {	/* 7.5 - 15.0 */
+    #####:   25:		def = (db + 50.0F) * 0.75F + 7.5F;
+      858:   26:	} else if (db < -30.0F) {	/* 15.0 - 30.0 */
+        9:   27:		def = (db + 40.0F) * 1.5F + 15.0F;
+      849:   28:	} else if (db < -20.0F) {	/* 30.0 - 50.0 */
+       47:   29:		def = (db + 30.0F) * 2.0F + 30.0F;
+        -:   30:	} else {		/* 50 - 100 */
+      802:   31:		def = (db + 20.0F) * 2.5F + 50.0F;
+        -:   32:	}
+        -:   33:
+      858:   34:	return def;
+        -:   35:}
+        -:   36:
+        -:   37:
+        -:   38:/*****************\
+        -:   39:* POLING FUNCTION *
+        -:   40:\*****************/
+        -:   41:
+        -:   42:static int
+     3897:   43:jmrg_level_bar_poll(gpointer data)
+        -:   44:{
+     3897:   45:	struct value_map *vmap = (struct value_map*) data;
+     3897:   46:	double val = 0.0L;
+        -:   47:
+    3897*:   48:	if(!GTK_IS_LEVEL_BAR(vmap->target))
+    #####:   49:		return FALSE;
+        -:   50:
+     3897:   51:	if(!gtk_widget_is_visible(vmap->target))
+     3039:   52:		return TRUE;
+        -:   53:
+        -:   54:	/* Amplitude to db + iec scaling */
+      858:   55:	val = 20.0F * log10((*(float*)vmap->val_ptr));
+      858:   56:	val = jmrg_level_bar_iec_scale(val) / 100;
+        -:   57:
+        -:   58:	/* Keep value in range */
+      858:   59:	if(val < 0)
+    #####:   60:		val = 0.0L;
+      858:   61:	else if(val > 1.0L)
+        8:   62:		val = 1.0L;
+        -:   63:
+      858:   64:	gtk_level_bar_set_value(GTK_LEVEL_BAR(vmap->target),
+      858:   65:				(gdouble) val * 30.0L);
+        -:   66:
+      858:   67:	return TRUE;
+        -:   68:}
+        -:   69:
+        -:   70:
+        -:   71:/*************\
+        -:   72:* ENTRY POINT *
+        -:   73:\*************/
+        -:   74:
+        -:   75:GtkWidget*
+        3:   76:jmrg_level_bar_init(const char* label, float* val_ptr)
+        -:   77:{
+        3:   78:	GtkWidget *container = NULL;
+        3:   79:	GtkWidget *hbox = NULL;
+        3:   80:	GtkWidget *level_bar = NULL;
+        3:   81:	GtkStyleContext *context = NULL;
+        3:   82:	struct value_map *vmap = NULL;
+        -:   83:
+        -:   84:
+        -:   85:	/* Use a frame to also have a label there
+        -:   86:	 * for free */
+        3:   87:	container = gtk_frame_new(label);
+        3:   88:	if(!container)
+    #####:   89:		goto cleanup;
+        3:   90:	gtk_frame_set_label_align(GTK_FRAME(container), 0.5F, 0.6F);
+        3:   91:	if(label != NULL)
+        2:   92:		gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:   93:					  GTK_SHADOW_ETCHED_IN);
+        -:   94:	else
+        1:   95:		gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:   96:					  GTK_SHADOW_NONE);
+        -:   97:
+        -:   98:
+        -:   99:	/* Use a box to have better control
+        -:  100:	 * e.g. align the level bar to the center */
+        3:  101:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        3:  102:	if(!hbox)
+    #####:  103:		goto cleanup;
+        3:  104:	gtk_container_add(GTK_CONTAINER(container), hbox);
+        -:  105:
+        -:  106:
+        -:  107:	/* Create the level bar, set it's orientation,
+        -:  108:	 * invert it and set its initial value from JMPXRDS */
+        3:  109:	level_bar = gtk_level_bar_new();
+        3:  110:	if(!level_bar)
+    #####:  111:		goto cleanup;
+        3:  112:	gtk_box_set_center_widget(GTK_BOX(hbox), level_bar);
+        -:  113:
+        -:  114:	/* It's vertical and it's filled from bottom to top */
+        3:  115:	gtk_orientable_set_orientation(GTK_ORIENTABLE(level_bar),
+        -:  116:					GTK_ORIENTATION_VERTICAL);
+        3:  117:	gtk_level_bar_set_inverted(GTK_LEVEL_BAR(level_bar), TRUE);
+        -:  118:
+        -:  119:	/* Make the bar descrete */
+        3:  120:	gtk_level_bar_set_mode(GTK_LEVEL_BAR(level_bar),
+        -:  121:			       GTK_LEVEL_BAR_MODE_DISCRETE);
+        3:  122:	gtk_level_bar_set_min_value(GTK_LEVEL_BAR(level_bar), (gdouble) 0.0L);
+        3:  123:	gtk_level_bar_set_max_value(GTK_LEVEL_BAR(level_bar), (gdouble) 30.0L);
+        3:  124:	gtk_level_bar_set_value(GTK_LEVEL_BAR(level_bar), (gdouble)(*val_ptr));
+        -:  125:
+        -:  126:	/* Register custom CSS class */
+        3:  127:	context = gtk_widget_get_style_context(level_bar);
+        3:  128:	gtk_style_context_add_class(context,"gain_bar");
+        -:  129:
+        -:  130:	/* Initialize value_map */
+        3:  131:	vmap = (struct value_map*) malloc(sizeof(struct value_map));
+        3:  132:	if(!vmap)
+    #####:  133:		goto cleanup;
+        3:  134:	memset(vmap, 0, sizeof(struct value_map));
+        -:  135:
+        3:  136:	vmap->target = level_bar;
+        3:  137:	vmap->val_ptr = val_ptr;
+        -:  138:
+        -:  139:
+        -:  140:	/* Register polling function to run at 12FPS
+        -:  141:	 * 12FPS -> (1 / 12 * 1000)ms for each frame */
+        3:  142:	vmap->esid = g_timeout_add(83, jmrg_level_bar_poll, vmap);
+        -:  143:
+        -:  144:	/* Make sure we clean up the allocated value_map when the level
+        -:  145:	 * bar gets destroyed */
+        3:  146:	g_signal_connect(level_bar, "unrealize", G_CALLBACK(jmrg_free_vmap),
+        -:  147:			 vmap);
+        -:  148:
+        -:  149:	/* Only need the top level container */
+        3:  150:	return container;
+    #####:  151: cleanup:
+    #####:  152:	if(level_bar)
+    #####:  153:		gtk_widget_destroy(level_bar);
+    #####:  154:	if(hbox)
+    #####:  155:		gtk_widget_destroy(hbox);
+    #####:  156:	if(container)
+    #####:  157:		gtk_widget_destroy(container);
+    #####:  158:	return NULL;
+        -:  159:}

@@ -1,0 +1,576 @@
+        -:    0:Source:/usr/include/gstreamer-1.0/gst/gstcaps.h
+        -:    1:/* GStreamer
+        -:    2: * Copyright (C) 2003 David A. Schleef <ds@schleef.org>
+        -:    3: *
+        -:    4: * This library is free software; you can redistribute it and/or
+        -:    5: * modify it under the terms of the GNU Library General Public
+        -:    6: * License as published by the Free Software Foundation; either
+        -:    7: * version 2 of the License, or (at your option) any later version.
+        -:    8: *
+        -:    9: * This library is distributed in the hope that it will be useful,
+        -:   10: * but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   11: * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+        -:   12: * Library General Public License for more details.
+        -:   13: *
+        -:   14: * You should have received a copy of the GNU Library General Public
+        -:   15: * License along with this library; if not, write to the
+        -:   16: * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+        -:   17: * Boston, MA 02110-1301, USA.
+        -:   18: */
+        -:   19:
+        -:   20:#ifndef __GST_CAPS_H__
+        -:   21:#define __GST_CAPS_H__
+        -:   22:
+        -:   23:#include <gst/gstconfig.h>
+        -:   24:#include <gst/gstminiobject.h>
+        -:   25:#include <gst/gststructure.h>
+        -:   26:#include <gst/gstcapsfeatures.h>
+        -:   27:#include <gst/glib-compat.h>
+        -:   28:
+        -:   29:G_BEGIN_DECLS
+        -:   30:
+        -:   31:GST_API GType _gst_caps_type;
+        -:   32:
+        -:   33:#define GST_TYPE_CAPS             (_gst_caps_type)
+        -:   34:#define GST_IS_CAPS(obj)          (GST_IS_MINI_OBJECT_TYPE((obj), GST_TYPE_CAPS))
+        -:   35:#define GST_CAPS_CAST(obj)        ((GstCaps*)(obj))
+        -:   36:#define GST_CAPS(obj)             (GST_CAPS_CAST(obj))
+        -:   37:
+        -:   38:#define GST_TYPE_STATIC_CAPS      (gst_static_caps_get_type())
+        -:   39:
+        -:   40:/**
+        -:   41: * GstCapsFlags:
+        -:   42: * @GST_CAPS_FLAG_ANY: Caps has no specific content, but can contain
+        -:   43: *    anything.
+        -:   44: *
+        -:   45: * Extra flags for a caps.
+        -:   46: */
+        -:   47:typedef enum {
+        -:   48:  GST_CAPS_FLAG_ANY	= (GST_MINI_OBJECT_FLAG_LAST << 0)
+        -:   49:} GstCapsFlags;
+        -:   50:
+        -:   51:/**
+        -:   52: * GstCapsIntersectMode:
+        -:   53: * @GST_CAPS_INTERSECT_ZIG_ZAG  : Zig-zags over both caps.
+        -:   54: * @GST_CAPS_INTERSECT_FIRST    : Keeps the first caps order.
+        -:   55: *
+        -:   56: * Modes of caps intersection
+        -:   57: *
+        -:   58: * @GST_CAPS_INTERSECT_ZIG_ZAG tries to preserve overall order of both caps
+        -:   59: * by iterating on the caps' structures as the following matrix shows:
+        -:   60: * |[
+        -:   61: *          caps1
+        -:   62: *       +-------------
+        -:   63: *       | 1  2  4  7
+        -:   64: * caps2 | 3  5  8 10
+        -:   65: *       | 6  9 11 12
+        -:   66: * ]|
+        -:   67: * Used when there is no explicit precedence of one caps over the other. e.g.
+        -:   68: * tee's sink pad getcaps function, it will probe its src pad peers' for their
+        -:   69: * caps and intersect them with this mode.
+        -:   70: *
+        -:   71: * @GST_CAPS_INTERSECT_FIRST is useful when an element wants to preserve
+        -:   72: * another element's caps priority order when intersecting with its own caps.
+        -:   73: * Example: If caps1 is [A, B, C] and caps2 is [E, B, D, A], the result
+        -:   74: * would be [A, B], maintaining the first caps priority on the intersection.
+        -:   75: */
+        -:   76:typedef enum {
+        -:   77:  GST_CAPS_INTERSECT_ZIG_ZAG            =  0,
+        -:   78:  GST_CAPS_INTERSECT_FIRST              =  1
+        -:   79:} GstCapsIntersectMode;
+        -:   80:
+        -:   81:/**
+        -:   82: * GST_CAPS_ANY:
+        -:   83: *
+        -:   84: * Means that the element/pad can output 'anything'. Useful for elements
+        -:   85: * that output unknown media, such as filesrc. This macro returns a singleton and
+        -:   86: * should not be unreffed.
+        -:   87: */
+        -:   88:#define GST_CAPS_ANY              _gst_caps_any
+        -:   89:/**
+        -:   90: * GST_CAPS_NONE:
+        -:   91: *
+        -:   92: * The opposite of %GST_CAPS_ANY: it means that the pad/element outputs an
+        -:   93: * undefined media type that can not be detected. This macro returns a singleton
+        -:   94: * and should not be unreffed.
+        -:   95: */
+        -:   96:#define GST_CAPS_NONE             _gst_caps_none
+        -:   97:
+        -:   98:/**
+        -:   99: * GST_STATIC_CAPS_ANY:
+        -:  100: *
+        -:  101: * Creates a new #GstCaps static caps that matches anything.
+        -:  102: * This can be used in pad templates.
+        -:  103: */
+        -:  104:#define GST_STATIC_CAPS_ANY       GST_STATIC_CAPS("ANY")
+        -:  105:/**
+        -:  106: * GST_STATIC_CAPS_NONE:
+        -:  107: *
+        -:  108: * Creates a new #GstCaps static caps that matches nothing.
+        -:  109: * This can be used in pad templates.
+        -:  110: */
+        -:  111:#define GST_STATIC_CAPS_NONE      GST_STATIC_CAPS("NONE")
+        -:  112:
+        -:  113:/**
+        -:  114: * GST_CAPS_IS_SIMPLE:
+        -:  115: * @caps: the #GstCaps instance to check
+        -:  116: *
+        -:  117: * Convenience macro that checks if the number of structures in the given caps
+        -:  118: * is exactly one.
+        -:  119: */
+        -:  120:#define GST_CAPS_IS_SIMPLE(caps) (gst_caps_get_size(caps) == 1)
+        -:  121:
+        -:  122:/**
+        -:  123: * GST_STATIC_CAPS:
+        -:  124: * @string: the string describing the caps
+        -:  125: *
+        -:  126: * Creates a new #GstCaps static caps from an input string.
+        -:  127: * This can be used in pad templates.
+        -:  128: */
+        -:  129:#define GST_STATIC_CAPS(string) \
+        -:  130:{ \
+        -:  131:  /* caps */ NULL, \
+        -:  132:  /* string */ string, \
+        -:  133:  GST_PADDING_INIT \
+        -:  134:}
+        -:  135:
+        -:  136:typedef struct _GstCaps GstCaps;
+        -:  137:typedef struct _GstStaticCaps GstStaticCaps;
+        -:  138:
+        -:  139:GST_API GstCaps * _gst_caps_any;
+        -:  140:
+        -:  141:GST_API GstCaps * _gst_caps_none;
+        -:  142:/**
+        -:  143: * GST_CAPS_FLAGS:
+        -:  144: * @caps: a #GstCaps.
+        -:  145: *
+        -:  146: * A flags word containing #GstCapsFlags flags set on this caps.
+        -:  147: */
+        -:  148:#define GST_CAPS_FLAGS(caps)                    GST_MINI_OBJECT_FLAGS(caps)
+        -:  149:
+        -:  150:/* refcount */
+        -:  151:/**
+        -:  152: * GST_CAPS_REFCOUNT:
+        -:  153: * @caps: a #GstCaps
+        -:  154: *
+        -:  155: * Get access to the reference count field of the caps
+        -:  156: */
+        -:  157:#define GST_CAPS_REFCOUNT(caps)                 GST_MINI_OBJECT_REFCOUNT(caps)
+        -:  158:/**
+        -:  159: * GST_CAPS_REFCOUNT_VALUE:
+        -:  160: * @caps: a #GstCaps
+        -:  161: *
+        -:  162: * Get the reference count value of the caps.
+        -:  163: */
+        -:  164:#define GST_CAPS_REFCOUNT_VALUE(caps)           GST_MINI_OBJECT_REFCOUNT_VALUE(caps)
+        -:  165:
+        -:  166:/**
+        -:  167: * GST_CAPS_FLAG_IS_SET:
+        -:  168: * @caps: a #GstCaps.
+        -:  169: * @flag: the #GstCapsFlags to check.
+        -:  170: *
+        -:  171: * Gives the status of a specific flag on a caps.
+        -:  172: */
+        -:  173:#define GST_CAPS_FLAG_IS_SET(caps,flag)        GST_MINI_OBJECT_FLAG_IS_SET (caps, flag)
+        -:  174:/**
+        -:  175: * GST_CAPS_FLAG_SET:
+        -:  176: * @caps: a #GstCaps.
+        -:  177: * @flag: the #GstCapsFlags to set.
+        -:  178: *
+        -:  179: * Sets a caps flag on a caps.
+        -:  180: */
+        -:  181:#define GST_CAPS_FLAG_SET(caps,flag)           GST_MINI_OBJECT_FLAG_SET (caps, flag)
+        -:  182:/**
+        -:  183: * GST_CAPS_FLAG_UNSET:
+        -:  184: * @caps: a #GstCaps.
+        -:  185: * @flag: the #GstCapsFlags to clear.
+        -:  186: *
+        -:  187: * Clears a caps flag.
+        -:  188: */
+        -:  189:#define GST_CAPS_FLAG_UNSET(caps,flag)         GST_MINI_OBJECT_FLAG_UNSET (caps, flag)
+        -:  190:
+        -:  191:/* refcounting */
+        -:  192:/**
+        -:  193: * gst_caps_ref:
+        -:  194: * @caps: the #GstCaps to reference
+        -:  195: *
+        -:  196: * Add a reference to a #GstCaps object.
+        -:  197: *
+        -:  198: * From this point on, until the caller calls gst_caps_unref() or
+        -:  199: * gst_caps_make_writable(), it is guaranteed that the caps object will not
+        -:  200: * change. This means its structures won't change, etc. To use a #GstCaps
+        -:  201: * object, you must always have a refcount on it -- either the one made
+        -:  202: * implicitly by e.g. gst_caps_new_simple(), or via taking one explicitly with
+        -:  203: * this function.
+        -:  204: *
+        -:  205: * Returns: the same #GstCaps object.
+        -:  206: */
+        -:  207:static inline GstCaps *
+        -:  208:gst_caps_ref (GstCaps * caps)
+        -:  209:{
+        -:  210:  return (GstCaps *) gst_mini_object_ref (GST_MINI_OBJECT_CAST (caps));
+        -:  211:}
+        -:  212:
+        -:  213:/**
+        -:  214: * gst_caps_unref:
+        -:  215: * @caps: a #GstCaps.
+        -:  216: *
+        -:  217: * Unref a #GstCaps and and free all its structures and the
+        -:  218: * structures' values when the refcount reaches 0.
+        -:  219: */
+        -:  220:static inline void
+        1:  221:gst_caps_unref (GstCaps * caps)
+        -:  222:{
+        1:  223:  gst_mini_object_unref (GST_MINI_OBJECT_CAST (caps));
+        1:  224:}
+        -:  225:
+        -:  226:/* copy caps */
+        -:  227:/**
+        -:  228: * gst_caps_copy:
+        -:  229: * @caps: a #GstCaps.
+        -:  230: *
+        -:  231: * Creates a new #GstCaps as a copy of the old @caps. The new caps will have a
+        -:  232: * refcount of 1, owned by the caller. The structures are copied as well.
+        -:  233: *
+        -:  234: * Note that this function is the semantic equivalent of a gst_caps_ref()
+        -:  235: * followed by a gst_caps_make_writable(). If you only want to hold on to a
+        -:  236: * reference to the data, you should use gst_caps_ref().
+        -:  237: *
+        -:  238: * When you are finished with the caps, call gst_caps_unref() on it.
+        -:  239: *
+        -:  240: * Returns: the new #GstCaps
+        -:  241: */
+        -:  242:static inline GstCaps *
+        -:  243:gst_caps_copy (const GstCaps * caps)
+        -:  244:{
+        -:  245:  return GST_CAPS (gst_mini_object_copy (GST_MINI_OBJECT_CAST (caps)));
+        -:  246:}
+        -:  247:
+        -:  248:/**
+        -:  249: * gst_caps_is_writable:
+        -:  250: * @caps: a #GstCaps
+        -:  251: *
+        -:  252: * Tests if you can safely modify @caps. It is only safe to modify caps when
+        -:  253: * there is only one owner of the caps - ie, the object is writable.
+        -:  254: */
+        -:  255:#define         gst_caps_is_writable(caps)     gst_mini_object_is_writable (GST_MINI_OBJECT_CAST (caps))
+        -:  256:
+        -:  257:/**
+        -:  258: * gst_caps_make_writable:
+        -:  259: * @caps: (transfer full): a #GstCaps
+        -:  260: *
+        -:  261: * Returns a writable copy of @caps.
+        -:  262: *
+        -:  263: * If there is only one reference count on @caps, the caller must be the owner,
+        -:  264: * and so this function will return the caps object unchanged. If on the other
+        -:  265: * hand there is more than one reference on the object, a new caps object will
+        -:  266: * be returned. The caller's reference on @caps will be removed, and instead the
+        -:  267: * caller will own a reference to the returned object.
+        -:  268: *
+        -:  269: * In short, this function unrefs the caps in the argument and refs the caps
+        -:  270: * that it returns. Don't access the argument after calling this function. See
+        -:  271: * also: gst_caps_ref().
+        -:  272: *
+        -:  273: * Returns: (transfer full): a writable caps which may or may not be the
+        -:  274: *     same as @caps
+        -:  275: */
+        -:  276:#define         gst_caps_make_writable(caps)   GST_CAPS_CAST (gst_mini_object_make_writable (GST_MINI_OBJECT_CAST (caps)))
+        -:  277:
+        -:  278:/**
+        -:  279: * gst_caps_replace:
+        -:  280: * @old_caps: (inout) (transfer full) (nullable): pointer to a pointer
+        -:  281: *     to a #GstCaps to be replaced.
+        -:  282: * @new_caps: (transfer none) (allow-none): pointer to a #GstCaps that will
+        -:  283: *     replace the caps pointed to by @old_caps.
+        -:  284: *
+        -:  285: * Modifies a pointer to a #GstCaps to point to a different #GstCaps. The
+        -:  286: * modification is done atomically (so this is useful for ensuring thread safety
+        -:  287: * in some cases), and the reference counts are updated appropriately (the old
+        -:  288: * caps is unreffed, the new is reffed).
+        -:  289: *
+        -:  290: * Either @new_caps or the #GstCaps pointed to by @old_caps may be %NULL.
+        -:  291: *
+        -:  292: * Returns: %TRUE if @new_caps was different from @old_caps
+        -:  293: */
+        -:  294:static inline gboolean
+        -:  295:gst_caps_replace (GstCaps **old_caps, GstCaps *new_caps)
+        -:  296:{
+        -:  297:    return gst_mini_object_replace ((GstMiniObject **) old_caps, (GstMiniObject *) new_caps);
+        -:  298:}
+        -:  299:
+        -:  300:/**
+        -:  301: * gst_caps_take:
+        -:  302: * @old_caps: (inout) (transfer full): pointer to a pointer to a #GstCaps to be
+        -:  303: *     replaced.
+        -:  304: * @new_caps: (transfer full) (allow-none): pointer to a #GstCaps that will
+        -:  305: *     replace the caps pointed to by @old_caps.
+        -:  306: *
+        -:  307: * Modifies a pointer to a #GstCaps to point to a different #GstCaps. This
+        -:  308: * function is similar to gst_caps_replace() except that it takes ownership
+        -:  309: * of @new_caps.
+        -:  310: *
+        -:  311: * Returns: %TRUE if @new_caps was different from @old_caps
+        -:  312: */
+        -:  313:static inline gboolean
+        -:  314:gst_caps_take (GstCaps **old_caps, GstCaps *new_caps)
+        -:  315:{
+        -:  316:    return gst_mini_object_take ((GstMiniObject **) old_caps, (GstMiniObject *) new_caps);
+        -:  317:}
+        -:  318:
+        -:  319:/**
+        -:  320: * GstCaps:
+        -:  321: * @mini_object: the parent type
+        -:  322: *
+        -:  323: * Object describing media types.
+        -:  324: */
+        -:  325:struct _GstCaps {
+        -:  326:  GstMiniObject mini_object;
+        -:  327:};
+        -:  328:
+        -:  329:/**
+        -:  330: * GstStaticCaps:
+        -:  331: * @caps: the cached #GstCaps
+        -:  332: * @string: a string describing a caps
+        -:  333: *
+        -:  334: * Datastructure to initialize #GstCaps from a string description usually
+        -:  335: * used in conjunction with GST_STATIC_CAPS() and gst_static_caps_get() to
+        -:  336: * instantiate a #GstCaps.
+        -:  337: */
+        -:  338:struct _GstStaticCaps {
+        -:  339:  /*< public >*/
+        -:  340:  GstCaps *caps;
+        -:  341:  const char *string;
+        -:  342:
+        -:  343:  /*< private >*/
+        -:  344:  gpointer _gst_reserved[GST_PADDING];
+        -:  345:};
+        -:  346:
+        -:  347:/**
+        -:  348: * GstCapsForeachFunc:
+        -:  349: * @features: the #GstCapsFeatures
+        -:  350: * @structure: the #GstStructure
+        -:  351: * @user_data: user data
+        -:  352: *
+        -:  353: * A function that will be called in gst_caps_foreach(). The function may
+        -:  354: * not modify @features or @structure.
+        -:  355: *
+        -:  356: * Returns: %TRUE if the foreach operation should continue, %FALSE if
+        -:  357: * the foreach operation should stop with %FALSE.
+        -:  358: *
+        -:  359: * Since: 1.6
+        -:  360: */
+        -:  361:typedef gboolean (*GstCapsForeachFunc) (GstCapsFeatures *features,
+        -:  362:                                        GstStructure    *structure,
+        -:  363:                                        gpointer         user_data);
+        -:  364:
+        -:  365:/**
+        -:  366: * GstCapsMapFunc:
+        -:  367: * @features: the #GstCapsFeatures
+        -:  368: * @structure: the #GstStructure
+        -:  369: * @user_data: user data
+        -:  370: *
+        -:  371: * A function that will be called in gst_caps_map_in_place(). The function
+        -:  372: * may modify @features and @structure.
+        -:  373: *
+        -:  374: * Returns: %TRUE if the map operation should continue, %FALSE if
+        -:  375: * the map operation should stop with %FALSE.
+        -:  376: */
+        -:  377:typedef gboolean (*GstCapsMapFunc)     (GstCapsFeatures *features,
+        -:  378:                                        GstStructure    *structure,
+        -:  379:                                        gpointer         user_data);
+        -:  380:
+        -:  381:/**
+        -:  382: * GstCapsFilterMapFunc:
+        -:  383: * @features: the #GstCapsFeatures
+        -:  384: * @structure: the #GstStructure
+        -:  385: * @user_data: user data
+        -:  386: *
+        -:  387: * A function that will be called in gst_caps_filter_and_map_in_place().
+        -:  388: * The function may modify @features and @structure, and both will be
+        -:  389: * removed from the caps if %FALSE is returned.
+        -:  390: *
+        -:  391: * Returns: %TRUE if the features and structure should be preserved,
+        -:  392: * %FALSE if it should be removed.
+        -:  393: */
+        -:  394:typedef gboolean (*GstCapsFilterMapFunc) (GstCapsFeatures *features,
+        -:  395:                                          GstStructure    *structure,
+        -:  396:                                          gpointer user_data);
+        -:  397:
+        -:  398:
+        -:  399:GST_API
+        -:  400:GType             gst_caps_get_type                (void);
+        -:  401:
+        -:  402:GST_API
+        -:  403:GstCaps *         gst_caps_new_empty               (void);
+        -:  404:
+        -:  405:GST_API
+        -:  406:GstCaps *         gst_caps_new_any                 (void);
+        -:  407:
+        -:  408:GST_API
+        -:  409:GstCaps *         gst_caps_new_empty_simple        (const char    *media_type) G_GNUC_WARN_UNUSED_RESULT;
+        -:  410:
+        -:  411:GST_API
+        -:  412:GstCaps *         gst_caps_new_simple              (const char    *media_type,
+        -:  413:                                                    const char    *fieldname,
+        -:  414:                                                    ...) G_GNUC_NULL_TERMINATED G_GNUC_WARN_UNUSED_RESULT;
+        -:  415:GST_API
+        -:  416:GstCaps *         gst_caps_new_full                (GstStructure  *struct1,
+        -:  417:                                                    ...) G_GNUC_NULL_TERMINATED G_GNUC_WARN_UNUSED_RESULT;
+        -:  418:GST_API
+        -:  419:GstCaps *         gst_caps_new_full_valist         (GstStructure  *structure,
+        -:  420:                                                    va_list        var_args) G_GNUC_WARN_UNUSED_RESULT;
+        -:  421:GST_API
+        -:  422:GType             gst_static_caps_get_type         (void);
+        -:  423:
+        -:  424:GST_API
+        -:  425:GstCaps *         gst_static_caps_get              (GstStaticCaps *static_caps);
+        -:  426:
+        -:  427:GST_API
+        -:  428:void              gst_static_caps_cleanup          (GstStaticCaps *static_caps);
+        -:  429:
+        -:  430:/* manipulation */
+        -:  431:
+        -:  432:GST_API
+        -:  433:void              gst_caps_append                  (GstCaps       *caps1,
+        -:  434:                                                    GstCaps       *caps2);
+        -:  435:GST_API
+        -:  436:void              gst_caps_append_structure        (GstCaps       *caps,
+        -:  437:                                                    GstStructure  *structure);
+        -:  438:GST_API
+        -:  439:void              gst_caps_append_structure_full   (GstCaps       *caps,
+        -:  440:                                                    GstStructure  *structure,
+        -:  441:                                                    GstCapsFeatures *features);
+        -:  442:GST_API
+        -:  443:void              gst_caps_remove_structure        (GstCaps       *caps, guint idx);
+        -:  444:
+        -:  445:GST_API
+        -:  446:GstCaps *         gst_caps_merge                   (GstCaps       *caps1,
+        -:  447:                                                    GstCaps       *caps2) G_GNUC_WARN_UNUSED_RESULT;
+        -:  448:GST_API
+        -:  449:GstCaps *         gst_caps_merge_structure         (GstCaps       *caps,
+        -:  450:                                                    GstStructure  *structure) G_GNUC_WARN_UNUSED_RESULT;
+        -:  451:GST_API
+        -:  452:GstCaps *         gst_caps_merge_structure_full    (GstCaps       *caps,
+        -:  453:                                                    GstStructure  *structure,
+        -:  454:                                                    GstCapsFeatures *features) G_GNUC_WARN_UNUSED_RESULT;
+        -:  455:
+        -:  456:GST_API
+        -:  457:guint             gst_caps_get_size                (const GstCaps *caps);
+        -:  458:
+        -:  459:GST_API
+        -:  460:GstStructure *    gst_caps_get_structure           (const GstCaps *caps,
+        -:  461:                                                    guint          index);
+        -:  462:GST_API
+        -:  463:GstStructure *    gst_caps_steal_structure         (GstCaps       *caps,
+        -:  464:                                                    guint          index) G_GNUC_WARN_UNUSED_RESULT;
+        -:  465:GST_API
+        -:  466:void              gst_caps_set_features            (GstCaps *caps,
+        -:  467:                                                    guint          index,
+        -:  468:                                                    GstCapsFeatures * features);
+        -:  469:GST_API
+        -:  470:GstCapsFeatures * gst_caps_get_features            (const GstCaps *caps,
+        -:  471:                                                    guint          index);
+        -:  472:GST_API
+        -:  473:GstCaps *         gst_caps_copy_nth                (const GstCaps *caps, guint nth) G_GNUC_WARN_UNUSED_RESULT;
+        -:  474:
+        -:  475:GST_API
+        -:  476:GstCaps *         gst_caps_truncate                (GstCaps       *caps) G_GNUC_WARN_UNUSED_RESULT;
+        -:  477:
+        -:  478:GST_API
+        -:  479:void              gst_caps_set_value               (GstCaps       *caps,
+        -:  480:                                                    const char    *field,
+        -:  481:                                                    const GValue  *value);
+        -:  482:GST_API
+        -:  483:void              gst_caps_set_simple              (GstCaps       *caps,
+        -:  484:                                                    const char    *field, ...) G_GNUC_NULL_TERMINATED;
+        -:  485:GST_API
+        -:  486:void              gst_caps_set_simple_valist       (GstCaps       *caps,
+        -:  487:                                                    const char    *field,
+        -:  488:                                                    va_list        varargs);
+        -:  489:GST_API
+        -:  490:gboolean          gst_caps_foreach                 (const GstCaps       *caps,
+        -:  491:                                                    GstCapsForeachFunc   func,
+        -:  492:                                                    gpointer             user_data);
+        -:  493:GST_API
+        -:  494:gboolean          gst_caps_map_in_place            (GstCaps        *caps,
+        -:  495:                                                    GstCapsMapFunc  func,
+        -:  496:                                                    gpointer        user_data);
+        -:  497:GST_API
+        -:  498:void              gst_caps_filter_and_map_in_place (GstCaps              *caps,
+        -:  499:                                                    GstCapsFilterMapFunc  func,
+        -:  500:                                                    gpointer              user_data);
+        -:  501:
+        -:  502:/* tests */
+        -:  503:
+        -:  504:GST_API
+        -:  505:gboolean          gst_caps_is_any                  (const GstCaps *caps);
+        -:  506:
+        -:  507:GST_API
+        -:  508:gboolean          gst_caps_is_empty                (const GstCaps *caps);
+        -:  509:
+        -:  510:GST_API
+        -:  511:gboolean          gst_caps_is_fixed                (const GstCaps *caps);
+        -:  512:
+        -:  513:GST_API
+        -:  514:gboolean          gst_caps_is_always_compatible    (const GstCaps *caps1,
+        -:  515:                                                    const GstCaps *caps2);
+        -:  516:GST_API
+        -:  517:gboolean          gst_caps_is_subset		   (const GstCaps *subset,
+        -:  518:						    const GstCaps *superset);
+        -:  519:GST_API
+        -:  520:gboolean          gst_caps_is_subset_structure     (const GstCaps *caps,
+        -:  521:                                                    const GstStructure *structure);
+        -:  522:GST_API
+        -:  523:gboolean          gst_caps_is_subset_structure_full (const GstCaps *caps,
+        -:  524:                                                     const GstStructure *structure,
+        -:  525:                                                     const GstCapsFeatures *features);
+        -:  526:GST_API
+        -:  527:gboolean          gst_caps_is_equal		   (const GstCaps *caps1,
+        -:  528:						    const GstCaps *caps2);
+        -:  529:GST_API
+        -:  530:gboolean          gst_caps_is_equal_fixed          (const GstCaps *caps1,
+        -:  531:						    const GstCaps *caps2);
+        -:  532:GST_API
+        -:  533:gboolean          gst_caps_can_intersect           (const GstCaps * caps1,
+        -:  534:						    const GstCaps * caps2);
+        -:  535:GST_API
+        -:  536:gboolean          gst_caps_is_strictly_equal	   (const GstCaps *caps1,
+        -:  537:						    const GstCaps *caps2);
+        -:  538:
+        -:  539:
+        -:  540:/* operations */
+        -:  541:
+        -:  542:GST_API
+        -:  543:GstCaps *         gst_caps_intersect               (GstCaps *caps1,
+        -:  544:						    GstCaps *caps2) G_GNUC_WARN_UNUSED_RESULT;
+        -:  545:GST_API
+        -:  546:GstCaps *         gst_caps_intersect_full          (GstCaps *caps1,
+        -:  547:						    GstCaps *caps2,
+        -:  548:                                                    GstCapsIntersectMode mode) G_GNUC_WARN_UNUSED_RESULT;
+        -:  549:GST_API
+        -:  550:GstCaps *         gst_caps_subtract		   (GstCaps *minuend,
+        -:  551:						    GstCaps *subtrahend) G_GNUC_WARN_UNUSED_RESULT;
+        -:  552:GST_API
+        -:  553:GstCaps *         gst_caps_normalize               (GstCaps *caps) G_GNUC_WARN_UNUSED_RESULT;
+        -:  554:
+        -:  555:GST_API
+        -:  556:GstCaps *         gst_caps_simplify                (GstCaps *caps) G_GNUC_WARN_UNUSED_RESULT;
+        -:  557:
+        -:  558:GST_API
+        -:  559:GstCaps *         gst_caps_fixate                  (GstCaps *caps) G_GNUC_WARN_UNUSED_RESULT;
+        -:  560:
+        -:  561:/* utility */
+        -:  562:
+        -:  563:GST_API
+        -:  564:gchar *           gst_caps_to_string               (const GstCaps *caps) G_GNUC_MALLOC;
+        -:  565:
+        -:  566:GST_API
+        -:  567:GstCaps *         gst_caps_from_string             (const gchar   *string) G_GNUC_WARN_UNUSED_RESULT;
+        -:  568:
+        -:  569:#ifdef G_DEFINE_AUTOPTR_CLEANUP_FUNC
+        -:  570:G_DEFINE_AUTOPTR_CLEANUP_FUNC(GstCaps, gst_caps_unref)
+        -:  571:#endif
+        -:  572:
+        -:  573:G_END_DECLS
+        -:  574:
+        -:  575:#endif /* __GST_CAPS_H__ */

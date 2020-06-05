@@ -1,0 +1,220 @@
+        -:    0:Source:gui/jmpxrds_gui.c
+        -:    1:#include <stdlib.h>	/* For malloc() / free() */
+        -:    2:#include <time.h>	/* For nanosleep */
+        -:    3:#include "jmpxrds_gui.h"
+        -:    4:
+        -:    5:/******************\
+        -:    6:* CUSTOM CSS STYLE *
+        -:    7:\******************/
+        -:    8:
+        -:    9:const char css_style[] = ".gain_bar block.empty, block.filled  {"\
+        -:   10:				"min-height: 2px;"\
+        -:   11:				"min-width: 8px;"\
+        -:   12:				"border-style: solid;"\
+        -:   13:				"border-color: black;"\
+        -:   14: 			"}"\
+        -:   15:			".rds_display_field {"\
+        -:   16:				"background: #669999;"\
+        -:   17:				"min-height: 50px;"\
+        -:   18:				"color: black;"\
+        -:   19:				"font-weight: bold;"\
+        -:   20:				"font-family: monospace;"\
+        -:   21:				"text-shadow: 1px 1px 5px black;"\
+        -:   22:				"box-shadow: inset 0px 0px 5px black;"\
+        -:   23:				"border: 1px solid black;"\
+        -:   24:			"}";
+        -:   25:
+        -:   26:/*********\
+        -:   27:* HELPERS *
+        -:   28:\*********/
+        -:   29:
+        -:   30:static void
+       10:   31:jmrg_hide_page_contents(struct control_page *page)
+        -:   32:{
+       10:   33:	GList *children = NULL;
+       10:   34:	GList *current_child = NULL;
+        -:   35:
+       10:   36:	children = gtk_container_get_children(GTK_CONTAINER(page->container));
+       38:   37:	for(current_child = children; current_child != NULL;
+      28*:   38:	    current_child = g_list_next(current_child)) {
+       28:   39:		gtk_widget_hide(GTK_WIDGET(current_child->data));
+        -:   40:	}
+       10:   41:	g_list_free(children);
+       10:   42:}
+        -:   43:
+        -:   44:
+        -:   45:/************************\
+        -:   46:* COMMON SIGNAL HANDLERS *
+        -:   47:\************************/
+        -:   48:
+        -:   49:void
+       33:   50:jmrg_free_vmap(__attribute__((unused)) GtkWidget *widget,
+        -:   51:	       gpointer data)
+        -:   52:{
+       33:   53:	const struct timespec tv = {0, 20000000L};
+       33:   54:	struct value_map *vmap = (struct value_map*) data;
+       33:   55:	if(vmap->esid) {
+       26:   56:		g_source_remove(vmap->esid);
+        -:   57:		/* Give it some time for the polling loop to run
+        -:   58:		 * and terminate */
+       26:   59:		nanosleep(&tv, NULL);
+        -:   60:	}
+       33:   61:	if(vmap->iplstore) {
+        1:   62:		g_list_store_remove_all(vmap->iplstore);
+        1:   63:		g_object_unref(vmap->iplstore);
+        -:   64:	}
+       33:   65:	if((&vmap->dps)->active)
+        1:   66:		rds_dynps_destroy(&vmap->dps);
+       33:   67:	if((&vmap->drt)->active)
+        1:   68:		rds_dynrt_destroy(&vmap->drt);
+       33:   69:	free(vmap);
+       33:   70:	return;
+        -:   71:}
+        -:   72:
+        -:   73:void
+        3:   74:jmrg_panel_destroy(__attribute__((unused)) GtkWidget *container,
+        -:   75:		   struct control_page *ctl_page)
+        -:   76:{
+        3:   77:	if(ctl_page->shmem)
+        3:   78:		utils_shm_destroy(ctl_page->shmem, 0);
+        -:   79:
+        3:   80:	if(ctl_page)
+        3:   81:		free(ctl_page);
+        -:   82:
+        3:   83:	return;
+        -:   84:}
+        -:   85:
+        -:   86:/* When switching to a page, hide the widgets of the rest of the pages
+        -:   87: * so that we don't poll for their contents. Un-hide / show only the contents
+        -:   88: * of the current page. */
+        -:   89:void
+        5:   90:jmrg_panel_switched(GtkNotebook *notebook,
+        -:   91:		    __attribute__((unused)) GtkWidget *panel,
+        -:   92:		    guint page_no, gpointer user_data)
+        -:   93:{
+        5:   94:	struct control_page **pages = (struct control_page **) user_data;
+        5:   95:	int i = 0;
+        5:   96:	gint no_pages = gtk_notebook_get_n_pages(notebook);
+        -:   97:
+       20:   98:	for(i = 0; i < no_pages && i < JMRG_NUM_PAGES; i++) {
+       15:   99:		if(page_no == (guint) i)
+        5:  100:			gtk_widget_show_all(pages[i]->container);
+        -:  101:		else
+       10:  102:			jmrg_hide_page_contents(pages[i]);
+        -:  103:	}
+        -:  104:
+        5:  105:	return;
+        -:  106:}
+        -:  107:
+        -:  108:
+        -:  109:int
+        1:  110:main(int argc, char *argv[])
+        -:  111:{
+        -:  112:	struct control_page *pages[JMRG_NUM_PAGES];
+        1:  113:	GtkWidget *window = NULL;
+        1:  114:	GtkWidget *notebook = NULL;
+        1:  115:	GtkCssProvider *provider = NULL;
+        1:  116:	GdkScreen *screen = NULL;
+        1:  117:	struct control_page *fmmod_panel = NULL;
+        1:  118:	struct control_page *rdsenc_panel = NULL;
+        1:  119:	struct control_page *rtpserv_panel = NULL;
+        1:  120:	int no_pages = 0;
+        1:  121:	int ret = 0;
+        -:  122:
+        -:  123:	/* Initialize gtk */
+        1:  124:	gtk_init(&argc, &argv);
+        -:  125:
+        -:  126:	/* Create top level window */
+        1:  127:	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        1:  128:	if (!window) {
+    #####:  129:		ret = -1;
+    #####:  130:		goto cleanup;
+        -:  131:	}
+        1:  132:	gtk_window_set_title(GTK_WINDOW(window), "JMPXRDS Control Panel");
+        1:  133:	gtk_window_set_default_size(GTK_WINDOW(window), -1, -1);
+        -:  134:	/* Add event handler for closing the window */
+        1:  135:	g_signal_connect(window, "delete-event", G_CALLBACK(gtk_main_quit),
+        -:  136:			NULL);
+        -:  137:
+        -:  138:	/* CSS stuff */
+        1:  139:	provider = gtk_css_provider_new();
+        1:  140:	if(!provider) {
+    #####:  141:		ret = -2;
+    #####:  142:		goto cleanup;
+        -:  143:	}
+        1:  144:	screen = gtk_widget_get_screen(window);
+        1:  145:	gtk_style_context_add_provider_for_screen(screen,
+        1:  146:					GTK_STYLE_PROVIDER(provider),
+        -:  147:					GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        1:  148:	gtk_css_provider_load_from_data(provider, css_style, -1, NULL);
+        -:  149:
+        -:  150:	/* Create sub-container */
+        1:  151:	notebook = gtk_notebook_new();
+        1:  152:	if(!notebook) {
+    #####:  153:		ret = -3;
+    #####:  154:		goto cleanup;
+        -:  155:	}
+        1:  156:	gtk_container_add(GTK_CONTAINER(window), notebook);
+        -:  157:
+        -:  158:	/* Initialize FMmod control panel */
+        1:  159:	fmmod_panel = (struct control_page*) malloc(sizeof(struct control_page));
+        1:  160:	if(!fmmod_panel) {
+    #####:  161:		ret = -4;
+    #####:  162:		goto cleanup;
+        -:  163:	}
+        1:  164:	ret = jmrg_fmmod_panel_init(fmmod_panel);
+        1:  165:	if(ret < 0) {
+    #####:  166:		ret = -5;
+    #####:  167:		goto cleanup;
+        -:  168:	}
+        1:  169:	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), fmmod_panel->container,
+        -:  170:				 fmmod_panel->label);
+        1:  171:	pages[no_pages++] = fmmod_panel;
+        -:  172:
+        -:  173:	/* Initialize RDSEncoder control panel */
+        1:  174:	rdsenc_panel = (struct control_page*) malloc(sizeof(struct control_page));
+        1:  175:	if(!rdsenc_panel) {
+    #####:  176:		ret = -6;
+    #####:  177:		goto cleanup;
+        -:  178:	}
+        1:  179:	ret = jmrg_rdsenc_panel_init(rdsenc_panel);
+        1:  180:	if(ret < 0) {
+    #####:  181:		ret = -7;
+    #####:  182:		goto cleanup;
+        -:  183:	}
+        1:  184:	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), rdsenc_panel->container,
+        -:  185:				 rdsenc_panel->label);
+        1:  186:	pages[no_pages++] = rdsenc_panel;
+        -:  187:
+        -:  188:	/* Initialize RTPServer control panel */
+        1:  189:	rtpserv_panel = (struct control_page*) malloc(sizeof(struct control_page));
+        1:  190:	if(!rtpserv_panel) {
+    #####:  191:		ret = -7;
+    #####:  192:		goto cleanup;
+        -:  193:	}
+        1:  194:	ret = jmrg_rtpserv_panel_init(rtpserv_panel);
+        1:  195:	if(ret < 0) {
+    #####:  196:		ret = -7;
+    #####:  197:		goto cleanup;
+        -:  198:	}
+        1:  199:	gtk_notebook_append_page(GTK_NOTEBOOK(notebook), rtpserv_panel->container,
+        -:  200:				 rtpserv_panel->label);
+        1:  201:	pages[no_pages++] = rtpserv_panel;
+        -:  202:
+        -:  203:	/* Register the signal handler for switching pages */
+        1:  204:	g_signal_connect(notebook, "switch-page", G_CALLBACK(jmrg_panel_switched),
+        -:  205:                         pages);
+        -:  206:
+        1:  207:	gtk_widget_show_all(window);
+        -:  208:
+        -:  209:	/* Manualy call the signal handler after the call to show_all() to hide
+        -:  210:	 * the inactive pages. The currently displayed page is going to be the
+        -:  211:	 * first one (0). */
+        1:  212:	jmrg_panel_switched(GTK_NOTEBOOK(notebook), NULL, 0, pages);
+        -:  213:
+        -:  214:	/* Start the gtk main loop */
+        1:  215:	gtk_main();
+        -:  216:
+        1:  217: cleanup:
+        1:  218:	return ret;
+        -:  219:}

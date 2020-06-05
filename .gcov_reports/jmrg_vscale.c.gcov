@@ -1,0 +1,134 @@
+        -:    0:Source:gui/jmrg_vscale.c
+        -:    1:#include <stdlib.h>	/* For malloc() */
+        -:    2:#include <string.h>	/* For memset() */
+        -:    3:#include "jmpxrds_gui.h"
+        -:    4:
+        -:    5:/******************\
+        -:    6:* POLLING FUNCTION *
+        -:    7:\******************/
+        -:    8:
+        -:    9:static int
+     2845:   10:jmrg_vscale_poll(gpointer data)
+        -:   11:{
+     2845:   12:	struct value_map *vmap = (struct value_map*) data;
+        -:   13:
+    2845*:   14:	if(!GTK_IS_SCALE(vmap->target))
+    #####:   15:		return FALSE;
+        -:   16:
+     2845:   17:	if(!gtk_widget_is_visible(vmap->target))
+     2250:   18:		return TRUE;
+        -:   19:
+        -:   20:	/* Gain values go from 0 to 1, scale value goes from 0 to 100 */
+      595:   21:	gtk_range_set_value(GTK_RANGE(vmap->target),
+      595:   22:			    (gdouble) (*(float*)vmap->val_ptr) * 100.0L);
+        -:   23:
+      595:   24:	return TRUE;
+        -:   25:}
+        -:   26:
+        -:   27:
+        -:   28:/*****************\
+        -:   29:* SIGNAL HANDLERS *
+        -:   30:\*****************/
+        -:   31:
+        -:   32:static gchar*
+     3154:   33:jmrg_vscale_format_value(GtkScale *scale, gdouble value)
+        -:   34:{
+     3154:   35:	return g_strdup_printf("%0*g%%", gtk_scale_get_digits (scale), value);
+        -:   36:}
+        -:   37:
+        -:   38:static void
+       94:   39:jmrg_vscale_update(GtkRange *range, gpointer data)
+        -:   40:{
+       94:   41:	gdouble new_val = 0.0L;
+       94:   42:	float *val_ptr = (float*) data;
+       94:   43:	new_val = gtk_range_get_value(range);
+        -:   44:	/* Gain values go from 0 to 1, scale value goes from 0 to 100 */
+       94:   45:	(*val_ptr) = (float) new_val * 0.01;
+       94:   46:	return;
+        -:   47:}
+        -:   48:
+        -:   49:
+        -:   50:/*************\
+        -:   51:* ENTRY POINT *
+        -:   52:\*************/
+        -:   53:
+        -:   54:GtkWidget*
+        5:   55:jmrg_vscale_init(const char* label, float* val_ptr, gdouble max)
+        -:   56:{
+        5:   57:	GtkWidget *container = NULL;
+        5:   58:	GtkWidget *hbox = NULL;
+        5:   59:	GtkWidget *vscale = NULL;
+        5:   60:	struct value_map *vmap = NULL;
+        -:   61:
+        -:   62:	/* Use a frame to also have a label there
+        -:   63:	 * for free */
+        5:   64:	container = gtk_frame_new(label);
+        5:   65:	if(!container)
+    #####:   66:		goto cleanup;
+        5:   67:	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
+        5:   68:	if(label != NULL)
+        3:   69:		gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:   70:					  GTK_SHADOW_ETCHED_IN);
+        -:   71:	else
+        2:   72:		gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:   73:					  GTK_SHADOW_NONE);
+        -:   74:
+        -:   75:
+        -:   76:	/* Use a box to have better control */
+        5:   77:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        5:   78:	if(!hbox)
+    #####:   79:		goto cleanup;
+        5:   80:	gtk_container_add(GTK_CONTAINER(container), hbox);
+        -:   81:
+        -:   82:
+        -:   83:	/* Provide a max value here since each scale may have a different
+        -:   84:	 * maximum */
+        5:   85:	vscale = gtk_scale_new_with_range(GTK_ORIENTATION_VERTICAL,
+        -:   86:					  0.0, max, 6.0);
+        5:   87:	if(!vscale)
+    #####:   88:		goto cleanup;
+        5:   89:	gtk_box_set_center_widget(GTK_BOX(hbox), vscale);
+        5:   90:	gtk_range_set_inverted(GTK_RANGE(vscale), TRUE);
+        5:   91:	gtk_scale_set_value_pos(GTK_SCALE(vscale), GTK_POS_TOP);
+        5:   92:	gtk_range_set_value(GTK_RANGE(vscale), (*val_ptr) * 100);
+        -:   93:
+        -:   94:	/* Also put some marks to make sliding easier */
+        5:   95:	gtk_scale_add_mark(GTK_SCALE(vscale), max, GTK_POS_LEFT, NULL);
+        5:   96:	gtk_scale_add_mark(GTK_SCALE(vscale), max / (gdouble) 2.0,
+        -:   97:			   GTK_POS_LEFT, NULL);
+        5:   98:	gtk_scale_add_mark(GTK_SCALE(vscale), 0, GTK_POS_LEFT, NULL);
+        -:   99:
+        -:  100:
+        -:  101:	/* Initialize value_map */
+        5:  102:	vmap = (struct value_map*) malloc(sizeof(struct value_map));
+        5:  103:	if(!vmap)
+    #####:  104:		goto cleanup;
+        5:  105:	memset(vmap, 0, sizeof(struct value_map));
+        -:  106:
+        5:  107:	vmap->target = vscale;
+        5:  108:	vmap->val_ptr = val_ptr;
+        -:  109:
+        -:  110:	/* Register polling function and signal handlers */
+        5:  111:	vmap->esid = g_timeout_add(200, jmrg_vscale_poll, vmap);
+        -:  112:
+        5:  113:	g_signal_connect(vscale, "format_value",
+        -:  114:			 G_CALLBACK(jmrg_vscale_format_value), NULL);
+        -:  115:
+        5:  116:	g_signal_connect(vscale, "value-changed",
+        -:  117:			 G_CALLBACK(jmrg_vscale_update),
+        -:  118:			 (gpointer) val_ptr);
+        -:  119:
+        5:  120:	g_signal_connect(vscale, "unrealize", G_CALLBACK(jmrg_free_vmap),
+        -:  121:			 vmap);
+        -:  122:
+        -:  123:	/* Only need the top level container */
+        5:  124:	return container;	
+    #####:  125: cleanup:
+    #####:  126:	if(vscale)
+    #####:  127:		gtk_widget_destroy(vscale);
+    #####:  128:	if(hbox)
+    #####:  129:		gtk_widget_destroy(hbox);
+    #####:  130:	if(container)
+    #####:  131:		gtk_widget_destroy(container);
+    #####:  132:	return NULL;
+        -:  133:}

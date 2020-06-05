@@ -1,0 +1,720 @@
+        -:    0:Source:gui/jmrg_fmmod_panel.c
+        -:    1:#include <stdlib.h>	/* For malloc() / free() */
+        -:    2:#include <string.h>	/* For memset() */
+        -:    3:#include <time.h>	/* For nanosleep() */
+        -:    4:#include "jmpxrds_gui.h"
+        -:    5:
+        -:    6:struct rbutton_group {
+        -:    7:	struct fmmod_control *ctl;
+        -:    8:	GtkWidget *rbuttons[4];
+        -:    9:	int type;
+        -:   10:	guint	esid;
+        -:   11:};
+        -:   12:
+        -:   13:#define RBG_TYPE_MODULATION	0
+        -:   14:#define	RBG_TYPE_FMPREEMPH	1
+        -:   15:
+        -:   16:/*********\
+        -:   17:* HELPERS *
+        -:   18:\*********/
+        -:   19:
+        -:   20:/* Manages the group of radio buttons for chosing modulation */
+        -:   21:static gboolean
+     1138:   22:jmrg_fmmodp_radio_buttons_update(gpointer data)
+        -:   23:{
+     1138:   24:	struct rbutton_group *rbgrp = (struct rbutton_group*) data;
+     1138:   25:	int mode = 0;
+     1138:   26:	int i = 0;
+        -:   27:	static int old_mod_mode = 0;
+        -:   28:	static int old_pe_mode = 0;
+        -:   29:	static int alpf_state = 0;
+     1138:   30:	gboolean active = FALSE;
+        -:   31:
+     1138:   32:	if(!gtk_widget_is_visible(rbgrp->rbuttons[0]))
+      900:   33:		return TRUE;
+        -:   34:
+      238:   35:	if(rbgrp->type == RBG_TYPE_FMPREEMPH)
+      119:   36:		goto preemph;
+        -:   37:
+      119:   38:	mode = rbgrp->ctl->stereo_modulation;
+      119:   39:	if(mode > 4)
+    #####:   40:		mode = FMMOD_DSB;
+        -:   41:
+      119:   42:	if(mode == old_mod_mode)
+      115:   43:		return TRUE;
+        -:   44:
+        4:   45:	active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]));
+        4:   46:	if(active == FALSE)
+    #####:   47:		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]),
+        -:   48:					     TRUE);
+        -:   49:
+        4:   50:	old_mod_mode = mode;
+        -:   51:
+        4:   52:	return TRUE;
+        -:   53:
+      119:   54: preemph:
+      119:   55:	mode = rbgrp->ctl->preemph_tau;
+      119:   56:	if(mode > 2)
+    #####:   57:		mode = LPF_PREEMPH_NONE;
+        -:   58:
+      119:   59:	if(alpf_state != rbgrp->ctl->use_audio_lpf) {
+        3:   60:		if(!rbgrp->ctl->use_audio_lpf)
+        4:   61:			for(i = 0; i < 3; i++)
+        3:   62:				gtk_widget_set_sensitive(rbgrp->rbuttons[i], 0);
+        -:   63:		else
+        8:   64:			for(i = 0; i < 3; i++)
+        6:   65:				gtk_widget_set_sensitive(rbgrp->rbuttons[i], 1);
+        -:   66:	}
+      119:   67:	alpf_state = rbgrp->ctl->use_audio_lpf;
+        -:   68:
+      119:   69:	if(mode == old_pe_mode)
+      116:   70:		return TRUE;
+        -:   71:
+        3:   72:	active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]));
+        3:   73:	if(active == FALSE)
+    #####:   74:		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rbgrp->rbuttons[mode]),
+        -:   75:					     TRUE);
+        -:   76:
+        3:   77:	old_pe_mode = mode;
+        -:   78:
+        3:   79:	return TRUE;
+        -:   80:}
+        -:   81:
+        -:   82:
+        -:   83:/*****************\
+        -:   84:* SIGNAL HANDLERS *
+        -:   85:\*****************/
+        -:   86:
+        -:   87:static void
+        2:   88:jmrg_fmmodp_free_rbutton_group(__attribute__((unused)) GtkWidget *widget,
+        -:   89:			       gpointer data)
+        -:   90:{
+        2:   91:	const struct timespec tv = {0, 20000000L};
+        2:   92:	struct rbutton_group *rbgrp = (struct rbutton_group*) data;
+        2:   93:	g_source_remove(rbgrp->esid);
+        2:   94:	nanosleep(&tv, NULL);
+        2:   95:	free(rbgrp);
+        2:   96:	return;
+        -:   97:}
+        -:   98:
+        -:   99:
+        -:  100:/****************\
+        -:  101:* FMMOD CONTROLS *
+        -:  102:\****************/
+        -:  103:
+        -:  104:static GtkWidget*
+        1:  105:jmrg_fmmodp_fmdc_init(struct fmmod_control *ctl)
+        -:  106:{
+        1:  107:	GtkWidget *container = NULL;
+        1:  108:	GtkWidget *vbox = NULL;
+        1:  109:	struct rbutton_group *rbgrp = NULL;
+        1:  110:	int i = 0;
+        1:  111:	int ret = 0;
+        -:  112:
+        1:  113:	rbgrp = (struct rbutton_group*) malloc(sizeof(struct rbutton_group));
+        1:  114:	if(!rbgrp) {
+    #####:  115:		ret = -1;
+    #####:  116:		goto cleanup;
+        -:  117:	}
+        1:  118:	memset(rbgrp, 0, sizeof(struct rbutton_group));
+        1:  119:	rbgrp->ctl = ctl;
+        -:  120:
+        -:  121:	/* Greate a frame and put a vertical box inside */
+        1:  122:	container = gtk_frame_new("FM Stereo Modulation Mode");
+        1:  123:	if(!container) {
+    #####:  124:		ret = -2;
+    #####:  125:		goto cleanup;
+        -:  126:	}
+        1:  127:	gtk_frame_set_label_align(GTK_FRAME(container), 0.1, 0.6);
+        1:  128:	gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:  129:				  GTK_SHADOW_ETCHED_IN);
+        -:  130:
+        -:  131:
+        1:  132:	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        1:  133:	if(!vbox) {
+    #####:  134:		ret = -3;
+    #####:  135:		goto cleanup;
+        -:  136:	}
+        1:  137:	gtk_box_set_homogeneous(GTK_BOX(vbox), TRUE);
+        1:  138:	gtk_container_add(GTK_CONTAINER(container), vbox);
+        -:  139:
+        -:  140:
+        -:  141:	/* Initialize radio button group */
+        2:  142:	rbgrp->rbuttons[0] = jmrg_radio_button_init("DSB (Default)",
+        1:  143:					    (int*) &ctl->stereo_modulation,
+        -:  144:					    FMMOD_DSB, NULL);
+        1:  145:	if(!rbgrp->rbuttons[0]) {
+    #####:  146:		ret = -4;
+    #####:  147:		goto cleanup;
+        -:  148:	}
+        -:  149:
+        2:  150:	rbgrp->rbuttons[1] = jmrg_radio_button_init("SSB (Hartley)",
+        1:  151:					    (int*) &ctl->stereo_modulation,
+        -:  152:					    FMMOD_SSB_HARTLEY,
+        1:  153:					    GTK_RADIO_BUTTON(rbgrp->rbuttons[0]));
+        1:  154:	if(!rbgrp->rbuttons[1]) {
+    #####:  155:		ret = -5;
+    #####:  156:		goto cleanup;
+        -:  157:	}
+        -:  158:
+        -:  159:
+        2:  160:	rbgrp->rbuttons[2] = jmrg_radio_button_init("SSB (LP Filter)",
+        1:  161:					    (int*) &ctl->stereo_modulation,
+        -:  162:					    FMMOD_SSB_LPF,
+        1:  163:					    GTK_RADIO_BUTTON(rbgrp->rbuttons[1]));
+        1:  164:	if(!rbgrp->rbuttons[2]) {
+    #####:  165:		ret = -6;
+    #####:  166:		goto cleanup;
+        -:  167:	}
+        -:  168:
+        2:  169:	rbgrp->rbuttons[3] = jmrg_radio_button_init("Mono",
+        1:  170:					    (int*) &ctl->stereo_modulation,
+        -:  171:					    FMMOD_MONO,
+        1:  172:					    GTK_RADIO_BUTTON(rbgrp->rbuttons[2]));
+        1:  173:	if(!rbgrp->rbuttons[3]) {
+    #####:  174:		ret = -7;
+    #####:  175:		goto cleanup;
+        -:  176:	}
+        -:  177:
+        -:  178:	/* Now put them on the box */
+        5:  179:	for(i = 0; i < 4; i++)
+        4:  180:		gtk_box_pack_start(GTK_BOX(vbox), rbgrp->rbuttons[i],
+        -:  181:				   TRUE, TRUE, 2);
+        -:  182:
+        -:  183:	/* Register polling function and signal handlers */
+        1:  184:	rbgrp->esid = g_timeout_add(200, jmrg_fmmodp_radio_buttons_update, rbgrp);
+        1:  185:	rbgrp->type = RBG_TYPE_MODULATION;
+        -:  186:
+        1:  187:	g_signal_connect(container, "unrealize",
+        -:  188:			 G_CALLBACK(jmrg_fmmodp_free_rbutton_group),
+        -:  189:			 rbgrp);
+        -:  190:
+        1:  191:	return container;
+    #####:  192: cleanup:
+    #####:  193:	if(rbgrp) {
+    #####:  194:		for(i = 0; i < 4; i++)
+    #####:  195:			if(rbgrp->rbuttons[i])
+    #####:  196:				gtk_widget_destroy(rbgrp->rbuttons[i]);
+    #####:  197:		free(rbgrp);
+        -:  198:	}
+    #####:  199:	if(vbox)
+    #####:  200:		gtk_widget_destroy(vbox);
+    #####:  201:	if(container)
+    #####:  202:		gtk_widget_destroy(container);
+    #####:  203:	utils_err("[FMMOD CTLS] Init failed with code: %i\n", ret);
+    #####:  204:	return NULL;
+        -:  205:}
+        -:  206:
+        -:  207:
+        -:  208:/***********************\
+        -:  209:* AUDIO FILTER CONTROLS *
+        -:  210:\***********************/
+        -:  211:
+        -:  212:static GtkWidget*
+        1:  213:jmrg_fmmodp_audio_filter_ctls_init(struct fmmod_control *ctl)
+        -:  214:{
+        1:  215:	GtkWidget *container = NULL;
+        1:  216:	GtkWidget *vbox = NULL;
+        1:  217:	GtkWidget *pe_frame = NULL;
+        1:  218:	GtkWidget *pe_vbox = NULL;
+        1:  219:	GtkWidget *lpf_sw = NULL;
+        1:  220:	struct rbutton_group *rbgrp = NULL;
+        1:  221:	int i = 0;
+        1:  222:	int ret = 0;
+        -:  223:
+        1:  224:	rbgrp = (struct rbutton_group*) malloc(sizeof(struct rbutton_group));
+        1:  225:	if(!rbgrp) {
+    #####:  226:		ret = -1;
+    #####:  227:		goto cleanup;
+        -:  228:	}
+        1:  229:	memset(rbgrp, 0, sizeof(struct rbutton_group));
+        1:  230:	rbgrp->ctl = ctl;
+        -:  231:
+        1:  232:	container = gtk_frame_new("Audio Filter Controls");
+        1:  233:	if(!container) {
+    #####:  234:		ret = -2;
+    #####:  235:		goto cleanup;
+        -:  236:	}
+        1:  237:	gtk_frame_set_label_align(GTK_FRAME(container), 0.1, 0.6);
+        1:  238:	gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:  239:				  GTK_SHADOW_ETCHED_IN);
+        -:  240:
+        1:  241:	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        1:  242:	if(!vbox) {
+    #####:  243:		ret = -3;
+    #####:  244:		goto cleanup;
+        -:  245:	}
+        1:  246:	gtk_container_add(GTK_CONTAINER(container), vbox);
+        -:  247:
+        1:  248:	lpf_sw = jmrg_switch_init("Low pass filter", &ctl->use_audio_lpf);
+        1:  249:	if(!lpf_sw) {
+    #####:  250:		ret = -4;
+    #####:  251:		goto cleanup;
+        -:  252:	}
+        1:  253:	gtk_box_pack_start(GTK_BOX(vbox), lpf_sw, 0, 0, 6);
+        -:  254:
+        1:  255:	pe_frame = gtk_frame_new("FM Pre-emphasis");
+        1:  256:	if(!container) {
+    #####:  257:		ret = -5;
+    #####:  258:		goto cleanup;
+        -:  259:	}
+        1:  260:	gtk_frame_set_label_align(GTK_FRAME(pe_frame), 0.5, 0.6);
+        1:  261:	gtk_frame_set_shadow_type(GTK_FRAME(pe_frame),
+        -:  262:				  GTK_SHADOW_ETCHED_IN);
+        1:  263:	gtk_box_pack_start(GTK_BOX(vbox), pe_frame, 0, 0, 6);
+        -:  264:
+        1:  265:	pe_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        1:  266:	if(!pe_vbox) {
+    #####:  267:		ret = -6;
+    #####:  268:		goto cleanup;
+        -:  269:	}
+        1:  270:	gtk_box_set_homogeneous(GTK_BOX(pe_vbox), TRUE);
+        1:  271:	gtk_container_add(GTK_CONTAINER(pe_frame), pe_vbox);
+        -:  272:
+        -:  273:	/* Initialize radio button group */
+        2:  274:	rbgrp->rbuttons[0] = jmrg_radio_button_init("50μsec (World)",
+        1:  275:					    (int*) &ctl->preemph_tau,
+        -:  276:					    LPF_PREEMPH_50US, NULL);
+        1:  277:	if(!rbgrp->rbuttons[0]) {
+    #####:  278:		ret = -7;
+    #####:  279:		goto cleanup;
+        -:  280:	}
+        -:  281:
+        2:  282:	rbgrp->rbuttons[1] = jmrg_radio_button_init("75μsec (U.S.A.)",
+        1:  283:					    (int*) &ctl->preemph_tau,
+        -:  284:					    LPF_PREEMPH_75US,
+        1:  285:					    GTK_RADIO_BUTTON(rbgrp->rbuttons[0]));
+        1:  286:	if(!rbgrp->rbuttons[1]) {
+    #####:  287:		ret = -8;
+    #####:  288:		goto cleanup;
+        -:  289:	}
+        -:  290:
+        2:  291:	rbgrp->rbuttons[2] = jmrg_radio_button_init("No pre-emphasis",
+        1:  292:					    (int*) &ctl->preemph_tau,
+        -:  293:					    LPF_PREEMPH_NONE,
+        1:  294:					    GTK_RADIO_BUTTON(rbgrp->rbuttons[1]));
+        1:  295:	if(!rbgrp->rbuttons[2]) {
+    #####:  296:		ret = -9;
+    #####:  297:		goto cleanup;
+        -:  298:	}
+        -:  299:
+        -:  300:	/* Now put them on the box */
+        4:  301:	for(i = 0; i < 3; i++)
+        3:  302:		gtk_box_pack_start(GTK_BOX(pe_vbox), rbgrp->rbuttons[i],
+        -:  303:				   TRUE, TRUE, 2);
+        -:  304:
+        -:  305:	/* Register polling function and signal handlers */
+        1:  306:	rbgrp->esid = g_timeout_add(200, jmrg_fmmodp_radio_buttons_update, rbgrp);
+        1:  307:	rbgrp->type = RBG_TYPE_FMPREEMPH;
+        -:  308:
+        1:  309:	g_signal_connect(container, "unrealize",
+        -:  310:			 G_CALLBACK(jmrg_fmmodp_free_rbutton_group),
+        -:  311:			 rbgrp);
+        -:  312:
+        1:  313:	return container;
+    #####:  314: cleanup:
+    #####:  315:	if(rbgrp) {
+    #####:  316:		for(i = 0; i < 3; i++)
+    #####:  317:			if(rbgrp->rbuttons[i])
+    #####:  318:				gtk_widget_destroy(rbgrp->rbuttons[i]);
+    #####:  319:		free(rbgrp);
+        -:  320:	}
+    #####:  321:	if(vbox)
+    #####:  322:		gtk_widget_destroy(vbox);
+    #####:  323:	if(container)
+    #####:  324:		gtk_widget_destroy(container);
+    #####:  325:	if(pe_frame)
+    #####:  326:		gtk_widget_destroy(pe_frame);
+    #####:  327:	if(lpf_sw)
+    #####:  328:		gtk_widget_destroy(lpf_sw);
+    #####:  329:	if(pe_vbox)
+    #####:  330:		gtk_widget_destroy(pe_vbox);
+    #####:  331:	utils_err("[AUDIO FILTER CTLS] Init failed with code: %i\n", ret);
+    #####:  332:	return NULL;
+        -:  333:}
+        -:  334:
+        -:  335:
+        -:  336:/*******************\
+        -:  337:* MPX GAIN CONTROLS *
+        -:  338:\*******************/
+        -:  339:
+        -:  340:static GtkWidget *
+        1:  341:jmrg_fmmodp_audio_gain_ctls_init(struct fmmod_control *ctl)
+        -:  342:{
+        1:  343:	GtkWidget *container = NULL;
+        1:  344:	GtkWidget *hbox = NULL;
+        1:  345:	GtkWidget *audl_lvl = NULL;
+        1:  346:	GtkWidget *audr_lvl = NULL;
+        1:  347:	GtkWidget *augain_ctl = NULL;
+        -:  348:
+        1:  349:	container = gtk_frame_new("Audio");
+        1:  350:	if(!container)
+    #####:  351:		goto cleanup;
+        1:  352:	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
+        1:  353:	gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:  354:				  GTK_SHADOW_ETCHED_IN);
+        1:  355:	gtk_widget_set_margin_bottom(container, 6);
+        -:  356:
+        -:  357:	/* Create sub-container */
+        1:  358:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        1:  359:	if(!hbox)
+    #####:  360:		goto cleanup;
+        1:  361:	gtk_box_set_homogeneous(GTK_BOX(hbox), TRUE);
+        1:  362:	gtk_container_add(GTK_CONTAINER(container), hbox);
+        -:  363:
+        -:  364:	/* Create Level bars for audio and audio gain control */
+        1:  365:	audl_lvl = jmrg_level_bar_init("L", &ctl->peak_audio_in_l);
+        1:  366:	if(!audl_lvl)
+    #####:  367:		goto cleanup;
+        1:  368:	gtk_box_pack_start(GTK_BOX(hbox), audl_lvl, 1, 1, 6);
+        1:  369:	gtk_widget_set_margin_bottom(audl_lvl, 6);
+        -:  370:
+        1:  371:	augain_ctl = jmrg_vscale_init(NULL, &ctl->audio_gain, (gdouble) 100.0);
+        1:  372:	if(!augain_ctl)
+    #####:  373:		goto cleanup;
+        1:  374:	gtk_box_set_center_widget(GTK_BOX(hbox), augain_ctl);
+        -:  375:
+        1:  376:	audr_lvl = jmrg_level_bar_init("R", &ctl->peak_audio_in_r);
+        1:  377:	if(!audr_lvl)
+    #####:  378:		goto cleanup;
+        1:  379:	gtk_box_pack_end(GTK_BOX(hbox), audr_lvl, 1, 1, 6);
+        1:  380:	gtk_widget_set_margin_bottom(audr_lvl, 6);
+        -:  381:
+        1:  382:	return container;
+    #####:  383: cleanup:
+    #####:  384:	if(augain_ctl)
+    #####:  385:		gtk_widget_destroy(augain_ctl);
+    #####:  386:	if(audl_lvl)
+    #####:  387:		gtk_widget_destroy(audl_lvl);
+    #####:  388:	if(hbox)
+    #####:  389:		gtk_widget_destroy(hbox);
+    #####:  390:	if(container)
+    #####:  391:		gtk_widget_destroy(container);
+    #####:  392:	return NULL;
+        -:  393:}
+        -:  394:
+        -:  395:static GtkWidget*
+        1:  396:jmrg_fmmodp_subcarrier_gain_ctls_init(struct fmmod_control *ctl)
+        -:  397:{
+        1:  398:	GtkWidget *container = NULL;
+        1:  399:	GtkWidget *hbox = NULL;
+        1:  400:	GtkWidget *sgain_ctl = NULL;
+        1:  401:	GtkWidget *rgain_ctl = NULL;
+        -:  402:
+        1:  403:	container = gtk_frame_new("Subcarriers");
+        1:  404:	if(!container)
+    #####:  405:		goto cleanup;
+        1:  406:	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
+        1:  407:	gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:  408:				  GTK_SHADOW_ETCHED_IN);
+        1:  409:	gtk_widget_set_margin_bottom(container, 6);
+        -:  410:
+        -:  411:	/* Create sub-container */
+        1:  412:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        1:  413:	if(!hbox)
+    #####:  414:		goto cleanup;
+        1:  415:	gtk_box_set_homogeneous(GTK_BOX(hbox), TRUE);
+        1:  416:	gtk_container_add(GTK_CONTAINER(container), hbox);
+        -:  417:
+        -:  418:	/* Create sub-carrier gain controls */
+        1:  419:	sgain_ctl = jmrg_vscale_init("Stereo", &ctl->stereo_carrier_gain,
+        -:  420:				     (gdouble) 200.0);
+        1:  421:	if(!sgain_ctl)
+    #####:  422:		goto cleanup;
+        1:  423:	gtk_box_pack_start(GTK_BOX(hbox), sgain_ctl, 1, 1, 6);
+        -:  424:
+        1:  425:	rgain_ctl = jmrg_vscale_init("RDS", &ctl->rds_gain,
+        -:  426:				     (gdouble) 10.0);
+        1:  427:	if(!rgain_ctl)
+    #####:  428:		goto cleanup;
+        1:  429:	gtk_box_pack_end(GTK_BOX(hbox), rgain_ctl, 1, 1, 6);
+        -:  430:
+        1:  431:	return container;
+    #####:  432: cleanup:
+    #####:  433:	if(sgain_ctl)
+    #####:  434:		gtk_widget_destroy(sgain_ctl);
+    #####:  435:	if(hbox)
+    #####:  436:		gtk_widget_destroy(hbox);
+    #####:  437:	if(container)
+    #####:  438:		gtk_widget_destroy(container);
+    #####:  439:	return NULL;
+        -:  440:}
+        -:  441:
+        -:  442:static GtkWidget*
+        1:  443:jmrg_fmmodp_mpx_gain_ctl_init(struct fmmod_control *ctl)
+        -:  444:{
+        1:  445:	GtkWidget *container = NULL;
+        1:  446:	GtkWidget *hbox = NULL;
+        1:  447:	GtkWidget *mpxgain_ctl = NULL;
+        1:  448:	GtkWidget *mpx_lvl = NULL;
+        -:  449:
+        1:  450:	container = gtk_frame_new("MPX");
+        1:  451:	if(!container)
+    #####:  452:		goto cleanup;
+        1:  453:	gtk_frame_set_label_align(GTK_FRAME(container), 0.5, 0.6);
+        1:  454:	gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:  455:				  GTK_SHADOW_ETCHED_IN);
+        1:  456:	gtk_widget_set_margin_bottom(container, 6);
+        -:  457:
+        -:  458:	/* Create sub-container */
+        1:  459:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        1:  460:	if(!hbox)
+    #####:  461:		goto cleanup;
+        1:  462:	gtk_box_set_homogeneous(GTK_BOX(hbox), TRUE);
+        1:  463:	gtk_container_add(GTK_CONTAINER(container), hbox);
+        -:  464:
+        -:  465:	/* A scale and a level bar for the whole MPX signal */
+        1:  466:	mpxgain_ctl = jmrg_vscale_init(NULL, &ctl->mpx_gain,
+        -:  467:				       (gdouble) 200.0);
+        1:  468:	if(!mpxgain_ctl)
+    #####:  469:		goto cleanup;
+        1:  470:	gtk_box_pack_start(GTK_BOX(hbox), mpxgain_ctl, 1, 1, 1);
+        -:  471:
+        1:  472:	mpx_lvl = jmrg_level_bar_init(NULL, &ctl->peak_mpx_out);
+        1:  473:	if(!mpx_lvl)
+    #####:  474:		goto cleanup;
+        1:  475:	gtk_widget_set_margin_bottom(mpx_lvl, 6);
+        1:  476:	gtk_box_pack_end(GTK_BOX(hbox), mpx_lvl, 1, 1, 6);
+        -:  477:
+        1:  478:	return container;
+    #####:  479: cleanup:
+    #####:  480:	if(mpxgain_ctl)
+    #####:  481:		gtk_widget_destroy(mpxgain_ctl);
+    #####:  482:	if(hbox)
+    #####:  483:		gtk_widget_destroy(hbox);
+    #####:  484:	if(container)
+    #####:  485:		gtk_widget_destroy(container);
+    #####:  486:	return NULL;
+        -:  487:}
+        -:  488:
+        -:  489:static GtkWidget*
+        1:  490:jmrg_fmmodp_mpxgc_init(struct fmmod_control *ctl)
+        -:  491:{
+        1:  492:	GtkWidget *container = NULL;
+        1:  493:	GtkWidget *hbox = NULL;
+        1:  494:	GtkWidget *aud_ctls = NULL;
+        1:  495:	GtkWidget *pgain_ctl = NULL;
+        1:  496:	GtkWidget *scgains_ctls = NULL;
+        1:  497:	GtkWidget *mpxgain_ctl = NULL;
+        1:  498:	int ret = 0;
+        -:  499:
+        -:  500:	/* Create top level container for MPX Gain controls */
+        1:  501:	container = gtk_frame_new("MPX Gain Controls");
+        1:  502:	if(!container) {
+    #####:  503:		ret = -1;
+    #####:  504:		goto cleanup;
+        -:  505:	}
+        1:  506:	gtk_frame_set_label_align(GTK_FRAME(container), 0.1, 0.6);
+        1:  507:	gtk_frame_set_shadow_type(GTK_FRAME(container),
+        -:  508:				  GTK_SHADOW_ETCHED_IN);
+        -:  509:
+        -:  510:
+        -:  511:	/* Create sub-container */
+        1:  512:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+        1:  513:	if(!hbox) {
+    #####:  514:		ret = -2;
+    #####:  515:		goto cleanup;
+        -:  516:	}
+        1:  517:	gtk_container_add(GTK_CONTAINER(container), hbox);
+        -:  518:
+        -:  519:	/* Audio gain controls */
+        1:  520:	aud_ctls = jmrg_fmmodp_audio_gain_ctls_init(ctl);
+        1:  521:	if(!aud_ctls) {
+    #####:  522:		ret = -3;
+    #####:  523:		goto cleanup;
+        -:  524:	}
+        1:  525:	gtk_box_pack_start(GTK_BOX(hbox), aud_ctls, 1, 1, 6);
+        -:  526:
+        -:  527:	/* Pilot gain control */
+        1:  528:	pgain_ctl = jmrg_vscale_init("Pilot", &ctl->pilot_gain,
+        -:  529:				     (gboolean) 20.0);
+        1:  530:	if(!pgain_ctl) {
+    #####:  531:		ret = -4;
+    #####:  532:		goto cleanup;
+        -:  533:	}
+        1:  534:	gtk_widget_set_margin_bottom(pgain_ctl, 6);
+        1:  535:	gtk_box_pack_start(GTK_BOX(hbox), pgain_ctl, 1, 1, 6);
+        -:  536:
+        -:  537:	/* Subcarrier gain control */
+        1:  538:	scgains_ctls = jmrg_fmmodp_subcarrier_gain_ctls_init(ctl);
+        1:  539:	if(!scgains_ctls) {
+    #####:  540:		ret = -5;
+    #####:  541:		goto cleanup;
+        -:  542:	}
+        1:  543:	gtk_box_pack_start(GTK_BOX(hbox), scgains_ctls, 1, 1, 6);
+        -:  544:
+        -:  545:	/* MPX gain control */
+        1:  546:	mpxgain_ctl = jmrg_fmmodp_mpx_gain_ctl_init(ctl);
+        1:  547:	if(!mpxgain_ctl) {
+    #####:  548:		ret = -6;
+    #####:  549:		goto cleanup;
+        -:  550:	}
+        1:  551:	gtk_box_pack_start(GTK_BOX(hbox), mpxgain_ctl, 1, 1, 6);
+        -:  552:
+        1:  553:	return container;
+    #####:  554: cleanup:
+    #####:  555:	if(scgains_ctls)
+    #####:  556:		gtk_widget_destroy(scgains_ctls);
+    #####:  557:	if(pgain_ctl)
+    #####:  558:		gtk_widget_destroy(pgain_ctl);
+    #####:  559:	if(aud_ctls)
+    #####:  560:		gtk_widget_destroy(aud_ctls);
+    #####:  561:	if(hbox)
+    #####:  562:		gtk_widget_destroy(hbox);
+    #####:  563:	if(container)
+    #####:  564:		gtk_widget_destroy(container);
+    #####:  565:	utils_err("[MPX GAIN CTLS] Init failed with code: %i\n", ret);
+    #####:  566:	return NULL;
+        -:  567:}
+        -:  568:
+        -:  569:
+        -:  570:/*************\
+        -:  571:* ENTRY POINT *
+        -:  572:\*************/
+        -:  573:
+        -:  574:int
+        1:  575:jmrg_fmmod_panel_init(struct control_page *ctl_page)
+        -:  576:{
+        1:  577:	GtkWidget *hbox = NULL;
+        1:  578:	GtkWidget *lvbox = NULL;
+        1:  579:	GtkWidget *rvbox = NULL;
+        1:  580:	GtkWidget *uocr_logo = NULL;
+        1:  581:	GdkPixbuf *pixbuf_uocr_logo = NULL;
+        1:  582:	struct fmmod_control *ctl = NULL;
+        1:  583:	GtkWidget *mpxp = NULL;
+        1:  584:	GtkWidget *mpxgc = NULL;
+        1:  585:	GtkWidget *fmdc = NULL;
+        1:  586:	GtkWidget *afc = NULL;
+        1:  587:	int ret = 0;
+        -:  588:
+        1:  589:	memset(ctl_page, 0, sizeof(struct control_page));
+        -:  590:
+        -:  591:	/* Attach shared memory to talk with JMPXRDS */
+        1:  592:	ctl_page->shmem = utils_shm_attach(FMMOD_CTL_SHM_NAME,
+        -:  593:					   sizeof(struct fmmod_control));
+        1:  594:	if(!ctl_page->shmem) {
+    #####:  595:		utils_perr("Unable to communicate with JMPXRDS");
+    #####:  596:		ret = -1;
+    #####:  597:		goto cleanup;
+        -:  598:	}
+        1:  599:	ctl = (struct fmmod_control*) ctl_page->shmem->mem;
+        -:  600:
+        -:  601:	/* Create sub-container */
+        1:  602:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+        1:  603:	if(!hbox) {
+    #####:  604:		ret = -2;
+    #####:  605:		goto cleanup;
+        -:  606:	}
+        -:  607:
+        -:  608:	/* Initialize left vertical box */
+        1:  609:	lvbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        1:  610:	if(!lvbox) {
+    #####:  611:		ret = -3;
+    #####:  612:		goto cleanup;
+        -:  613:	}
+        1:  614:	gtk_box_pack_start(GTK_BOX(hbox), lvbox, TRUE, TRUE, 2);
+        -:  615:
+        -:  616:	/* Initialize mpx plotter */
+        1:  617:	mpxp = jmrg_mpx_plotter_init(ctl->sample_rate, ctl->max_samples);
+        1:  618:	if(!mpxp) {
+    #####:  619:		ret = -4;
+    #####:  620:		goto cleanup;
+        -:  621:	}
+        1:  622:	gtk_widget_set_size_request(mpxp, 560, 366);
+        1:  623:	gtk_box_pack_start(GTK_BOX(lvbox), mpxp, TRUE, TRUE, 2);
+        -:  624:
+        -:  625:	/* Initialize mpx gain controls */
+        1:  626:	mpxgc = jmrg_fmmodp_mpxgc_init(ctl);
+        1:  627:	if(!mpxgc) {
+    #####:  628:		ret = -5;
+    #####:  629:		goto cleanup;
+        -:  630:	}
+        1:  631:	gtk_widget_set_size_request(mpxgc, 560, 300);
+        1:  632:	gtk_box_pack_start(GTK_BOX(lvbox), mpxgc, FALSE, FALSE, 2);
+        -:  633:
+        -:  634:
+        -:  635:	/* Initialize right vertical box */
+        1:  636:	rvbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        1:  637:	if(!rvbox) {
+    #####:  638:		ret = -6;
+    #####:  639:		goto cleanup;
+        -:  640:	}
+        1:  641:	gtk_box_pack_start(GTK_BOX(hbox), rvbox, FALSE, FALSE, 2);
+        -:  642:
+        -:  643:	/* Initialize FMmod controls */
+        1:  644:	fmdc = jmrg_fmmodp_fmdc_init(ctl);
+        1:  645:	if(!fmdc) {
+    #####:  646:		ret = -7;
+    #####:  647:		goto cleanup;
+        -:  648:	}
+        1:  649:	gtk_box_pack_start(GTK_BOX(rvbox), fmdc, FALSE, FALSE, 2);
+        -:  650:
+        -:  651:	/* Initialize Audio filter controls */
+        1:  652:	afc = jmrg_fmmodp_audio_filter_ctls_init(ctl);
+        1:  653:	if(!afc) {
+    #####:  654:		ret = -8;
+    #####:  655:		goto cleanup;
+        -:  656:	}
+        1:  657:	gtk_box_pack_start(GTK_BOX(rvbox), afc, FALSE, FALSE, 2);
+        -:  658:
+        -:  659:
+        -:  660:	/* Initialize UoC Radio logo image */
+        1:  661:	pixbuf_uocr_logo = gdk_pixbuf_new_from_file_at_scale(
+        -:  662:						DATA_PATH"uoc_radio_logo.png",
+        -:  663:						180, 180, TRUE, NULL);
+        1:  664:	if (!pixbuf_uocr_logo) {
+        1:  665:		pixbuf_uocr_logo = gdk_pixbuf_new_from_file_at_scale(
+        -:  666:						"gui/images/uoc_radio_logo.png",
+        -:  667:						180, 180, TRUE, NULL);
+        1:  668:		if (!pixbuf_uocr_logo) {
+    #####:  669:			ret = -9;
+    #####:  670:			goto cleanup;
+        -:  671:		}
+        -:  672:	}
+        -:  673:
+        1:  674:	uocr_logo = gtk_image_new_from_pixbuf(pixbuf_uocr_logo);
+        1:  675:	if (!uocr_logo) {
+    #####:  676:		ret = -10;
+    #####:  677:		goto cleanup;
+        -:  678:	}
+        1:  679:	gtk_box_pack_end(GTK_BOX(rvbox), uocr_logo, FALSE, FALSE, 30);
+        -:  680:
+        -:  681:	/* Set the label and container for the page */
+        1:  682:	ctl_page->label = gtk_label_new("MPX Generator");
+        1:  683:	if(!ctl_page->label) {
+    #####:  684:		ret = -11;
+    #####:  685:		goto cleanup;
+        -:  686:	}
+        1:  687:	ctl_page->container = hbox;
+        -:  688:
+        -:  689:	/* Register signal hanlder for unrealize */
+        1:  690:	g_signal_connect(hbox, "unrealize", G_CALLBACK(jmrg_panel_destroy),
+        -:  691:			 ctl_page);
+        -:  692:
+        1:  693:	return 0;
+    #####:  694: cleanup:
+    #####:  695:	if(uocr_logo)
+    #####:  696:		gtk_widget_destroy(uocr_logo);
+    #####:  697:	if(pixbuf_uocr_logo)
+    #####:  698:		g_object_unref(pixbuf_uocr_logo);
+    #####:  699:	if(afc)
+    #####:  700:		gtk_widget_destroy(afc);
+    #####:  701:	if(fmdc)
+    #####:  702:		gtk_widget_destroy(fmdc);
+    #####:  703:	if(rvbox)
+    #####:  704:		gtk_widget_destroy(rvbox);
+    #####:  705:	if(mpxgc)
+    #####:  706:		gtk_widget_destroy(mpxgc);
+    #####:  707:	if(mpxp)
+    #####:  708:		gtk_widget_destroy(mpxp);
+    #####:  709:	if(lvbox)
+    #####:  710:		gtk_widget_destroy(lvbox);
+    #####:  711:	if(hbox)
+    #####:  712:		gtk_widget_destroy(hbox);
+    #####:  713:	if(ctl_page->shmem)
+    #####:  714:		utils_shm_destroy(ctl_page->shmem, 0);
+    #####:  715:	if(ctl_page)
+    #####:  716:		free(ctl_page);
+    #####:  717:	utils_err("[FMMOD PANEL] Init failed with code: %i\n", ret);
+    #####:  718:	return ret;
+        -:  719:}

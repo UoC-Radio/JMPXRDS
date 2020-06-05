@@ -1,0 +1,185 @@
+        -:    0:Source:fmmod_tool.c
+        -:    1:/*
+        -:    2: * JMPXRDS, an FM MPX signal generator with RDS support on
+        -:    3: * top of Jack Audio Connection Kit - FMMOD runtime configuration tool
+        -:    4: *
+        -:    5: * Copyright (C) 2015 Nick Kossifidis <mickflemm@gmail.com>
+        -:    6: *
+        -:    7: * This program is free software: you can redistribute it and/or modify
+        -:    8: * it under the terms of the GNU General Public License as published by
+        -:    9: * the Free Software Foundation, either version 3 of the License, or
+        -:   10: * (at your option) any later version.
+        -:   11: *
+        -:   12: * This program is distributed in the hope that it will be useful,
+        -:   13: * but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   14: * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   15: * GNU General Public License for more details.
+        -:   16: *
+        -:   17: * You should have received a copy of the GNU General Public License
+        -:   18: * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+        -:   19: */
+        -:   20:#include "utils.h"
+        -:   21:#include "fmmod.h"
+        -:   22:#include <stdlib.h>		/* For strtol */
+        -:   23:#include <stdio.h>		/* For snprintf */
+        -:   24:#include <string.h>		/* For memset / strncmp */
+        -:   25:#include <unistd.h>		/* For getopt() */
+        -:   26:
+        -:   27:#define TEMP_BUF_LEN	3 + 1
+        -:   28:
+        -:   29:void
+        1:   30:usage(char *name)
+        -:   31:{
+        1:   32:	utils_ann("FMMOD Configuration tool for JMPXRDS\n");
+        1:   33:	utils_info("Usage: %s -g or [<parameter> <value>] pairs\n", name);
+        1:   34:	utils_info("\nParameters:\n"
+        -:   35:		"\t-g\t\tGet current values\n"
+        -:   36:		"\t-a   <int>\tSet audio gain precentage (default is 40%%)\n"
+        -:   37:		"\t-m   <int>\tSet MPX gain percentage (default is 100%%)\n"
+        -:   38:		"\t-p   <int>\tSet pilot gain percentage (default is 8%%)\n"
+        -:   39:		"\t-r   <int>\tSet RDS gain percentage (default is 2%%)\n"
+        -:   40:		"\t-c   <int>\tSet stereo carrier gain percentage (default is 100%%)\n"
+        -:   41:		"\t-s   <int>\tSet stereo mode 0-> DSBSC (default), 1-> SSB (Hartley),\n"
+        -:   42:				"\t\t\t\t\t2-> SSB (LP Filter), 3-> Mono\n"
+        -:   43:		"\t-f   <int>\tEnable Audio LPF (FIR) (1 -> enabled (default), 0-> disabled)\n"
+        -:   44:		"\t-e	<int>\tSet FM Pre-emphasis tau (0-> 50us, 1-> 75us, 2-> Disabled)\n");
+        1:   45:}
+        -:   46:
+        -:   47:
+        -:   48:int
+        3:   49:main(int argc, char *argv[])
+        -:   50:{
+        3:   51:	int ret = 0;
+        3:   52:	int opt = 0;
+        3:   53:	char temp[TEMP_BUF_LEN] = { 0 };
+        3:   54:	struct shm_mapping *shmem = NULL;
+        3:   55:	struct fmmod_control *ctl = NULL;
+        -:   56:
+        3:   57:	shmem = utils_shm_attach(FMMOD_CTL_SHM_NAME,
+        -:   58:				 sizeof(struct fmmod_control));
+        3:   59:	if (!shmem) {
+    #####:   60:		utils_perr("Unable to communicate with JMPXRDS");
+    #####:   61:		return -1;
+        -:   62:	}
+        3:   63:	ctl = (struct fmmod_control*) shmem->mem;
+        -:   64:
+       12:   65:	while ((opt = getopt(argc, argv, "ga:m:p:r:c:s:f:e:")) != -1)
+        9:   66:		switch (opt) {
+        1:   67:		case 'g':
+       3*:   68:			utils_info("Current config:\n"
+        -:   69:				"\tAudio:     %i%%\n"
+        -:   70:				"\tMPX:       %i%%\n"
+        -:   71:				"\tPilot:     %i%%\n"
+        -:   72:				"\tRDS:       %i%%\n"
+        -:   73:				"\tStereo gain: %i%%\n"
+        -:   74:				"\tStereo mode: %s\n"
+        -:   75:				"\tAudio LPF: %s\n"
+        -:   76:				"\tFM Pre-emph tau: %s\n"
+        -:   77:				"Current gains:\n"
+        -:   78:				"\tAudio Left:  %f\n"
+        -:   79:				"\tAudio Right: %f\n"
+        -:   80:				"\tMPX:         %f\n",
+        1:   81:				(int)(100 * ctl->audio_gain),
+        1:   82:				(int)(100 * ctl->mpx_gain),
+        1:   83:				(int)(100 * ctl->pilot_gain),
+        1:   84:				(int)(100 * ctl->rds_gain),
+        1:   85:				(int)(100 * ctl->stereo_carrier_gain),
+        1:   86:				ctl->stereo_modulation == FMMOD_MONO ? "Mono" :
+        1:   87:				ctl->stereo_modulation ==
+       2*:   88:					FMMOD_SSB_HARTLEY ? "SSB (Hartley)" :
+        1:   89:				ctl->stereo_modulation ==
+       1*:   90:					FMMOD_SSB_LPF ? "SSB (LP Filter)" :
+        -:   91:				"DSBSC",
+        1:   92:				ctl->use_audio_lpf ? "Enabled" : "Disabled",
+        1:   93:				(ctl->preemph_tau == 0) ? "50us (World)" :
+    #####:   94:				(ctl->preemph_tau == 1) ? "75us (U.S.A.)" :
+        -:   95:				"Disabled",
+        1:   96:				ctl->peak_audio_in_l, ctl->peak_audio_in_r,
+        1:   97:				ctl->peak_mpx_out);
+        1:   98:			break;
+        -:   99:
+        1:  100:		case 'a':
+        1:  101:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  102:			snprintf(temp, 4, "%s", optarg);
+        1:  103:			ctl->audio_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+        1:  104:			utils_info("New audio gain:  \t%i%%\n",
+        1:  105:				   (int)(100 * ctl->audio_gain));
+        1:  106:			break;
+        -:  107:
+        1:  108:		case 'm':
+        1:  109:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  110:			snprintf(temp, 4, "%s", optarg);
+        1:  111:			ctl->mpx_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+        1:  112:			utils_info("New MPX gain:  \t%i%%\n",
+        1:  113:				   (int)(100 * ctl->mpx_gain));
+        1:  114:			break;
+        -:  115:
+        1:  116:		case 'p':
+        1:  117:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  118:			snprintf(temp, 4, "%s", optarg);
+        1:  119:			ctl->pilot_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+        1:  120:			utils_info("New pilot gain:  \t%i%%\n",
+        1:  121:				   (int)(100 * ctl->pilot_gain));
+        1:  122:			break;
+        -:  123:
+        1:  124:		case 'r':
+        1:  125:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  126:			snprintf(temp, 4, "%s", optarg);
+        1:  127:			ctl->rds_gain = (float)(strtol(temp, NULL, 10)) / 100.0;
+        1:  128:			utils_info("New RDS gain:  \t%i%%\n",
+        1:  129:				   (int)(100 * ctl->rds_gain));
+        1:  130:			break;
+        -:  131:
+        1:  132:		case 'c':
+        1:  133:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  134:			snprintf(temp, 4, "%s", optarg);
+        1:  135:			ctl->stereo_carrier_gain =
+        1:  136:				(float)(strtol(temp, NULL, 10)) / 100.0;
+        1:  137:			utils_info("New stereo carrier gain:  \t%i%%\n",
+        1:  138:				   (int)(100 * ctl->stereo_carrier_gain));
+        1:  139:			break;
+        -:  140:
+        1:  141:		case 's':
+        1:  142:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  143:			snprintf(temp, 2, "%s", optarg);
+        1:  144:			ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x7;
+        1:  145:			if(ctl->stereo_modulation > FMMOD_MONO)
+    #####:  146:				ctl->stereo_modulation = FMMOD_DSB;
+        1:  147:			utils_info("Set stereo modulation:  \t%i\n",
+        1:  148:				   ctl->stereo_modulation);
+        1:  149:			break;
+        -:  150:
+        1:  151:		case 'f':
+        1:  152:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  153:			snprintf(temp, 2, "%s", optarg);
+        1:  154:			ctl->use_audio_lpf = strtol(temp, NULL, 10) & 0x1;
+        1:  155:			utils_info("Set Audio LPF status:  \t%i\n",
+        -:  156:				   ctl->use_audio_lpf);
+        1:  157:			break;
+        1:  158:		case 'e':
+        1:  159:			memset(temp, 0, TEMP_BUF_LEN);
+        1:  160:			snprintf(temp, 2, "%s", optarg);
+        1:  161:			ret = strtol(temp, NULL, 10) & 0x3;
+       1*:  162:			if(ret == 0 || ret >= LPF_PREEMPH_MAX)
+        1:  163:				ctl->preemph_tau = LPF_PREEMPH_50US;
+    #####:  164:			else if(ret == 1)
+    #####:  165:				ctl->preemph_tau = LPF_PREEMPH_75US;
+        -:  166:			else
+    #####:  167:				ctl->preemph_tau = LPF_PREEMPH_NONE;
+        1:  168:			utils_info("Set FM Pre-emphasis tau:  \t%i\n",
+        1:  169:				   ctl->preemph_tau);
+        1:  170:			break;
+    #####:  171:		default:
+    #####:  172:			usage(argv[0]);
+    #####:  173:			utils_shm_destroy(shmem, 0);
+    #####:  174:			return -1;
+        -:  175:		}
+        -:  176:
+        3:  177:	if (argc < 2 || (argc > 1 && optind == 1)) {
+        1:  178:		usage(argv[0]);
+        1:  179:		ret = -1;
+        -:  180:	}
+        -:  181:
+        3:  182:	utils_shm_destroy(shmem, 0);
+        3:  183:	return ret;
+        -:  184:}

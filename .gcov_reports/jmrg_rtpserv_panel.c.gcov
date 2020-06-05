@@ -1,0 +1,95 @@
+        -:    0:Source:gui/jmrg_rtpserv_panel.c
+        -:    1:#include <stdlib.h>	/* For free() */
+        -:    2:#include <string.h>	/* For memset() */
+        -:    3:#include "jmpxrds_gui.h"
+        -:    4:
+        -:    5:/*************\
+        -:    6:* ENTRY POINT *
+        -:    7:\*************/
+        -:    8:
+        -:    9:int
+        1:   10:jmrg_rtpserv_panel_init(struct control_page *ctl_page)
+        -:   11:{
+        1:   12:	GtkWidget *hbox = NULL;
+        1:   13:	GtkWidget *lvbox = NULL;
+        1:   14:	GtkWidget *rvbox = NULL;
+        1:   15:	GtkWidget *iplist = NULL;
+        1:   16:	GtkWidget *rtpstats = NULL;
+        1:   17:	struct rtp_server_control *ctl = NULL;
+        1:   18:	int ret = 0;
+        -:   19:
+        1:   20:	memset(ctl_page, 0, sizeof(struct control_page));
+        -:   21:
+        -:   22:	/* Attach shared memory to talk with JMPXRDS */
+        1:   23:	ctl_page->shmem = utils_shm_attach(RTP_SRV_SHM_NAME,
+        -:   24:					   sizeof(struct rtp_server_control));
+        1:   25:	if(!ctl_page->shmem) {
+    #####:   26:		utils_perr("Unable to communicate with JMPXRDS");
+    #####:   27:		ret = -1;
+    #####:   28:		goto cleanup;
+        -:   29:	}
+        1:   30:	ctl = (struct rtp_server_control*) ctl_page->shmem->mem;
+        -:   31:
+        1:   32:	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        1:   33:	if(!hbox) {
+    #####:   34:		ret = -2;
+    #####:   35:		goto cleanup;
+        -:   36:	}
+        -:   37:
+        1:   38:	lvbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        1:   39:	if(!lvbox) {
+    #####:   40:		ret = -3;
+    #####:   41:		goto cleanup;
+        -:   42:	}
+        1:   43:	gtk_box_pack_start(GTK_BOX(hbox), lvbox, 1, 1, 6);
+        -:   44:
+        1:   45:	iplist = jmrg_iplist_init(ctl);
+        1:   46:	if(!iplist) {
+    #####:   47:		ret = -3;
+    #####:   48:		goto cleanup;
+        -:   49:	}
+        1:   50:	gtk_box_pack_start(GTK_BOX(lvbox), iplist, 1, 1, 6);
+        -:   51:
+        1:   52:	rvbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        1:   53:	if(!rvbox) {
+    #####:   54:		ret = -4;
+    #####:   55:		goto cleanup;
+        -:   56:	}
+        1:   57:	gtk_box_pack_start(GTK_BOX(hbox), rvbox, 0, 0, 6);
+        -:   58:
+        1:   59:	rtpstats = jmrg_rtpstats_init(ctl);
+        1:   60:	if(!rtpstats) {
+    #####:   61:		ret = -5;
+    #####:   62:		goto cleanup;
+        -:   63:	}
+        1:   64:	gtk_box_pack_start(GTK_BOX(rvbox), rtpstats, 0, 0, 6);
+        -:   65:
+        -:   66:	/* Set the label and container for the page */
+        1:   67:	ctl_page->label = gtk_label_new("RTP Server");
+        1:   68:	if(!ctl_page->label) {
+    #####:   69:		ret = -11;
+    #####:   70:		goto cleanup;
+        -:   71:	}
+        1:   72:	ctl_page->container = hbox;
+        -:   73:
+        -:   74:	/* Register signal hanlder for unrealize */
+        1:   75:	g_signal_connect(hbox, "unrealize", G_CALLBACK(jmrg_panel_destroy),
+        -:   76:			 ctl_page);
+        -:   77:
+        1:   78:	return 0;
+    #####:   79: cleanup:
+    #####:   80:	if(rtpstats)
+    #####:   81:		gtk_widget_destroy(rtpstats);
+    #####:   82:	if(rvbox)
+    #####:   83:		gtk_widget_destroy(rvbox);
+    #####:   84:	if(iplist)
+    #####:   85:		gtk_widget_destroy(iplist);
+    #####:   86:	if(lvbox)
+    #####:   87:		gtk_widget_destroy(lvbox);
+    #####:   88:	if(hbox)
+    #####:   89:		gtk_widget_destroy(hbox);
+    #####:   90:	if(ctl_page)
+    #####:   91:		free(ctl_page);
+    #####:   92:	return ret;
+        -:   93:}
+        -:   94:

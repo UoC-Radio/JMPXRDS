@@ -68,6 +68,11 @@ distclean-local:
 	-rm aclocal.m4
 	-rm configure
 	-rm *.in
-
+	-rm *.gcda
+	-rm *.gcno
+	-rm *.gcov
+	-rm gui/*.gcda
+	-rm gui/*.gcno
+	-rm gui/*.gcov
 #Do nothing
 test:
