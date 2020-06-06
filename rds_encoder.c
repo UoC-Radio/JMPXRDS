@@ -742,8 +742,6 @@ int
 rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 		 struct resampler_data *rsmpl)
 {
-	int rtprio = 0;
-	int rt = 0;
 	int ret = 0;
 
 	if (enc == NULL)
@@ -792,15 +790,15 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 	enc->active = 1;
 
 	/* Create processing thread */
-	rtprio = jack_client_real_time_priority(client);
-	if (rtprio < 0)
-		rt = 0;
-	else
-		rt = 1;
-
 	ret = jack_client_create_thread(client, &enc->tid,
-					rtprio, rt,
+					jack_client_real_time_priority(client),
+					jack_is_realtime(client),
 					rds_main_loop, (void *)enc);
+	if (ret < 0) {
+		utils_err("[JACKD] Could not create processing thread\n");
+		ret = -5;
+	}
+
  cleanup:
 	if (ret < 0)
 		rds_encoder_destroy(enc);

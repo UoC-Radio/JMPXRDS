@@ -68,8 +68,6 @@ resampler_init_upsampler_threads(struct resampler_data *rsmpl)
 	struct resampler_thread_data *rstd_l = &rsmpl->rstd_l;
 	struct resampler_thread_data *rstd_r = &rsmpl->rstd_r;
 #ifdef JMPXRDS_MT
-	int rtprio = 0;
-	int rt = 0;
 	int ret = 0;
 #endif
 
@@ -85,17 +83,14 @@ resampler_init_upsampler_threads(struct resampler_data *rsmpl)
 	pthread_mutex_init(&rstd_l->done_mutex, NULL);
 	pthread_cond_init(&rstd_l->done_trigger, NULL);
 
-	rtprio = jack_client_real_time_priority(rsmpl->fmmod_client);
-	if(rtprio < 0)
-		rt = 0;
-	else
-		rt = 1;
-
 	ret = jack_client_create_thread(rsmpl->fmmod_client, &rstd_l->tid,
-					rtprio, rt,
+					jack_client_real_time_priority(rsmpl->fmmod_client),
+					jack_is_realtime(rsmpl->fmmod_client),
 					resampler_loop, (void *) rstd_l);
-	if(ret < 0)
+	if(ret < 0) {
+		utils_err("[JACKD] Could not create processing thread\n");
 		return -1;
+	}
 #endif
 
 	return 0;

@@ -209,7 +209,7 @@ function test_run {
 
 	pr_info "Starting jack with rate ${1} and period size ${2}"
 
-	(jackd -R -d dummy -r ${1} -p ${2} &> ${DAEMON_LOGFILE} &)
+	(jackd --no-realtime -m -d dummy -r ${1} -p ${2} &> ${DAEMON_LOGFILE} &)
 
 	jack_wait -w -t 5 &> /dev/null
 	if [[ $? != 0 ]]; then
@@ -259,7 +259,8 @@ function test_run {
 }
 
 function gather_coverage_results {
-	mkdir ${TOP_DIR}/.gcov_reports
+	mkdir ${TOP_DIR}/.gcov_reports &> /dev/null
+	rm .gcov_reports/* &> /dev/null
 	cd ${TOP_DIR}
 	gcov * &> /dev/null
 	cp ${TOP_DIR}/*.gcov ${TOP_DIR}/.gcov_reports
