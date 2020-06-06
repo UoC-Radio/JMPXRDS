@@ -923,6 +923,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	uint32_t jack_samplerate = 0;
 	uint32_t output_buf_len = 0;
 	int rtprio = 0;
+	int rt = 0;
 	int ret = 0;
 
 	memset(fmmod, 0, sizeof(struct fmmod_instance));
@@ -1009,15 +1010,15 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	fmmod->active = 1;
 
 	/* Init processing thread */
-	rtprio = jack_client_max_real_time_priority(fmmod->client);
+	rtprio = jack_client_real_time_priority(fmmod->client);
 	if(rtprio < 0) {
-		utils_err("[JACKD] Could not get max rt priority\n");
-		ret = FMMOD_ERR_JACKD_ERR;
-		goto cleanup;
-	}
+		utils_wrn("[JACKD] Could not get rt priority\n");
+		rt = 0;
+	} else
+		rt = 1;
 
 	ret = jack_client_create_thread(fmmod->client, &fmmod->proc_tid,
-					rtprio, 1,
+					rtprio, rt,
 					fmmod_process_loop, (void *) fmmod);
 	if(ret < 0) {
 		utils_err("[JACKD] Could not create processing thread\n");

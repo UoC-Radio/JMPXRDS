@@ -743,6 +743,7 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 		 struct resampler_data *rsmpl)
 {
 	int rtprio = 0;
+	int rt = 0;
 	int ret = 0;
 
 	if (enc == NULL)
@@ -791,14 +792,14 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 	enc->active = 1;
 
 	/* Create processing thread */
-	rtprio = jack_client_max_real_time_priority(client);
-	if (rtprio < 0) {
-		ret = -1;
-		goto cleanup;
-	}
+	rtprio = jack_client_real_time_priority(client);
+	if (rtprio < 0)
+		rt = 0;
+	else
+		rt = 1;
 
 	ret = jack_client_create_thread(client, &enc->tid,
-					rtprio, 1,
+					rtprio, rt,
 					rds_main_loop, (void *)enc);
  cleanup:
 	if (ret < 0)

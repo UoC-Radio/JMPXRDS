@@ -641,6 +641,7 @@ rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
 {
 	int ret = 0;
 	int rtprio = 0;
+	int rt = 0;
 	static jack_native_thread_t tid = 0;
 
 	rtpsrv->buf_len = buf_len;
@@ -648,14 +649,16 @@ rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
 	rtpsrv->max_samples = max_samples;
 	rtpsrv->baseport = baseport;
 
-	rtprio = jack_client_max_real_time_priority(rtpsrv->fmmod_client);
+	rtprio = jack_client_real_time_priority(rtpsrv->fmmod_client);
 	if (rtprio < 0)
-		return -1;
+		rt = 0;
+	else
+		rt = 1;
 
 	if (tid == 0) {
 		/* If thread doesn't exist create it */
 		ret = jack_client_create_thread(rtpsrv->fmmod_client, &tid,
-						rtprio, 1,
+						rtprio, rt,
 						_rtp_server_init,
 						(void *)rtpsrv);
 		if (ret < 0 || rtpsrv->init_res != 0)
