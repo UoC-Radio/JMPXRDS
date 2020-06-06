@@ -7,9 +7,7 @@ os:
 - linux
 
 compiler:
-- clang
 - gcc
-- g++
 
 sudo: required
 
@@ -35,6 +33,7 @@ before_script:
 - autoreconf -ivf
 
 script:
-- "./configure"
+- "./configure --enable-debug"
 - build-wrapper-linux-x86-64 --out-dir bw-output make
+- make test
 - sonar-scanner

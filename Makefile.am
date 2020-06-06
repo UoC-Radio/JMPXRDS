@@ -78,5 +78,12 @@ distclean-local:
 	-rm gui/*.gcda
 	-rm gui/*.gcno
 	-rm gui/*.gcov
+
+if DEBUG
+#Run tests and gather coverage data
+test:
+	-./test-run.sh
+else
 #Do nothing
 test:
+endif
