@@ -24,6 +24,7 @@
 #include <string.h>		/* For memset / strnlen / strncmp */
 #include <getopt.h>		/* For getopt_long_only() */
 #include <signal.h>		/* For signal handling / sig_atomic_t */
+#include <unistd.h>		/* For alarm() */
 
 #define TEMP_BUF_LEN	RDS_RT_LENGTH + 1
 
@@ -47,7 +48,8 @@ void usage(char *name)
 		"\t-ms   <bool>\tSet Music/Speech flag (MS)\n"
 		"\t-di   <hex>\tSet Decoder Info (DI)\n"
 		"\t-dps  <filename>\tUpdate PSN from file (Dynamic PSN)\n"
-		"\t-drt  <filename>\tUpdate RT from file (Dynamic RT)\n");
+		"\t-drt  <filename>\tUpdate RT from file (Dynamic RT)\n"
+		"\t-dt	 <seconds>\tSet a timeout for Dynamic PSN/RT updates\n");
 }
 
 static const struct option opts[] = {
@@ -64,6 +66,7 @@ static const struct option opts[] = {
 	{"di",	required_argument,0,	11},
 	{"dps",	required_argument,0,	12},
 	{"drt",	required_argument,0,	13},
+	{"dt",	required_argument,0,	14},
 	{0,	0,		0,	0}
 };
 
@@ -96,6 +99,7 @@ main(int argc, char *argv[])
 	struct rds_dynps_state dps = {0};
 	struct rds_dynrt_state drt = {0};
 	struct sigaction sa;
+	unsigned int timeout = 0;
 	int loop = 0;
 	int opt = 0;
 	int opt_idx = 0;
@@ -281,6 +285,11 @@ main(int argc, char *argv[])
 			} else
 				loop = 1;
 			break;
+		case 14: /* Dynamic PSN/RT Timeout */
+			memset(temp, 0, TEMP_BUF_LEN);
+			snprintf(temp, 4, "%s", optarg);
+			timeout = strtol(temp, NULL, 10);
+			break;
 		default:
 			usage(argv[0]);
 			utils_shm_destroy(shmem, 0);
@@ -302,6 +311,9 @@ main(int argc, char *argv[])
 		sigaction(SIGQUIT, &sa, NULL);
 		sigaction(SIGTERM, &sa, NULL);
 		sigaction(SIGINT, &sa, NULL);
+		sigaction(SIGALRM, &sa, NULL);
+		if(timeout)
+			alarm(timeout);
 		active = 1;
 		while(active);
 		rds_dynps_destroy(&dps);

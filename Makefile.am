@@ -1,18 +1,22 @@
+if DEBUG
+DEBUG_CFLAGS = -g --coverage
+endif
+
 bin_PROGRAMS = jmpxrds rds_tool fmmod_tool
 
 jmpxrds_SOURCES = filters.c oscilator.c resampler.c rds_encoder.c \
 		  rtp_server.c fmmod.c utils.c main.c
 jmpxrds_LDADD = $(LIBM) $(LIBRT) $(LIBSAMPLERATE) $(LIBFFTW3F) $(LIBJACK)
-jmpxrds_CFLAGS = $(CFLAGS)
+jmpxrds_CFLAGS = $(CFLAGS) $(DEBUG_CFLAGS)
 
 rds_tool_SOURCES = utils.c rds_config.c rds_dynpsrt.c rds_tool.c
 rds_tool_LDADD = $(LIBRT)
 rds_tool_LDFLAGS = -pthread
-rds_tool_CFLAGS = $(CFLAGS)
+rds_tool_CFLAGS = $(CFLAGS) $(DEBUG_CFLAGS)
 
 fmmod_tool_SOURCES = utils.c fmmod_tool.c
 fmmod_tool_LDADD = $(LIBRT)
-fmmod_tool_CFLAGS = $(CFLAGS)
+fmmod_tool_CFLAGS = $(CFLAGS) $(DEBUG_CFLAGS)
 
 if GUI
 bin_PROGRAMS += jmpxrds_gui
@@ -47,7 +51,7 @@ bin_PROGRAMS += rtp_tool
 
 rtp_tool_SOURCES = utils.c rtp_tool.c
 rtp_tool_LDADD = $(LIBRT)
-rtp_tool_CFLAGS = $(CFLAGS) $(GStreamer_CFLAGS)
+rtp_tool_CFLAGS = $(CFLAGS) $(GStreamer_CFLAGS) $(DEBUG_CFLAGS)
 
 jmpxrds_LDADD += $(GStreamer_LIBS) $(LIBGSTAPP)
 jmpxrds_CFLAGS += $(GStreamer_CFLAGS)

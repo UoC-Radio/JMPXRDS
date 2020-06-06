@@ -65,7 +65,7 @@ rtp_server_update_stats(gpointer user_data)
 	struct rtp_server_control *ctl = rtpsrv->ctl;
 	struct in_addr ipv4addr = { 0 };
 	gchar *clients = NULL;
-	const char *token = NULL;
+	char *token = NULL;
 	char *str_ptr = NULL;
 	char *delim_ptr = NULL;
 	int i = 0;

@@ -50,6 +50,7 @@ main(int argc, char *argv[])
 {
 	int ret = 0;
 	int opt = 0;
+	long int tmp = 0;
 	char temp[TEMP_BUF_LEN] = { 0 };
 	struct shm_mapping *shmem = NULL;
 	struct fmmod_control *ctl = NULL;
@@ -141,9 +142,15 @@ main(int argc, char *argv[])
 		case 's':
 			memset(temp, 0, TEMP_BUF_LEN);
 			snprintf(temp, 2, "%s", optarg);
-			ctl->stereo_modulation = strtol(temp, NULL, 10) & 0x7;
-			if(ctl->stereo_modulation > FMMOD_MONO)
+			tmp = strtol(temp, NULL, 10) & 0x7;
+			if(tmp == FMMOD_DSB || tmp > FMMOD_MONO)
 				ctl->stereo_modulation = FMMOD_DSB;
+			else if(tmp == FMMOD_SSB_HARTLEY)
+				ctl->stereo_modulation = FMMOD_SSB_HARTLEY;
+			else if(tmp == FMMOD_SSB_LPF)
+				ctl->stereo_modulation = FMMOD_SSB_LPF;
+			else
+				ctl->stereo_modulation = FMMOD_MONO;
 			utils_info("Set stereo modulation:  \t%i\n",
 				   ctl->stereo_modulation);
 			break;
