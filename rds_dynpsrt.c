@@ -314,6 +314,33 @@ rds_dynrt_consumer_thread(void *arg)
 	return arg;
 }
 
+static int
+rds_dynrt_get_line(char **res, size_t *len, FILE *file, int line_no)
+{
+	int ret = 0;
+
+	ret = getline(res, len, file);
+	if(ret > RDS_RT_LENGTH) {
+		utils_wrn("[DYNRT] Ignoring line longer than 64 chars (ret: %i)\n", ret);
+		return -1;
+	} else if(ret < 0) {
+		if(errno)
+			utils_perr("[DYNRT] Failed to read from file, getline()");
+		else if(line_no == 0)
+			utils_wrn("[DYNRT] Failed to read any lines from file\n");
+		else
+			utils_dbg("[DYNRT] Got %u lines from file\n", line_no);
+		return -1;
+	}
+
+	ret = rds_string_sanitize(*res, *len);
+	if(ret < 0) {
+		utils_wrn("[DYNRT] Malformed string, error: %i\n", ret);
+	}
+
+	return ret;
+}
+
 static void*
 rds_dynrt_filemon_thread(void *arg)
 {
@@ -350,25 +377,9 @@ rds_dynrt_filemon_thread(void *arg)
 		pthread_mutex_lock(&drt->dynrt_proc_mutex);
 		drt->num_segments = 0;
 		for(i = 0; i < DYNRT_MAX_SEGMENTS; i++) {
-			ret = getline(&res, &len, file);
-			if(ret > RDS_RT_LENGTH) {
-				utils_wrn("[DYNRT] Ignoring line longer than 64 chars\n");
+			ret = rds_dynrt_get_line(&res, &len, file, i);
+			if(ret < 0)
 				break;
-			} else if(ret < 0) {
-				if(errno)
-					utils_perr("[DYNRT] Failed to read from file, getline()");
-				else if(i == 0)
-					utils_wrn("[DYNRT] Failed to read any lines from file\n");
-				else
-					utils_dbg("[DYNRT] Got %u lines from file\n", i);
-				break;
-			}
-
-			ret = rds_string_sanitize(res, len);
-			if(ret < 0) {
-				utils_wrn("[DYNRT] Malformed string, error: %i\n", ret);
-				break;
-			}
 
 			memset(drt->rt_segments[drt->num_segments], 0, RDS_RT_LENGTH + 1);
 			strncpy(drt->rt_segments[drt->num_segments], res, ret);

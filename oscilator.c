@@ -120,7 +120,7 @@ osc_get_sample_for_freq(const struct osc_state *osc, float freq)
  *				phase.
  */
 float
-osc_get_19Khz_sample(struct osc_state *osc)
+osc_get_19Khz_sample(const struct osc_state *osc)
 {
 	return osc_get_sample_for_freq(osc, 19000.0);
 }
@@ -130,7 +130,7 @@ osc_get_19Khz_sample(struct osc_state *osc)
  *				phase.
  */
 float
-osc_get_38Khz_sample(struct osc_state *osc)
+osc_get_38Khz_sample(const struct osc_state *osc)
 {
 	return osc_get_sample_for_freq(osc, 38000.0);
 }
@@ -140,7 +140,7 @@ osc_get_38Khz_sample(struct osc_state *osc)
  *				phase.
  */
 float
-osc_get_57Khz_sample(struct osc_state *osc)
+osc_get_57Khz_sample(const struct osc_state *osc)
 {
 	return osc_get_sample_for_freq(osc, 57000.0);
 }

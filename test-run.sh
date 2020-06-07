@@ -74,26 +74,32 @@ function test_fmmod {
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 1
 	run_config_test fmmod_tool -s 2
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 1
 	run_config_test fmmod_tool -s 3
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 1
 	run_config_test fmmod_tool -e 1
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 1
 	run_config_test fmmod_tool -f 0
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 1
 	run_config_test fmmod_tool -a 45 -m 80 -p 4 -r 3 -c 60 -s 0 -f 1 -e 0
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 1
 	run_config_test fmmod_tool -g
 	if [[ $? == 1 ]]; then
 		return 1
@@ -133,9 +139,10 @@ function test_rds {
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 2
 
 	touch /tmp/jmpxrds-test-dps-$$
-	run_config_test rds_tool -dps /tmp/jmpxrds-test-dps-$$ -dt 11 &
+	run_config_test rds_tool -dps /tmp/jmpxrds-test-dps-$$ -dt 15 &
 	TEST_PID=$!
 	sleep 1
 	echo "  TEST123 abcdefg ABCDEFGHTEST " > /tmp/jmpxrds-test-dps-$$
@@ -146,11 +153,11 @@ function test_rds {
 	rm /tmp/jmpxrds-test-dps-$$
 
 	touch /tmp/jmpxrds-test-drt-$$
-	run_config_test rds_tool -drt /tmp/jmpxrds-test-drt-$$ -dt 31 &
+	run_config_test rds_tool -drt /tmp/jmpxrds-test-drt-$$ -dt 35 &
 	TEST_PID=$!
 	sleep 1
-	echo " 01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" > /tmp/jmpxrds-test-drt-$$
-	echo "ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890abcdefghijklmnopqrstuvwxyz " >> /tmp/jmpxrds-test-drt-$$
+	echo " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" > /tmp/jmpxrds-test-drt-$$
+	echo "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz " >> /tmp/jmpxrds-test-drt-$$
 	wait ${TEST_PID}
 	if [[ $? == 1 ]]; then
 		return 1
@@ -225,11 +232,11 @@ function test_run {
 	do
 		if [[ -r /run/user/$(id -u)/jmpxrds.sock ]]; then
 			if [[ ${3} == 0 ]]; then
-				test_fmmod
+				test_rds
 				if [[ $? == 1 ]]; then
 					break
 				fi
-				test_rds
+				test_fmmod
 				if [[ $? == 1 ]]; then
 					break
 				fi

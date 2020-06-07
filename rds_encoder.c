@@ -629,7 +629,7 @@ rds_get_next_group(struct rds_encoder *enc, struct rds_group *group)
 static struct rds_upsampled_group *
 rds_get_next_upsampled_group(struct rds_encoder *enc)
 {
-	struct resampler_data *rsmpl = enc->rsmpl;
+	const struct resampler_data *rsmpl = enc->rsmpl;
 	struct rds_group next_group;
 	struct rds_upsampled_group *outbuf = NULL;
 	int out_idx = 0;

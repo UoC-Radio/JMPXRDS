@@ -189,7 +189,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, const float* lpr,
 {
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	const struct fmmod_control *ctl = fmmod->ctl;
-	struct fmmod_flts *flts = &fmmod->flts;
+	const struct fmmod_flts *flts = &fmmod->flts;
 	double saved_phase = 0.0L;
 	int i = 0;
 
@@ -259,7 +259,7 @@ fmmod_ssb_hartley_generator(struct fmmod_instance *fmmod, const float* lpr,
 	struct osc_state *sin_osc = &fmmod->sin_osc;
 	struct osc_state *cos_osc = &fmmod->cos_osc;
 	const struct fmmod_control *ctl = fmmod->ctl;
-	struct fmmod_flts *flts = &fmmod->flts;
+	const struct fmmod_flts *flts = &fmmod->flts;
 	const struct hilbert_transformer_data *ht = &flts->ht;
 	float carrier_freq = 38000.0;
 	int i = 0;
@@ -315,7 +315,7 @@ static void*
 fmmod_process(struct fmmod_instance *fmmod)
 {
 	struct resampler_data *rsmpl = &fmmod->rsmpl;
-	struct fmmod_flts *flts = &fmmod->flts;
+	const struct fmmod_flts *flts = &fmmod->flts;
 	struct fmmod_control *ctl = fmmod->ctl;
 	mpx_generator get_mpx_samples;
 	float *left_in = NULL;
@@ -1041,7 +1041,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 void
 fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 {
-	struct fmmod_flts *flts = &fmmod->flts;
+	const struct fmmod_flts *flts = &fmmod->flts;
 
 	if (!shutdown) {
 		utils_dbg("[FMMOD] graceful exit\n");

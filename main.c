@@ -42,7 +42,6 @@ signal_handler(int sig, siginfo_t * info,
 	int bt_size = 0;
 	char **messages = NULL;
 	int i = 0;
-	ucontext_t *uc = (ucontext_t *)context;
 #endif
 	switch (sig) {
 	case SIGPIPE:

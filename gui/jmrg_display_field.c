@@ -27,7 +27,9 @@ jmrg_display_field_poll(gpointer data)
 	switch(vmap->type) {
 	case RDS_FIELD_PI:
 		tmp = rds_get_pi(st);
-		snprintf(pi, 5, "%X", st->pi);
+		if(tmp < 0)
+			return TRUE;
+		snprintf(pi, 5, "%X", tmp);
 		gtk_label_set_text(GTK_LABEL(vmap->target), pi);
 		return TRUE;
 	case RDS_FIELD_PS:
