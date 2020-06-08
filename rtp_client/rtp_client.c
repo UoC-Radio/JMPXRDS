@@ -23,9 +23,9 @@
 #include <glib-unix.h>
 
 #define DEFAULT_LATENCY 200
-#define DEFAULT_RTP_PORT 5000
-#define DEFAULT_REMOTE_RTCP_PORT 5002
+#define DEFAULT_BASE_PORT 5000
 #define DEFAULT_DEVICE "default"
+#define DEFAULT_HOST "127.0.0.1"
 
 struct rtp_client
 {
@@ -50,7 +50,7 @@ print_statistics (struct rtp_client *client)
 
 	/* simply dump the stats structure */
 	str = gst_structure_to_string (stats);
-	g_print ("Statistics: %s\n", str);
+	g_printerr ("Statistics: %s\n", str);
 }
 
 static gboolean
@@ -168,36 +168,54 @@ initialize(struct rtp_client *client, int *argc, char **argv[])
 	g_autoptr (GstElement) rtpsrc = NULL;
 
 	gint latency = DEFAULT_LATENCY;
-	gint rtp_port = DEFAULT_RTP_PORT;
-	g_autofree gchar *remote_host = NULL;
-	gint remote_rtcp_port = DEFAULT_REMOTE_RTCP_PORT;
+	gint rtp_port = DEFAULT_BASE_PORT;
+	gint local_rtcp_port = DEFAULT_BASE_PORT + 1;
+	gint remote_rtcp_port = DEFAULT_BASE_PORT + 2;
+	gint remote_base_port = DEFAULT_BASE_PORT;
+	gint stdout_output = 0;
 	g_autofree gchar *device = NULL;
+	g_autofree gchar *remote_host = NULL;
+	g_autofree gchar *help_text = NULL;
+	gint remote_host_strlen = 0;
 
 	const GOptionEntry entries[] =
 	{
 		{ "latency", 'l', 0, G_OPTION_ARG_INT, &latency,
 		  "Amount of ms to buffer in the jitterbuffers",
 		  G_STRINGIFY (DEFAULT_LATENCY) },
-		{ "port", 'p', 0, G_OPTION_ARG_INT, &rtp_port,
-		  "Port to listen for RTP packets (and RTCP in port+1)",
-		  G_STRINGIFY (DEFAULT_RTP_PORT) },
 		{ "remote-host", 'h', 0, G_OPTION_ARG_STRING, &remote_host,
-		  "Address of host to send RTCP packets to", "" },
-		{ "remote-rtcp-port", 'r', 0, G_OPTION_ARG_INT,
-		   &remote_rtcp_port, "Port to send RTCP packets to",
-		  G_STRINGIFY (DEFAULT_REMOTE_RTCP_PORT) },
+		  "Address of host where JMPXRDS runs", DEFAULT_HOST },
+		{ "remote-base-port", 'p', 0, G_OPTION_ARG_INT,
+		   &remote_base_port, "Base port of JMPXRDS",
+		  G_STRINGIFY (DEFAULT_BASE_PORT) },
 		{ "device", 'd', 0, G_OPTION_ARG_STRING, &device,
-		  "ALSA device to output the FM signal to", DEFAULT_DEVICE },
+		  "ALSA device to output the FM MPX signal to", DEFAULT_DEVICE },
+		{ "stdout_output", 'o', 0, G_OPTION_ARG_INT, &stdout_output,
+		  "Output data to stdout instead of a sound card (for debugging)", 0 },
 		{ NULL }
 	};
 
 	context = g_option_context_new (NULL);
-	g_option_context_set_summary (context, "receive FM MPX from JMPXRDS");
+	g_option_context_set_summary (context, "Receive FM MPX from JMPXRDS through RTP");
 	g_option_context_add_main_entries (context, entries, NULL);
 	g_option_context_add_group (context, gst_init_get_option_group ());
 
+	help_text = g_option_context_get_help (context, TRUE, NULL);
+
 	if (!g_option_context_parse (context, argc, argv, &error)) {
-		g_printerr ("option parsing failed: %s\n", error->message);
+		g_printerr ("Option parsing failed: %s\n", error->message);
+		g_printerr("%s\n", help_text);
+		return FALSE;
+	}
+
+	if (remote_host == NULL) {
+		g_printerr("%s\n", help_text);
+		return FALSE;
+	}
+
+	remote_host_strlen = strnlen(remote_host, 17);
+	if (remote_host_strlen < 7 || remote_host_strlen > 16) {
+		g_printerr("%s\n", help_text);
 		return FALSE;
 	}
 
@@ -211,15 +229,30 @@ initialize(struct rtp_client *client, int *argc, char **argv[])
 		return FALSE;
 	}
 
-	if (!(client->sink_bin = gst_parse_bin_from_description (
-		"rtpgstdepay name=depayloader ! flacparse"
-		"  ! flacdec name=flac_decoder ! audioconvert "
-		"  ! alsasink name=audio_sink", TRUE, &error)))
-	{
-		g_printerr ("constructing the sink bin failed: %s\n",
-				error->message);
-		g_object_unref (client->pipeline);
-		return FALSE;
+	if (stdout_output) {
+		if (!(client->sink_bin = gst_parse_bin_from_description (
+			"rtpgstdepay name=depayloader ! flacparse"
+			"  ! flacdec name=flac_decoder ! audioconvert"
+			"  ! audio/x-raw,format=F32LE,channels=1"
+			"  ! fdsink", TRUE, &error)))
+		{
+			g_printerr ("constructing the sink bin failed: %s\n",
+					error->message);
+			g_object_unref (client->pipeline);
+			return FALSE;
+		}
+	} else {
+		if (!(client->sink_bin = gst_parse_bin_from_description (
+			"rtpgstdepay name=depayloader ! flacparse"
+			"  ! flacdec name=flac_decoder ! audioconvert "
+			"  ! alsasink name=audio_sink", TRUE, &error)))
+		{
+			g_printerr ("constructing the sink bin failed: %s\n",
+					error->message);
+			g_object_unref (client->pipeline);
+			return FALSE;
+		}
+
 	}
 
 	/* consume the floating reference so that we always hold one ref */
@@ -244,7 +277,10 @@ initialize(struct rtp_client *client, int *argc, char **argv[])
 		"rtcpsink::async", FALSE,
 		NULL);
 	gst_child_proxy_set (GST_CHILD_PROXY (client->sink_bin),
-		"flac_decoder::plc", TRUE,
+		"flac_decoder::plc", TRUE, NULL);
+
+	if (!stdout_output)
+		gst_child_proxy_set (GST_CHILD_PROXY (client->sink_bin),
 		"audio_sink::device", device ? device : DEFAULT_DEVICE,
 		NULL);
 
@@ -269,7 +305,6 @@ initialize(struct rtp_client *client, int *argc, char **argv[])
 	 */
 	rtpsrc = gst_bin_get_by_name (GST_BIN (client->pipeline), "rtpsrc");
 	gst_element_link_pads (rtpsrc, "src", rtpbin, "recv_rtp_sink_0");
-
 	return TRUE;
 }
 

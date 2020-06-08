@@ -1093,7 +1093,7 @@
     </param>
     <param>
       <key>file</key>
-      <value>/run/user/1000/jmpxrds.sock</value>
+      <value>/tmp/jmpxrds_rtp_client.sock</value>
     </param>
     <param>
       <key>_coordinate</key>

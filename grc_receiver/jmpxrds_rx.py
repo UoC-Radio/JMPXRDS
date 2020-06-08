@@ -237,7 +237,7 @@ class jmpxrds_rx(grc_wxgui.top_block_gui):
         self.blocks_multiply_const_vxx_0_0 = blocks.multiply_const_vff((10**(1.*(volume)/10), ))
         self.blocks_multiply_const_vxx_0 = blocks.multiply_const_vff((10**(1.*(volume)/10), ))
         self.blocks_keep_one_in_n_0 = blocks.keep_one_in_n(gr.sizeof_char*1, 2)
-        self.blocks_file_source_0 = blocks.file_source(gr.sizeof_float*1, '/run/user/1000/jmpxrds.sock', False)
+        self.blocks_file_source_0 = blocks.file_source(gr.sizeof_float*1, '/tmp/jmpxrds_rtp_client.sock', False)
         self.blocks_file_source_0.set_begin_tag(pmt.PMT_NIL)
         self.blocks_complex_to_real_0_0 = blocks.complex_to_real(1)
         self.blocks_complex_to_real_0 = blocks.complex_to_real(1)

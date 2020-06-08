@@ -12,9 +12,6 @@ jmrg_rtpstats_poll(gpointer data)
 	struct value_map *vmap = (struct value_map*) data;
 	struct rtp_server_control *ctl = NULL;
 	char tmp[12] = {0};
-	static guint64 prev_rtp_bps = 0;
-	static guint64 prev_rtcp_bps = 0;
-	int kbps = 0;
 
 	if(!data)
 		return FALSE;
@@ -33,15 +30,11 @@ jmrg_rtpstats_poll(gpointer data)
 	if(!gtk_widget_is_visible(vmap->target))
 		return TRUE;
 
-	kbps = (int) ((ctl->rtp_bytes_sent - prev_rtp_bps) / 1024);
-	snprintf(tmp, 12, "%i KB/s", kbps);
+	snprintf(tmp, 12, "%"PRIu64"KB/s", ctl->rtp_tx_kbytesps);
 	gtk_label_set_text(GTK_LABEL(vmap->target), tmp);
-	prev_rtp_bps = ctl->rtp_bytes_sent;
 
-	kbps = (int) ((ctl->rtcp_bytes_sent - prev_rtcp_bps) / 1024);
-	snprintf(tmp, 12, "%i KB/s", kbps);
+	snprintf(tmp, 12, "%"PRIu64"KB/s", ctl->rtcp_tx_kbytesps);
 	gtk_label_set_text(GTK_LABEL(vmap->target2), tmp);
-	prev_rtcp_bps = ctl->rtcp_bytes_sent;
 
 	return TRUE;
 }

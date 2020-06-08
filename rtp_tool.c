@@ -59,10 +59,10 @@ main(int argc, char *argv[])
 	while ((opt = getopt(argc, argv, "ga:r:")) != -1)
 		switch (opt) {
 		case 'g':
-			utils_info("RTP bytes sent: %" PRIu64 "\n",
-			       ctl->rtp_bytes_sent);
-			utils_info("RTCP bytes sent: %" PRIu64 "\n",
-			       ctl->rtcp_bytes_sent);
+			utils_info("RTP TX Rate: %" PRIu64 "KBps\n",
+			       ctl->rtp_tx_kbytesps);
+			utils_info("RTCP TX Rate: %" PRIu64 "KBps\n",
+			       ctl->rtcp_tx_kbytesps);
 			utils_info("List of receivers:\n");
 			for (i = 0; i < ctl->num_receivers; i++) {
 				ipv4addr.s_addr = ctl->receivers[i];

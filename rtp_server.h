@@ -38,6 +38,7 @@ struct rtp_server {
 	GstBufferPool *pool;
 	GstElement *appsrc;
 	GstElement *pipeline;
+	GstElement *flac_encoder;
 	GstElement *rtpbin;
 	GstElement *rtpsink;
 	GstElement *rtcpsink;
@@ -58,7 +59,8 @@ enum rtp_server_state {
 	RTP_SERVER_INACTIVE = 0,
 	RTP_SERVER_ACTIVE = 1,
 	RTP_SERVER_QUEUE_FULL = 2,
-	RTP_SERVER_TERMINATED = 3
+	RTP_SERVER_TERMINATED = 3,
+	RTP_SERVER_FAILED = 4
 };
 
 #define RTP_SRV_MAX_RECEIVERS	64
@@ -66,8 +68,8 @@ enum rtp_server_state {
 struct rtp_server_control {
 	pid_t pid;
 	struct rtp_server *rtpsrv;
-	uint64_t rtp_bytes_sent;
-	uint64_t rtcp_bytes_sent;
+	uint64_t rtp_tx_kbytesps;
+	uint64_t rtcp_tx_kbytesps;
 	int num_receivers;
 	in_addr_t receivers[RTP_SRV_MAX_RECEIVERS];
 };

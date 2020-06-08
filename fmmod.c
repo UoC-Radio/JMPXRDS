@@ -1000,7 +1000,6 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 			      FMMOD_OUTPUT_SAMPLERATE,
 			      fmmod->num_out_samples, 5000);
 	if (ret < 0) {
-		utils_err("[RTP] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_RTP_ERR;
 		goto cleanup;
 	}
@@ -1072,8 +1071,6 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 	utils_dbg("[RDS] destroyed\n");
 
 	rtp_server_destroy(&fmmod->rtpsrv);
-
-	utils_dbg("[RTP] destroyed\n");
 
 	resampler_destroy(&fmmod->rsmpl);
 

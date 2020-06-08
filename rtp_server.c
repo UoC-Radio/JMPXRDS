@@ -64,6 +64,14 @@ rtp_server_update_stats(gpointer user_data)
 	const struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
 	struct rtp_server_control *ctl = rtpsrv->ctl;
 	struct in_addr ipv4addr = { 0 };
+	static guint64 last_timestamp = 0;
+	static guint64 last_rtp_bytes_served = 0;
+	static guint64 last_rtcp_bytes_served = 0;
+	guint64 cur_timetstamp = 0;
+	guint64 cur_rtp_bytes_served = 0;
+	guint64 cur_rtcp_bytes_served = 0;
+	guint64 timediff = 0;
+	guint64 bytediff = 0;
 	gchar *clients = NULL;
 	char *token = NULL;
 	char *str_ptr = NULL;
@@ -71,10 +79,21 @@ rtp_server_update_stats(gpointer user_data)
 	int i = 0;
 	int ret = 0;
 
+	cur_timetstamp = g_get_monotonic_time();
+	timediff = cur_timetstamp - last_timestamp;
+	last_timestamp = cur_timetstamp;
+
 	g_object_get(rtpsrv->rtpsink, "bytes-served",
-				      &ctl->rtp_bytes_sent, NULL);
+				      &cur_rtp_bytes_served, NULL);
+	bytediff = cur_rtp_bytes_served - last_rtp_bytes_served;
+	last_rtp_bytes_served = cur_rtp_bytes_served;
+	ctl->rtp_tx_kbytesps = (bytediff * 1000000) / (timediff * 1024);
+
 	g_object_get(rtpsrv->rtcpsink, "bytes-served",
-				      &ctl->rtcp_bytes_sent,NULL);
+				      &cur_rtcp_bytes_served,NULL);
+	bytediff = cur_rtcp_bytes_served - last_rtcp_bytes_served;
+	last_rtcp_bytes_served = cur_rtcp_bytes_served;
+	ctl->rtcp_tx_kbytesps = (bytediff * 1000000) / (timediff * 1024);
 
 	/* Do this only for rtpsink, they are supposed to have the same receivers
 	 * anyway */
@@ -114,6 +133,7 @@ rtp_server_queue_full(__attribute__((unused)) GstAppSrc * appsrc,
 		      gpointer user_data)
 {
 	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
+	utils_wrn("[RTP] audiosrc queue overrun\n");
 	rtpsrv->state = RTP_SERVER_QUEUE_FULL;
 }
 
@@ -121,20 +141,21 @@ static void *
 rtp_server_error_cb(__attribute__((unused)) GstBus * bus, GstMessage * msg,
 		    gpointer user_data)
 {
-	GError *err;
-	gchar *debug_info;
 	struct rtp_server *rtpsrv = (struct rtp_server *)user_data;
+	gchar *debug_info;
+	GError *err;
 
 	/* Print error details */
 	gst_message_parse_error(msg, &err, &debug_info);
-	g_printerr("Error received from element %s: %s\n",
+	utils_err("[RTP] Error received from element %s: %s\n",
 		   GST_OBJECT_NAME(msg->src), err->message);
-	g_printerr("Debugging information: %s\n",
+	utils_dbg("[RTP] Debugging information:\n%s\n",
 		   debug_info ? debug_info : "none");
 	g_clear_error(&err);
 	g_free(debug_info);
-	g_main_loop_quit(rtpsrv->loop);
 
+	rtpsrv->state = RTP_SERVER_FAILED;
+	rtp_server_destroy(rtpsrv);
 	return rtpsrv;
 }
 
@@ -206,7 +227,7 @@ rtp_server_send_buffer(const struct rtp_server *rtpsrv, const float *buff,
 	if (G_UNLIKELY(info.size < num_samples * sizeof(float))) {
 		gst_buffer_unmap(gstbuff, &info);
 		gst_object_unref(gstbuff);
-		utils_err("GstBufferPool buffer size does not match input");
+		utils_err("[RTP] GstBufferPool buffer size does not match input\n");
 		return;
 	}
 
@@ -343,38 +364,49 @@ rtp_server_remove_receiver(int addr)
 void
 rtp_server_destroy(struct rtp_server *rtpsrv)
 {
+	GstFlowReturn ret = 0;
+
 	/* GSTreamer not initialized */
 	if(!gst_is_initialized())
 		return;
 
-	/* Server terminated nothing more to do */
-	if(rtpsrv->state == RTP_SERVER_TERMINATED)
+	switch(rtpsrv->state) {
+	case RTP_SERVER_TERMINATED:
+		/* Server terminated nothing more to do */
 		return;
-
-	/* Server never ran, no need to stop it */
-	if (rtpsrv->state == RTP_SERVER_INACTIVE)
+	case RTP_SERVER_FAILED:
+		/* Server failed, no need to send EOS */
+		goto no_eos;
+	case RTP_SERVER_INACTIVE:
+		/* Server didn't have a chance to run
+		 * initialization failed */
+		utils_err("[RTP] Initialization failed with code %i\n",
+			  rtpsrv->init_res);
 		goto not_running;
+	default:
+		break;
+	}
 
-	/* Set state to inactive */
-	rtpsrv->state = RTP_SERVER_INACTIVE;
+	utils_dbg("[RTP] Graceful exit\n");
 
-	/* Send EOS and wait for it to propagate through the
-	 * pipeline */
-	gst_app_src_end_of_stream(GST_APP_SRC(rtpsrv->appsrc));
-	gst_bus_poll(rtpsrv->msgbus, GST_MESSAGE_EOS, GST_CLOCK_TIME_NONE);
+	/* Send EOS, and wait for it to propagate through the
+	 * pipeline in case the pipeline is active. */
+	ret = gst_app_src_end_of_stream(GST_APP_SRC(rtpsrv->appsrc));
+	if(ret == GST_FLOW_OK)
+		gst_bus_poll(rtpsrv->msgbus, GST_MESSAGE_EOS, GST_CLOCK_TIME_NONE);
 
+ no_eos:
 	/* Stop the main loop */
 	g_main_loop_quit(rtpsrv->loop);
 	g_main_loop_unref(rtpsrv->loop);
 
+ not_running:
 	/* Server terminated, set the state here
 	 * to avoid a race condition where rtp_server_destroy
 	 * gets called right after the main loop exits and
 	 * gst_deinit below hasn't finished. If this happens
 	 * gst_deinit will get called again and segfault. */
 	rtpsrv->state = RTP_SERVER_TERMINATED;
-
- not_running:
 
 	/* Release the pipeline */
 	if (GST_IS_ELEMENT(rtpsrv->pipeline)) {
@@ -395,62 +427,46 @@ rtp_server_destroy(struct rtp_server *rtpsrv)
 
 	/* Cleanup the shared memory map */
 	utils_shm_destroy(rtpsrv->ctl_map, 1);
+	utils_dbg("[RTP] Control channel closed\n");
 
 	/* Cleanup what's left */
 	gst_deinit();
+
+	utils_dbg("[RTP] Destroyed\n");
+
+	/* Signal the parent it's game over, in case we
+	 * ended up here due to an error. */
+	raise(SIGTERM);
 }
 
-static void *
-_rtp_server_init(void *data)
+/* This comes from FFMpeg for compression level 5
+ * (the default on gstreamer's flacenc) */
+static int
+rtp_get_flac_blocksize(int samplerate)
 {
-	int ret = 0;
+	int target = (samplerate * 105) / 1000;
+	int tmp = 0;
+	int block_size = 0;
+	int i = 0;
+
+	for(i = 0; i < 16; i++) {
+		tmp = 256 << i;
+		if(tmp <= target)
+			block_size = tmp;
+	}
+
+	return block_size;
+}
+
+static int
+rtp_init_audiosrc(struct rtp_server *rtpsrv)
+{
 	GstCaps *audio_caps = NULL;
-	GstStructure *config = NULL;
-	GstElement *audio_converter = NULL;
-	GstElement *flac_encoder = NULL;
-	GstElement *rtp_payloader = NULL;
-	GstElement *rtcpsrc = NULL;
-	GstPad *srcpad = NULL;
-	GstPad *sinkpad = NULL;
 	GstAppSrcCallbacks gst_appsrc_cbs;
-	struct rtp_server *rtpsrv = (struct rtp_server *)data;
 
-	/* Initialize I/O channel */
-	rtpsrv->ctl_map = utils_shm_init(RTP_SRV_SHM_NAME,
-					 sizeof(struct rtp_server_control));
-	if(!rtpsrv->ctl_map) {
-		ret = -1;
-		goto cleanup;
-	}
-	rtpsrv->ctl = (struct rtp_server_control*) rtpsrv->ctl_map->mem;
-	/* Store the pointer to rtpsrv so that we can recover it
-	 * when called by the signal handler */
-	rtpsrv->ctl->rtpsrv = rtpsrv;
-	/* Store the pid so that the control app knows where to
-	 * send the signals to add / remove client IPs */
-	rtpsrv->ctl->pid = getpid();
-
-	/* Initialize GStreamer */
-	gst_init(NULL, NULL);
-
-	/* Initialize Pipeline and its GSTbus */
-	rtpsrv->pipeline = gst_pipeline_new("pipeline");
-	if (!rtpsrv->pipeline) {
-		ret = -2;
-		goto cleanup;
-	}
-	rtpsrv->msgbus = gst_element_get_bus(rtpsrv->pipeline);
-	gst_bus_add_signal_watch(rtpsrv->msgbus);
-	g_signal_connect(G_OBJECT(rtpsrv->msgbus), "message::error",
-			 (GCallback) rtp_server_error_cb, rtpsrv);
-
-	/* Initialize appsrc for pushing audio
-	 * buffers on the pipeline */
 	rtpsrv->appsrc = gst_element_factory_make("appsrc", "audio_source");
-	if (!rtpsrv->appsrc) {
-		ret = -3;
-		goto cleanup;
-	}
+	if (!rtpsrv->appsrc)
+		return -1;
 
 	audio_caps = gst_caps_new_simple("audio/x-raw",
 					 "rate", G_TYPE_INT,
@@ -475,143 +491,225 @@ _rtp_server_init(void *data)
 	gst_app_src_set_callbacks(GST_APP_SRC(rtpsrv->appsrc),
 				  &gst_appsrc_cbs, (gpointer) rtpsrv, NULL);
 
+	return 0;
+}
+
+static int
+rtp_init_audio_path(struct rtp_server *rtpsrv)
+{
+	GstElement *audio_converter = NULL;
+	GstCaps *audio_caps = NULL;
+	int ret = 0;
+
+	/* Initialize appsrc for pushing audio
+	 * buffers on the pipeline */
+	ret = rtp_init_audiosrc(rtpsrv);
+	if (ret < 0)
+		return ret;
+
 	/* Initialize audio converter since FLAC encoder accepts only integer
 	 * formats */
 	audio_converter = gst_element_factory_make("audioconvert",
 						   "audio_converter");
-	if (!audio_converter) {
-		ret = -4;
-		goto cleanup;
-	}
+	if (!audio_converter)
+		return -2;
 
 	/* Initialize FLAC encoder */
-	flac_encoder = gst_element_factory_make("flacenc", "flac_encoder");
-	if (!flac_encoder) {
-		ret = -5;
-		goto cleanup;
-	}
-	g_object_set(flac_encoder, "blocksize", rtpsrv->max_samples, NULL);
+	rtpsrv->flac_encoder = gst_element_factory_make("flacenc", "flac_encoder");
+	if (!rtpsrv->flac_encoder)
+		return -3;
+	g_object_set(rtpsrv->flac_encoder, "blocksize",
+		     rtp_get_flac_blocksize(rtpsrv->mpx_samplerate), NULL);
+
+	/* Add audio path elements to the pipeline and link them */
+
+	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->appsrc,
+			 audio_converter, rtpsrv->flac_encoder, NULL);
+
+	ret = gst_element_link(rtpsrv->appsrc, audio_converter);
+	if (!ret)
+		return -4;
+
+	/* Convert from 24bits to 16bits to save some more bandwidth,
+	 * after all we compress the audio for FM broadcasting so the
+	 * dynamic range is reduced anyway. */
+	audio_caps = gst_caps_new_simple("audio/x-raw",
+					 "format", G_TYPE_STRING, "S16LE",
+					 NULL);
+	ret = gst_element_link_filtered(audio_converter, rtpsrv->flac_encoder,
+					audio_caps);
+	gst_caps_unref(audio_caps);
+	if (!ret)
+		return -5;
+
+	return 0;
+}
+
+static int
+rtp_init_network_path(struct rtp_server *rtpsrv)
+{
+	GstElement *rtp_payloader = NULL;
+	GstElement *rtcpsrc = NULL;
+	GstPad *srcpad = NULL;
+	GstPad *sinkpad = NULL;
+	int ret = 0;
 
 	/* Initialize RTP payloader, since there is no spec for FLAC
 	 * use the GStreamer buffer payloader. We'll use GStreamer
 	 * on the other side too so it's not an issue. */
 	rtp_payloader = gst_element_factory_make("rtpgstpay", "rtp_payloader");
-	if (!rtp_payloader) {
-		ret = -6;
-		goto cleanup;
-	}
+	if (!rtp_payloader)
+		return -1;
 	g_object_set(rtp_payloader, "config-interval", 3, NULL);
+	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtp_payloader);
 
-	/* Create the pipeline down to the rtp_payloader */
-	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->appsrc,
-			 audio_converter, flac_encoder, rtp_payloader, NULL);
-
-	ret = gst_element_link_many(rtpsrv->appsrc, audio_converter,
-				    flac_encoder, rtp_payloader, NULL);
-	if (!ret) {
-		ret = -8;
-		goto cleanup;
-	}
+	/* Link flac encoder to RTP payloader */
+	ret = gst_element_link(rtpsrv->flac_encoder, rtp_payloader);
+	if (!ret)
+		return -2;
 
 	/* Initialize the rtpbin element and add it to the pipeline */
 	rtpsrv->rtpbin = gst_element_factory_make("rtpbin", "rtpbin");
-	if (!rtpsrv->rtpbin) {
-		ret = -9;
-		goto cleanup;
-	}
+	if (!rtpsrv->rtpbin)
+		return -3;
 	/* Audio/Video profile with feedback (AVPF) */
 	g_object_set(rtpsrv->rtpbin, "rtp-profile", GST_RTP_PROFILE_AVPF, NULL);
-	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpbin);
-
-	/* Initialize the UDP sink for outgoing RTP messages */
-	rtpsrv->rtpsink = gst_element_factory_make("multiudpsink", "rtpsink");
-	if (!rtpsrv->rtpsink) {
-		ret = -10;
-		goto cleanup;
-	}
-
-	/* Initialize the UDP sink for outgoing RTCP messages */
-	rtpsrv->rtcpsink = gst_element_factory_make("multiudpsink", "rtcpsink");
-	if (!rtpsrv->rtcpsink) {
-		ret = -11;
-		goto cleanup;
-	}
-
-	/* no need for synchronisation or preroll on the RTCP sink */
-	g_object_set(rtpsrv->rtcpsink, "async", FALSE, "sync", FALSE, NULL);
-
-	/* Initialize the UDP src for incoming RTCP messages */
-	rtcpsrc = gst_element_factory_make("udpsrc", "rtcpsrc");
-	if (!rtcpsrc) {
-		ret = -12;
-		goto cleanup;
-	}
-	g_object_set(rtcpsrc, "port", rtpsrv->baseport + 2, NULL);
-
-	/* Add the UDP sources and sinks to the pipeline */
-	gst_bin_add_many(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpsink,
-			 rtpsrv->rtcpsink, rtcpsrc, NULL);
-
 	g_signal_connect (rtpsrv->rtpbin, "request-pt-map",
 			  G_CALLBACK (rtp_server_request_pt_map_cb), rtpsrv);
-
 	/* register callback to create "rtprtxsend".
 	 * This needs to be called before requesting the pads from rtpbin */
 	g_signal_connect (rtpsrv->rtpbin, "request-aux-sender",
 			  G_CALLBACK (rtp_server_request_aux_sender_cb), NULL);
+	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpbin);
 
 	/* Set up an RTP sinkpad for session 0 from rtpbin and link it to the
 	 * rtp_payloader */
 	srcpad = gst_element_get_static_pad(rtp_payloader, "src");
 	sinkpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtp_sink_0");
-	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -13;
-		goto cleanup;
-	}
+	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK)
+		return -4;
 	gst_object_unref(srcpad);
 	gst_object_unref(sinkpad);
+
+	/* Initialize the UDP sink for outgoing RTP messages */
+	rtpsrv->rtpsink = gst_element_factory_make("multiudpsink", "rtpsink");
+	if (!rtpsrv->rtpsink)
+		return -5;
+	g_object_set(rtpsrv->rtpsink, "bind-port", rtpsrv->baseport, NULL);
+	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtpsrv->rtpsink);
 
 	/* Get the RTP srcpad that was created for session 0 above and
 	 * link it to rtpsink */
 	srcpad = gst_element_get_static_pad(rtpsrv->rtpbin, "send_rtp_src_0");
 	sinkpad = gst_element_get_static_pad(rtpsrv->rtpsink, "sink");
-	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -14;
-		goto cleanup;
-	}
+	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK)
+		return -6;
 	gst_object_unref(srcpad);
 	gst_object_unref(sinkpad);
 
-	/* Get the RTCP srcpad that was created for session 0 above and
-	 * link it to rtcpbin */
-	srcpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtcp_src_0");
-	sinkpad = gst_element_get_static_pad(rtpsrv->rtcpsink, "sink");
-	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -15;
-		goto cleanup;
-	}
-	gst_object_unref(srcpad);
-	gst_object_unref(sinkpad);
+	/* Initialize the UDP src for incoming RTCP messages */
+	rtcpsrc = gst_element_factory_make("udpsrc", "rtcpsrc");
+	if (!rtcpsrc)
+		return -7;
+	g_object_set(rtcpsrc, "port", rtpsrv->baseport + 2, NULL);
+	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtcpsrc);
 
 	/* In order to receive RTCP messages link rtcpsrc to
 	 * rtpbin's recv_rtcp_sink for session 0 */
 	srcpad = gst_element_get_static_pad(rtcpsrc, "src");
 	sinkpad = gst_element_get_request_pad(rtpsrv->rtpbin, "recv_rtcp_sink_0");
-	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-		ret = -16;
-		goto cleanup;
-	}
+	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK)
+		return -8;
 	gst_object_unref(srcpad);
 	gst_object_unref(sinkpad);
 
-	/* configure a buffer pool with a minimum of 3 buffers pre-allocated */
+	/* Initialize the UDP sink for outgoing RTCP messages */
+	rtpsrv->rtcpsink = gst_element_factory_make("multiudpsink", "rtcpsink");
+	if (!rtpsrv->rtcpsink)
+		return -9;
+	/* no need for synchronisation or preroll on the RTCP sink */
+	g_object_set(rtpsrv->rtcpsink, "async", FALSE, "sync", FALSE, NULL);
+	g_object_set(rtpsrv->rtpsink, "bind-port", rtpsrv->baseport + 1, NULL);
+	gst_bin_add(GST_BIN(rtpsrv->pipeline), rtpsrv->rtcpsink);
+
+	/* Get the RTCP srcpad that was created for session 0 above and
+	 * link it to rtcpbin */
+	srcpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtcp_src_0");
+	sinkpad = gst_element_get_static_pad(rtpsrv->rtcpsink, "sink");
+	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK)
+		return -10;
+	gst_object_unref(srcpad);
+	gst_object_unref(sinkpad);
+
+	return 0;
+}
+
+static void *
+_rtp_server_init(void *data)
+{
+	struct rtp_server *rtpsrv = (struct rtp_server *)data;
+	GstStructure *config = NULL;
+	int ret = 0;
+
+	/* Set state to inactive */
+	rtpsrv->state = RTP_SERVER_INACTIVE;
+
+	/* Initialize I/O channel */
+	rtpsrv->ctl_map = utils_shm_init(RTP_SRV_SHM_NAME,
+					 sizeof(struct rtp_server_control));
+	if(!rtpsrv->ctl_map) {
+		ret = -1;
+		goto cleanup;
+	}
+	rtpsrv->ctl = (struct rtp_server_control*) rtpsrv->ctl_map->mem;
+
+	/* Store the pointer to rtpsrv so that we can recover it
+	 * when called by the signal handler */
+	rtpsrv->ctl->rtpsrv = rtpsrv;
+
+	/* Store the pid so that the control app knows where to
+	 * send the signals to add / remove client IPs */
+	rtpsrv->ctl->pid = getpid();
+
+	/* Initialize GStreamer */
+	gst_init(NULL, NULL);
+
+	/* Initialize Pipeline and its GSTbus */
+	rtpsrv->pipeline = gst_pipeline_new("pipeline");
+	if (!rtpsrv->pipeline) {
+		ret = -2;
+		goto cleanup;
+	}
+	rtpsrv->msgbus = gst_element_get_bus(rtpsrv->pipeline);
+	gst_bus_add_signal_watch(rtpsrv->msgbus);
+	g_signal_connect(G_OBJECT(rtpsrv->msgbus), "message::error",
+			 (GCallback) rtp_server_error_cb, rtpsrv);
+
+	/* Initialize audio and network paths */
+
+	ret = rtp_init_audio_path(rtpsrv);
+	if (ret < 0) {
+		utils_err("[RTP] Initializing audio path failed with code %i\n", ret);
+		ret = -3;
+		goto cleanup;
+	}
+
+	ret = rtp_init_network_path(rtpsrv);
+	if (ret < 0) {
+		utils_err("[RTP] Initializing network path failed with code %i\n", ret);
+		ret = -4;
+		goto cleanup;
+	}
+
+	/* Configure a buffer pool with a minimum of 3
+	 * buffers pre-allocated */
 	rtpsrv->pool = gst_buffer_pool_new();
 	config = gst_buffer_pool_get_config(rtpsrv->pool);
 	gst_buffer_pool_config_set_params(config, NULL,
 					  rtpsrv->buf_len, 3, 0);
 	if (!gst_buffer_pool_set_config(rtpsrv->pool, config) ||
 	    !gst_buffer_pool_set_active(rtpsrv->pool, TRUE)) {
-		ret = -18;
+		ret = -5;
 		goto cleanup;
 	}
 
@@ -622,9 +720,12 @@ _rtp_server_init(void *data)
 	 * create a main loop for the server to receive messages */
 	if(gst_element_set_state(rtpsrv->pipeline, GST_STATE_PLAYING) ==
 	   GST_STATE_CHANGE_FAILURE) {
-		ret = -17;
+		ret = -6;
 		goto cleanup;
-	} else
+	}
+
+	utils_dbg("[RTP] Init complete\n");
+
 	rtpsrv->state = RTP_SERVER_ACTIVE;
 	rtpsrv->loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(rtpsrv->loop);
@@ -664,4 +765,4 @@ rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
 	return 0;
 }
 
-#endif				/* DISABLE_RTP_SERVER */
+#endif	/* DISABLE_RTP_SERVER */
