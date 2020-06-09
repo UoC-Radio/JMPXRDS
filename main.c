@@ -84,9 +84,6 @@ signal_handler(int sig, siginfo_t * info,
 		break;
 	default:
 		active = 0;
-#ifdef DEBUG
-		__gcov_flush();
-#endif
 		break;
 	}
 
@@ -139,5 +136,10 @@ main()
 
 	if (fmmod_instance.active)
 		fmmod_destroy(&fmmod_instance, 0);
+
+#ifdef DEBUG
+	__gcov_flush();
+#endif
+
 	exit(0);
 }
