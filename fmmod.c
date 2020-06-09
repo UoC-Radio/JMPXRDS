@@ -41,10 +41,10 @@
 static inline int
 num_resampled_samples(int in_srate, int out_srate, int num_samples)
 {
-	float ratio = (float) out_srate / (float) in_srate;
-	float olenf = ratio * ((float) num_samples);
+	double ratio = (double) (out_srate) / (double) (in_srate);
+	double olenf = ratio * ((double) num_samples);
 	/* Also cover the case where out_srate < in_srate */
-	olenf = fmax(olenf, num_samples - 1.0);
+	olenf = fmax(olenf, num_samples - olenf);
 	return (int) olenf;
 }
 
@@ -215,7 +215,7 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, const float* lpr,
 	/* Shift the buffer's content to make room for the new
 	 * period on its end and then put the new data there. */
 	memmove(fmmod->ssb_lpf_delay_buf,
-		fmmod->ssb_lpf_delay_buf + fmmod->ssb_lpf_overlap_len,
+		fmmod->ssb_lpf_delay_buf + num_samples,
 		fmmod->ssb_lpf_overlap_len * sizeof(float));
 	memcpy(fmmod->ssb_lpf_delay_buf + fmmod->ssb_lpf_overlap_len, lpr,
 		num_samples * sizeof(float));
