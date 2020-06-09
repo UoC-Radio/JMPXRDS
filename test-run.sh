@@ -247,9 +247,9 @@ function test_run {
 				fi
 			fi
 			killall jmpxrds &> /dev/null
-			sleep 2
+			sleep 4
 			killall jackd &> /dev/null
-			sleep 2
+			sleep 4
 			return 0
 		else
 			sleep 2

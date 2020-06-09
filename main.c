@@ -84,6 +84,9 @@ signal_handler(int sig, siginfo_t * info,
 		break;
 	default:
 		active = 0;
+#ifdef DEBUG
+		__gcov_flush();
+#endif
 		break;
 	}
 
