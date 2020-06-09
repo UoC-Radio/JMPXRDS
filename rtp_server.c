@@ -396,7 +396,7 @@ rtp_server_destroy(struct rtp_server *rtpsrv)
 	 * pipeline in case the pipeline is active. */
 	ret = gst_app_src_end_of_stream(GST_APP_SRC(rtpsrv->appsrc));
 	if(ret == GST_FLOW_OK)
-		gst_bus_poll(rtpsrv->msgbus, GST_MESSAGE_EOS, GST_CLOCK_TIME_NONE);
+		gst_bus_timed_pop_filtered(rtpsrv->msgbus, GST_SECOND * 3, GST_MESSAGE_EOS);
 
  no_eos:
 	/* Stop the main loop */
