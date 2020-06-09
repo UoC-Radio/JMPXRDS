@@ -18,6 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "resampler.h"
+#include "utils.h"
 #include <stdlib.h>		/* For NULL */
 #include <string.h>		/* For memset/memcpy */
 #include <jack/thread.h>	/* For thread handling through jack */
@@ -172,10 +173,16 @@ resampler_upsample_audio(struct resampler_data *rsmpl,
 
 	resampler_thread_run(rstd_r);
 #endif
-	if(rstd_l->result || rstd_r->result)
+	if(rstd_l->result || rstd_r->result) {
+		utils_err("[RESAMPLER] Audio upsampling failed on this period: %i (L), %i (R)\n",
+			  rstd_l->result, rstd_r->result);
 		return -1;
-	else
-		return rstd_l->frames_generated;
+	}
+
+	if (rstd_l->frames_generated == 0)
+		utils_wrn("[RESAMPLER] Audio upsampler didn't generate any frames\n");
+
+	return rstd_l->frames_generated;
 }
 
 /* Upsample RDS waveform to the main oscilator's sampling rate */
@@ -189,10 +196,16 @@ resampler_upsample_rds(const struct resampler_data *rsmpl, const float *in, floa
 
 	error = soxr_process(rsmpl->rds_upsampler, in, inframes, &frames_used,
 			     out, outframes, &frames_generated);
-	if (error)
+	if (error) {
+		utils_err("[RESAMPLER] RDS upsampling failed on this period: %i\n",
+			  error);
 		return -1;
-	else
-		return frames_generated;
+	}
+
+	if (frames_generated == 0)
+		utils_wrn("[RESAMPLER] RDS upsampler didn't generate any frames\n");
+
+	return frames_generated;
 }
 
 /* Downsample MPX signal to JACK's sample rate */
@@ -216,10 +229,16 @@ resampler_downsample_mpx(const struct resampler_data *rsmpl, const float *in, fl
 				     &frames_generated);
 	}
 
-	if (error)
+	if (error) {
+		utils_err("[RESAMPLER] MPX downsampling failed on this period: %i\n",
+			  error);
 		return -1;
-	else
-		return frames_generated;
+	}
+
+	if (frames_generated == 0)
+		utils_wrn("[RESAMPLER] MPX downsampler didn't generate any frames\n");
+
+	return frames_generated;
 }
 
 /****************\
@@ -231,11 +250,11 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 		jack_client_t *fmmod_client, uint32_t osc_samplerate,
 		uint32_t rds_samplerate, uint32_t output_samplerate)
 {
-	int ret = 0;
 	soxr_error_t error;
 	soxr_io_spec_t io_spec;
 	soxr_runtime_spec_t runtime_spec;
 	soxr_quality_spec_t q_spec;
+	int ret = 0;
 
 	if (rsmpl == NULL)
 		return -1;
@@ -251,6 +270,7 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 
 	if (jack_samplerate == osc_samplerate) {
 		rsmpl->audio_upsampler_bypass = 1;
+		utils_dbg("[RESAMPLER] Audio upsampler bypass !\n");
 		goto audio_upsampler_bypass;
 	}
 
@@ -263,6 +283,8 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 						&error, &io_spec, &q_spec,
 						&runtime_spec);
 	if (error) {
+		utils_err("[RESAMPLER] Audio upsampler (L) init failed with code: %i\n",
+			  error);
 		ret = -2;
 		goto cleanup;
 	}
@@ -271,12 +293,20 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 						&error, &io_spec, &q_spec,
 						&runtime_spec);
 	if (error) {
-		ret = -2;
+		utils_err("[RESAMPLER] Audio upsampler (R) init failed with code: %i\n",
+			  error);
+		ret = -3;
 		goto cleanup;
 	}
 
 	rsmpl->active = 1;
-	resampler_init_upsampler_threads(rsmpl);
+	ret = resampler_init_upsampler_threads(rsmpl);
+	if (ret < 0) {
+		utils_err("[RESAMPLER] Audio upsampler threads init failed\n");
+		rsmpl->active = 0;
+		ret = -4;
+		goto cleanup;
+	}
 
  audio_upsampler_bypass:
 
@@ -291,7 +321,9 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 					   &runtime_spec);
 
 	if (error) {
-		ret = -3;
+		utils_err("[RESAMPLER] RDS upsampler init failed with code: %i\n",
+			  error);
+		ret = -5;
 		goto cleanup;
 	}
 
@@ -314,13 +346,18 @@ resampler_init(struct resampler_data *rsmpl, uint32_t jack_samplerate,
 					     &runtime_spec);
 
 	if (error) {
-		ret = -4;
+		utils_err("[RESAMPLER] MPX downsampler (L) init failed with code: %i\n",
+			  error);
+		ret = -6;
 		goto cleanup;
 	}
 
  cleanup:
-	if (ret < 0)
+	if (ret < 0) {
+		utils_err("[RESAMPLER] Init failed with code: %i\n", ret);
 		resampler_destroy(rsmpl);
+	} else
+		utils_dbg("[RESAMPLER] Init complete\n");
 
 	return ret;
 }
@@ -334,4 +371,5 @@ resampler_destroy(struct resampler_data *rsmpl)
 	soxr_delete(rsmpl->audio_upsampler_r);
 	soxr_delete(rsmpl->rds_upsampler);
 	soxr_delete(rsmpl->mpx_downsampler);
+	utils_dbg("[RESAMPLER] Destroyed\n");
 }

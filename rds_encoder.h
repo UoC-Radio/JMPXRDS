@@ -153,10 +153,17 @@ struct rds_encoder {
 	struct rds_upsampled_group outbuf[2];
 	int curr_outbuf_idx;
 	size_t upsampled_waveform_len;
-	int active;
+	int status;
 	jack_native_thread_t tid;
 	pthread_mutex_t rds_process_mutex;
 	pthread_cond_t rds_process_trigger;
+};
+
+enum rds_encoder_status {
+	RDS_ENC_INACTIVE = 0,
+	RDS_ENC_ACTIVE = 1,
+	RDS_ENC_TERMINATED = 2,
+	RDS_ENC_FAILED = 3
 };
 
 #define	RDS_MS_SPEECH	0

@@ -78,6 +78,7 @@ distclean-local:
 	-rm gui/*.gcda
 	-rm gui/*.gcno
 	-rm gui/*.gcov
+	-rm -rf ./.gcov_reports
 
 if DEBUG
 #Run tests and gather coverage data

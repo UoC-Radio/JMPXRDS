@@ -119,10 +119,11 @@ function test_rds {
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
-	run_config_test rds_tool -e -rt 123 -ps 123 -pi 0x1001 -pty 0 -ptyn test -ecc 0xe1 -lic 0x70 -tp 0 -ta 0 -ms 1 -di 0x9
+	run_config_test rds_tool -e -rt 123 -pi 0x1001 -pty 0 -ptyn test -ecc 0xe1 -lic 0x70 -tp 0 -ta 0 -ms 1 -di 0x9
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
+	sleep 2
 	run_config_test rds_tool -g
 	if [[ $? == 1 ]]; then
 		return 1
@@ -135,7 +136,7 @@ function test_rds {
 	if [[ $? == 1 ]]; then
 		return 1
 	fi
-	run_config_test rds_tool -e
+	run_config_test rds_tool -e -ps 123
 	if [[ $? == 1 ]]; then
 		return 1
 	fi

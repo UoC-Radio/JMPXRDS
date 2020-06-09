@@ -371,7 +371,8 @@ fmmod_process(struct fmmod_instance *fmmod)
 	pthread_mutex_unlock(&fmmod->inbuf_mutex);
 	if (frames_generated <= 0) {
 		pthread_mutex_unlock(&fmmod->uaudio_buf_mutex);
-		ret = FMMOD_ERR_RESAMPLER_ERR;
+		if (frames_generated < 0)
+			ret = FMMOD_ERR_RESAMPLER_ERR;
 		goto done;
 	}
 
@@ -409,9 +410,10 @@ fmmod_process(struct fmmod_instance *fmmod)
 	frames_generated = resampler_downsample_mpx(rsmpl, fmmod->umpxbuf, fmmod->outbuf,
 						    frames_generated,
 						    fmmod->num_out_samples);
-	if (frames_generated <= 0) {
+	if (frames_generated < 0) {
 		pthread_mutex_unlock(&fmmod->mpx_buf_mutex);
-		ret = FMMOD_ERR_RESAMPLER_ERR;
+		if (frames_generated < 0)
+			ret = FMMOD_ERR_RESAMPLER_ERR;
 		goto done;
 	}
 
@@ -432,12 +434,7 @@ fmmod_process(struct fmmod_instance *fmmod)
 
  done:
 	if (ret < 0) {
-		if (ret == FMMOD_ERR_RESAMPLER_ERR)
-			utils_err("[RESAMPLER] failed on this period,"
-				  " frames_generated: %i\n", frames_generated);
-		else
-			utils_err("[FMMMOD] something weird happened on the"
-				  " processing thread\n");
+		utils_err("[FMMMOD] Error while processing: %i\n", ret);
 		raise(SIGTERM);
 	}
 	return fmmod;
@@ -627,7 +624,8 @@ fmmod_connect(struct fmmod_instance *fmmod)
 		if (fmmod->inL)
 			jack_port_unregister(fmmod->client, fmmod->inL);
 		jack_client_close(fmmod->client);
-	}
+	} else
+		utils_dbg("[FMMOD] Registered with JACKD\n");
 
 	return ret;
 }
@@ -640,6 +638,7 @@ fmmod_destroy_locks(struct fmmod_instance *fmmod)
 	pthread_mutex_destroy(&fmmod->mpx_buf_mutex);
 	pthread_mutex_destroy(&fmmod->proc_mutex);
 	pthread_cond_destroy(&fmmod->proc_trigger);
+	utils_dbg("[FMMOD] Locks destroyed\n");
 }
 
 static void
@@ -650,6 +649,7 @@ fmmod_init_locks(struct fmmod_instance *fmmod)
 	pthread_mutex_init(&fmmod->mpx_buf_mutex, NULL);
 	pthread_mutex_init(&fmmod->proc_mutex, NULL);
 	pthread_cond_init(&fmmod->proc_trigger, NULL);
+	utils_dbg("[FMMOD] Locks initialized\n");
 }
 
 static void
@@ -669,16 +669,17 @@ fmmod_free_buffers(const struct fmmod_instance *fmmod)
 		free(fmmod->outbuf);
 	if (fmmod->ssb_lpf_delay_buf != NULL)
 		free(fmmod->ssb_lpf_delay_buf);
+	utils_dbg("[FMMOD] Buffers freed\n");
 }
 
 static int
 fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 {
-	int ret = 0;
 	uint32_t inbuf_len = 0;
 	uint32_t ssb_lpf_delay_buf_len = 0;
 	uint32_t upsampled_buf_len = 0;
 	uint32_t output_buf_len = 0;
+	int ret = 0;
 
 	/* Allocate input audio buffers */
 	inbuf_len = fmmod->num_in_samples *
@@ -757,9 +758,11 @@ fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 	}
 	memset(fmmod->ssb_lpf_delay_buf, 0, ssb_lpf_delay_buf_len);
 
+	utils_dbg("[FMMOD] Buffers initialized\n");
 	return  0;
 
  cleanup:
+	utils_err("[FMMOD] Could not initialize buffers !\n");
 	fmmod_free_buffers(fmmod);
 	return ret;
 }
@@ -783,7 +786,25 @@ fmmod_init_osc(struct fmmod_instance *fmmod)
 		return FMMOD_ERR_OSC_ERR;
 	}
 
+	utils_dbg("[OSC] Init complete\n");
+
 	return 0;
+}
+
+static void
+fmmod_destroy_filters(struct fmmod_instance *fmmod)
+{
+	struct fmmod_flts *flts = &fmmod->flts;
+
+	lpf_filter_destroy(&flts->lpf_l);
+
+	lpf_filter_destroy(&flts->lpf_r);
+
+	lpf_filter_destroy(&flts->ssb_lpf);
+
+	hilbert_transformer_destroy(&flts->ht);
+
+	utils_dbg("[FILTERS] Destroyed\n");
 }
 
 static int
@@ -795,12 +816,14 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 	/* Initialize audio FM pre-emphasis IIR filter */
 	ret = fmpreemph_filter_init(&flts->fmprf_l, (float) jack_samplerate);
 	if(ret < 0) {
+		utils_err("[FILTERS] Pre-emphasis filter (L) init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;
 		return ret;
 	}
 
 	ret = fmpreemph_filter_init(&flts->fmprf_r, (float) jack_samplerate);
 	if(ret < 0) {
+		utils_err("[FILTERS] Pre-emphasis filter (R) init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;
 		return ret;
 	}
@@ -809,7 +832,7 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 	ret = lpf_filter_init(&flts->lpf_l, AFLT_CUTOFF_FREQ, jack_samplerate,
 			      fmmod->num_in_samples, AFLT_LPF_OVERLAP_FACTOR);
 	if (ret < 0) {
-		utils_err("[AFLT] LPF init failed with code: %i\n", ret);
+		utils_err("[FILTERS] LPF (L) init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;
 		goto cleanup;
 	}
@@ -817,7 +840,7 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 	ret = lpf_filter_init(&flts->lpf_r, AFLT_CUTOFF_FREQ, jack_samplerate,
 			      fmmod->num_in_samples, AFLT_LPF_OVERLAP_FACTOR);
 	if (ret < 0) {
-		utils_err("[AFLT] LPF init failed with code: %i\n", ret);
+		utils_err("[FILTERS] LPF (R) init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_AFLT;
 		goto cleanup;
 	}
@@ -826,7 +849,7 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 	ret = lpf_filter_init(&flts->ssb_lpf, 38000, OSC_SAMPLE_RATE,
 			      fmmod->upsampled_num_samples, SSB_LPF_OVERLAP_FACTOR);
 	if (ret < 0) {
-		utils_err("[SSB LPF] Init failed with code: %i\n", ret);
+		utils_err("[FILTERS] LPF (SSB) init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_LPF;
 		goto cleanup;
 	}
@@ -835,13 +858,13 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 	/* Initialize the Hilbert transformer for the Hartley modulator */
 	ret = hilbert_transformer_init(&flts->ht, fmmod->upsampled_num_samples);
 	if (ret < 0) {
-		utils_err("[HILBERT] Init failed with code: %i\n", ret);
+		utils_err("[FILTERS] Hilbert transformer init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_HILBERT;
 		goto cleanup;
 	}
 
  cleanup:
-	if (ret < 0)
+	if (ret < 0) {
 		switch (ret) {
 		case FMMOD_ERR_HILBERT:
 			lpf_filter_destroy(&flts->ssb_lpf);
@@ -853,6 +876,10 @@ fmmod_init_filters(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 		default:
 			break;
 		}
+		utils_err("[FILTERS] Init failed with code: %i\n", ret);
+	} else
+		utils_dbg("[FILTERS] Init complete\n");
+
 	return ret;
 }
 
@@ -872,6 +899,7 @@ fmmod_init_outsock(void)
 		utils_perr("[OUTSOCK] Unable to create socket, mkfifo()");
 		return FMMOD_ERR_SOCK_ERR;
 	}
+	utils_dbg("[OUTSOCK] Init complete\n");
 
 	return 0;
 }
@@ -886,6 +914,7 @@ fmmod_outsock_destroy(const struct fmmod_instance *fmmod)
 	uid = getuid();
 	snprintf(sock_path, 32, "/run/user/%u/jmpxrds.sock", uid);
 	unlink(sock_path);
+	utils_dbg("[OUTSOCK] Destroyed\n");
 }
 
 static int
@@ -904,15 +933,17 @@ fmmod_init_ctl(struct fmmod_instance *fmmod)
 
 	ctl = fmmod->ctl;
 	ctl->audio_gain = 0.45;
-	ctl->pilot_gain = 0.083;
-	ctl->rds_gain = 0.026;
-	ctl->stereo_carrier_gain = 1.0;
-	ctl->mpx_gain = 1.0;
+	ctl->pilot_gain = 0.04;
+	ctl->rds_gain = 0.03;
+	ctl->stereo_carrier_gain = 0.8;
+	ctl->mpx_gain = 0.75;
 	ctl->stereo_modulation = FMMOD_DSB;
 	ctl->use_audio_lpf = 1;
 	ctl->preemph_tau = LPF_PREEMPH_50US;
 	ctl->sample_rate = FMMOD_OUTPUT_SAMPLERATE;
 	ctl->max_samples = fmmod->num_out_samples;
+
+	utils_dbg("[FMMOD] Control channel ready\n");
 
 	return 0;
 }
@@ -949,10 +980,8 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 
 	/* Initialize buffers */
 	ret = fmmod_init_buffers(fmmod, jack_samplerate);
-	if (ret < 0) {
-		utils_err("[FMMOD] Could not initialize buffers !\n");
+	if (ret < 0)
 		goto cleanup;
-	}
 
 	/* Initialize locks / triggers */
 	fmmod_init_locks(fmmod);
@@ -969,7 +998,6 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 			     RDS_SAMPLE_RATE,
 			     FMMOD_OUTPUT_SAMPLERATE);
 	if (ret < 0) {
-		utils_err("[RESAMPLER] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_RESAMPLER_ERR;
 		goto cleanup;
 	}
@@ -982,7 +1010,6 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	/* Initialize RDS encoder */
 	ret = rds_encoder_init(&fmmod->rds_enc, fmmod->client, &fmmod->rsmpl);
 	if (ret < 0) {
-		utils_err("[RDS] Init failed with code: %i\n", ret);
 		ret = FMMOD_ERR_RDS_ERR;
 		goto cleanup;
 	}
@@ -1031,10 +1058,13 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 
  cleanup:
 	if (ret < 0) {
+		utils_err("[FMMOD] Init failed with code: %i\n", ret);
 		fmmod_destroy(fmmod, 0);
 		return ret;
-	} else
-		return 0;
+	}
+
+	utils_dbg("[FMMOD] Init complete\n");
+	return 0;
 }
 
 void
@@ -1043,7 +1073,7 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 	const struct fmmod_flts *flts = &fmmod->flts;
 
 	if (!shutdown) {
-		utils_dbg("[FMMOD] graceful exit\n");
+		utils_dbg("[FMMOD] Graceful exit\n");
 		jack_deactivate(fmmod->client);
 		if (fmmod->inL)
 			jack_port_unregister(fmmod->client, fmmod->inL);
@@ -1055,7 +1085,7 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	fmmod->active = 0;
 
-	utils_dbg("[FMMOD] deactivated\n");
+	utils_dbg("[FMMOD] Deactivated\n");
 
 	/* Let the process thread run for one last time */
 	pthread_mutex_lock(&fmmod->proc_mutex);
@@ -1064,44 +1094,23 @@ fmmod_destroy(struct fmmod_instance *fmmod, int shutdown)
 
 	utils_shm_destroy(fmmod->ctl_map, 1);
 
-	utils_dbg("[FMMOD] control channel closed\n");
+	utils_dbg("[FMMOD] Control channel closed\n");
 
 	rds_encoder_destroy(&fmmod->rds_enc);
-
-	utils_dbg("[RDS] destroyed\n");
 
 	rtp_server_destroy(&fmmod->rtpsrv);
 
 	resampler_destroy(&fmmod->rsmpl);
 
-	utils_dbg("[RESAMPLER] destroyed\n");
-
-	lpf_filter_destroy(&flts->lpf_l);
-	lpf_filter_destroy(&flts->lpf_r);
-
-	utils_dbg("[AFLT] destroyed\n");
-
-	lpf_filter_destroy(&flts->ssb_lpf);
-
-	utils_dbg("[SSB LPF] destroyed\n");
-
-	hilbert_transformer_destroy(&flts->ht);
-
-	utils_dbg("[HILBERT] destroyed\n");
+	fmmod_destroy_filters(fmmod);
 
 	fmmod_destroy_locks(fmmod);
 
-	utils_dbg("[FMMOD] locks destroyed\n");
-
 	fmmod_free_buffers(fmmod);
-
-	utils_dbg("[FMMOD] buffers freed\n");
 
 	fmmod_outsock_destroy(fmmod);
 
-	utils_dbg("[OUTSOCK] destroyed\n");
-
-	utils_dbg("[FMMOD] destroyed\n");
+	utils_dbg("[FMMOD] Destroyed\n");
 
 	return;
 }

@@ -31,6 +31,7 @@
 #include <fcntl.h>		/* For O_* and F_* constants */
 #include <math.h>		/* For fabs */
 #include <jack/thread.h>	/* For thread handling through jack */
+#include <signal.h>		/* For raise() */
 
 /*********\
 * HELPERS *
@@ -637,7 +638,7 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 
 	/* Encoder is inactive or is being terminated
 	 * so skip processing */
-	if (!enc->active)
+	if (enc->status != RDS_ENC_ACTIVE)
 		return NULL;
 
 	/* Only mess with the unused output buffer */
@@ -662,7 +663,7 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 						enc->upsampled_waveform_len);
 	if (outbuf->waveform_samples < 0) {
 		outbuf->waveform_samples = 0;
-		outbuf->result = -1;
+		outbuf->result = -2;
 		goto cleanup;
 	} else
 		outbuf->result = 0;
@@ -675,21 +676,28 @@ static void *
 rds_main_loop(void *arg)
 {
 	struct rds_encoder *enc = (struct rds_encoder *)arg;
+	struct rds_upsampled_group *outbuf = NULL;
 
-	while (enc->active) {
+	while (enc->status == RDS_ENC_ACTIVE) {
 		pthread_mutex_lock(&enc->rds_process_mutex);
 		while (pthread_cond_wait(&enc->rds_process_trigger,
 					 &enc->rds_process_mutex) != 0);
 
-		if (!enc->active) {
+		if (enc->status != RDS_ENC_ACTIVE) {
 			pthread_mutex_unlock(&enc->rds_process_mutex);
 			break;
 		}
 
-		rds_get_next_upsampled_group(enc);
-
+		outbuf = rds_get_next_upsampled_group(enc);
+		if (outbuf->result < 0) {
+			enc->status = RDS_ENC_FAILED;
+			utils_err("[RDS] Group generation failed with code: %i\n",
+				  outbuf->result);
+		}
 		pthread_mutex_unlock(&enc->rds_process_mutex);
 	}
+
+	rds_encoder_destroy(enc);
 
 	return arg;
 }
@@ -710,7 +718,7 @@ rds_get_next_sample(struct rds_encoder *enc)
 	float out = 0;
 
 	/* Encoder is disabled, don't do any processing */
-	if (!enc->active || !st->enabled)
+	if (enc->status != RDS_ENC_ACTIVE || !st->enabled)
 		return 0;
 
 	/* We have remaining samples from the last group */
@@ -750,6 +758,8 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 	memset(enc, 0, sizeof(struct rds_encoder));
 	enc->rsmpl = rsmpl;
 
+	enc->status = RDS_ENC_INACTIVE;
+
 	/* Initialize processing lock */
 	pthread_mutex_init(&enc->rds_process_mutex, NULL);
 	pthread_cond_init(&enc->rds_process_trigger, NULL);
@@ -760,6 +770,7 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 	if(!enc->state_map)
 		return -2;
 	enc->state = (struct rds_encoder_state*) enc->state_map->mem;
+	utils_dbg("[RDS] Control channel ready\n");
 
 	/* Allocate buffers */
 	enc->upsampled_waveform_len = num_resampled_samples(RDS_SAMPLE_RATE,
@@ -787,7 +798,7 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 	enc->state->di = RDS_DI_STEREO | RDS_DI_DYNPTY;
 
 	/* Let main loop run */
-	enc->active = 1;
+	enc->status = RDS_ENC_ACTIVE;
 
 	/* Create processing thread */
 	ret = jack_client_create_thread(client, &enc->tid,
@@ -796,12 +807,16 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 					rds_main_loop, (void *)enc);
 	if (ret < 0) {
 		utils_err("[JACKD] Could not create processing thread\n");
+		enc->status = RDS_ENC_FAILED;
 		ret = -5;
 	}
 
  cleanup:
-	if (ret < 0)
+	if (ret < 0) {
+		utils_err("[RDS] Init failed with code: %i\n", ret);
 		rds_encoder_destroy(enc);
+	} else
+		utils_dbg("[RDS] Init complete\n");
 
 	return ret;
 }
@@ -809,20 +824,26 @@ rds_encoder_init(struct rds_encoder *enc, jack_client_t *client,
 void
 rds_encoder_destroy(struct rds_encoder *enc)
 {
-	struct rds_encoder_state *st = enc->state;
+	int error = 0;
 
-	/* Didn't initialize */
-	if(st == NULL)
-		return;
-
-	/* Not active */
-	if(!enc->active)
+	switch(enc->status) {
+	case RDS_ENC_INACTIVE:
 		goto inactive;
+	case RDS_ENC_FAILED:
+		error = 1;
+		goto inactive;
+	case RDS_ENC_TERMINATED:
+		return;
+	case RDS_ENC_ACTIVE:
+	default:
+		break;
+	}
+
+	utils_dbg("[RDS] Graceful exit\n");
 
 	/* Stop rds main loop and disable the encoder
 	 * so that future requests for rds samples are ignored */
-	enc->active = 0;
-	st->enabled = 0;
+	enc->status = RDS_ENC_INACTIVE;
 
 	/* Trigger main loop so that it gets un-stuck and
 	 * can properly exit */
@@ -831,13 +852,27 @@ rds_encoder_destroy(struct rds_encoder *enc)
 		pthread_join(enc->tid, NULL);
 
  inactive:
+	enc->status = RDS_ENC_TERMINATED;
+
 	/* Cleanup */
 	utils_shm_destroy(enc->state_map, 1);
+	enc->state_map = NULL;
+	utils_dbg("[RDS] Control channel closed\n");
 	pthread_mutex_destroy(&enc->rds_process_mutex);
 	pthread_cond_destroy(&enc->rds_process_trigger);
 
-	if (enc->outbuf[0].waveform != NULL)
+	if (enc->outbuf[0].waveform != NULL) {
 		free(enc->outbuf[0].waveform);
-	if (enc->outbuf[1].waveform != NULL)
+		enc->outbuf[0].waveform = NULL;
+	} if (enc->outbuf[1].waveform != NULL) {
 		free(enc->outbuf[1].waveform);
+		enc->outbuf[1].waveform = NULL;
+	}
+
+	utils_dbg("[RDS] Destroyed\n");
+
+	/* Signal the parent it's game over, in case we
+	 * ended up here due to an error. */
+	if (error)
+		raise(SIGTERM);
 }

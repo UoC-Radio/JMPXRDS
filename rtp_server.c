@@ -365,6 +365,7 @@ void
 rtp_server_destroy(struct rtp_server *rtpsrv)
 {
 	GstFlowReturn ret = 0;
+	int error = 0;
 
 	/* GSTreamer not initialized */
 	if(!gst_is_initialized())
@@ -376,12 +377,14 @@ rtp_server_destroy(struct rtp_server *rtpsrv)
 		return;
 	case RTP_SERVER_FAILED:
 		/* Server failed, no need to send EOS */
+		error = 1;
 		goto no_eos;
 	case RTP_SERVER_INACTIVE:
 		/* Server didn't have a chance to run
 		 * initialization failed */
 		utils_err("[RTP] Initialization failed with code %i\n",
 			  rtpsrv->init_res);
+		error = 1;
 		goto not_running;
 	default:
 		break;
@@ -427,6 +430,7 @@ rtp_server_destroy(struct rtp_server *rtpsrv)
 
 	/* Cleanup the shared memory map */
 	utils_shm_destroy(rtpsrv->ctl_map, 1);
+	rtpsrv->ctl_map = NULL;
 	utils_dbg("[RTP] Control channel closed\n");
 
 	/* Cleanup what's left */
@@ -436,7 +440,8 @@ rtp_server_destroy(struct rtp_server *rtpsrv)
 
 	/* Signal the parent it's game over, in case we
 	 * ended up here due to an error. */
-	raise(SIGTERM);
+	if (error)
+		raise(SIGTERM);
 }
 
 /* This comes from FFMpeg for compression level 5
@@ -662,6 +667,7 @@ _rtp_server_init(void *data)
 		goto cleanup;
 	}
 	rtpsrv->ctl = (struct rtp_server_control*) rtpsrv->ctl_map->mem;
+	utils_dbg("[RTP] Control channel ready\n");
 
 	/* Store the pointer to rtpsrv so that we can recover it
 	 * when called by the signal handler */

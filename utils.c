@@ -119,10 +119,11 @@ utils_shm_attach(const char* name, int size)
 void
 utils_shm_destroy(struct shm_mapping* shmem, int unlink)
 {
-	if(!shmem)
+	if(!shmem || !shmem->mem)
 		return;
 
 	munmap(shmem->mem, shmem->size);
+	shmem->mem = NULL;
 
 	if(unlink)
 		shm_unlink(shmem->name);
