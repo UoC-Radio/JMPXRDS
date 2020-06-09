@@ -82,6 +82,10 @@ signal_handler(int sig, siginfo_t * info,
 		utils_shm_unlink_all();
 		raise(SIGKILL);
 		break;
+	case SIGQUIT:
+#ifdef DEBUG
+	__gcov_flush();
+#endif
 	default:
 		active = 0;
 		break;
@@ -136,10 +140,6 @@ main()
 
 	if (fmmod_instance.active)
 		fmmod_destroy(&fmmod_instance, 0);
-
-#ifdef DEBUG
-	__gcov_flush();
-#endif
 
 	exit(0);
 }

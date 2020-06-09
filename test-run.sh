@@ -250,6 +250,8 @@ function test_run {
 			sleep 4
 			killall jackd &> /dev/null
 			sleep 4
+			killall -3 jmpxrds &> /dev/null
+			sleep 4
 			return 0
 		else
 			sleep 2
