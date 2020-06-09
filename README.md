@@ -5,3 +5,5 @@ An FM MPX signal generator on top of Jack Audio Connection Kit with support for:
 * Built-in RTP server for sending the generated signal on a remote site
 
 The generator output has a minimum sampling rate of 192000, if jack runs at 192000 or higher sampling rates an output port will also be registered, if not output will only be sent through the RTP server or a local unix socket (e.g. for use with netcat). Note that RTP server sends the signal FLAC-encoded to reduce bandwidth.
+
+An overview of JMPXRDS is included in a presentation at [FOSDEM 2018](https://youtu.be/H6Ki-RbeSHI?t=603).
