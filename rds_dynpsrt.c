@@ -109,6 +109,8 @@ rds_dynps_consumer_thread(void *arg)
 	int ret = 0;
 
 	while(dps->active) {
+		rds_dynpsrt_cond_sleep(&dps->sleep_trig, &dps->sleep_mutex,
+				       DYNPS_DELAY_SECS);
 		pthread_mutex_lock(&dps->dynps_proc_mutex);
 		if(dps->string_len) {
 			if(dps->remaining_len == 0) {
@@ -134,8 +136,6 @@ rds_dynps_consumer_thread(void *arg)
 				dps->remaining_len = 0;
 		}
 		pthread_mutex_unlock(&dps->dynps_proc_mutex);
-		rds_dynpsrt_cond_sleep(&dps->sleep_trig, &dps->sleep_mutex,
-				       DYNPS_DELAY_SECS);
 	}
 
 	utils_dbg("[DYNPS] Consumer terminated\n");
