@@ -1,4 +1,4 @@
-# JMPXRDS ![Travis (.org)](https://img.shields.io/travis/uoc-radio/jmpxrds) ![Sonar Quality Gate](https://img.shields.io/sonar/quality_gate/UoC-Radio_JMPXRDS?server=https%3A%2F%2Fsonarcloud.io) ![Sonar Coverage](https://img.shields.io/sonar/coverage/UoC-Radio_JMPXRDS?server=https%3A%2F%2Fsonarcloud.io)
+# JMPXRDS [![Travis (.org)](https://img.shields.io/travis/uoc-radio/jmpxrds)](https://travis-ci.org/github/UoC-Radio/JMPXRDS/) [![Sonar Quality Gate](https://img.shields.io/sonar/quality_gate/UoC-Radio_JMPXRDS?server=https%3A%2F%2Fsonarcloud.io)](https://sonarcloud.io/dashboard?id=UoC-Radio_JMPXRDS) [![Sonar Coverage](https://img.shields.io/sonar/coverage/UoC-Radio_JMPXRDS?server=https%3A%2F%2Fsonarcloud.io)](https://sonarcloud.io/component_measures?id=UoC-Radio_JMPXRDS&metric=coverage)
 An FM MPX signal generator on top of Jack Audio Connection Kit with support for:
 * Typical DSB modulator
 * Multiple SSB modulators for the stereo subchannel (L-R)
