@@ -98,7 +98,8 @@ main(int argc, char *argv[])
 	if (argc < 2 || (argc > 1 && optind == 1)) {
 		usage(argv[0]);
 		ret = -1;
-	}
+	} else
+		ret = 0;
 
 	utils_shm_destroy(shmem, 0);
 	return ret;
