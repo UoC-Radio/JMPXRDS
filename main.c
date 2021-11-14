@@ -33,6 +33,7 @@
 #ifdef DEBUG
 #include <execinfo.h>		/* For backtrace() etc */
 #include <ucontext.h>
+extern void __gcov_dump();
 #endif
 
 static volatile sig_atomic_t active;
@@ -88,9 +89,18 @@ signal_handler(int sig, siginfo_t * info,
 		break;
 	case SIGQUIT:
 #ifdef DEBUG
-	__gcov_flush();
+	__gcov_dump();
 #endif
 	default:
+		/* We haven't finished fmmod_initialize yet, not much
+		 * we can do for graceful exit, just remove shm mappings
+		 * and kill the process */
+		if (!active) {
+			utils_shm_unlink_all();
+			raise(SIGKILL);
+		}
+
+		/* Set active back to 0 and let running threads terminate */
 		active = 0;
 		break;
 	}

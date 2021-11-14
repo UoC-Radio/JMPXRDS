@@ -44,7 +44,7 @@ void rtp_server_destroy(struct rtp_server *rtpsrv)
 }
 
 int rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
-		    int mpx_samplerate, int max_samples, int baseport)
+		    int mpx_samplerate, int baseport)
 {
 	return 0;
 }
@@ -268,7 +268,15 @@ rtp_server_add_receiver(int addr)
 	if (!shmem)
 		return -1;
 	ctl = (struct rtp_server_control*) shmem->mem;
-	rtpsrv = ctl->rtpsrv;
+
+	/* Has RTP server been initialized ? */
+	if (!ctl->rtpsrv)
+		return -2;
+	else
+		rtpsrv = ctl->rtpsrv;
+
+	if(rtpsrv->state != RTP_SERVER_ACTIVE)
+		return -3;
 
 	ipv4string = inet_ntoa(ipv4addr);
 
@@ -329,7 +337,15 @@ rtp_server_remove_receiver(int addr)
 	if (!shmem)
 		return -1;
 	ctl = (struct rtp_server_control*) shmem->mem;
-	rtpsrv = ctl->rtpsrv;
+
+	/* Has RTP server been initialized ? */
+	if (!ctl->rtpsrv)
+		return -2;
+	else
+		rtpsrv = ctl->rtpsrv;
+
+	if(rtpsrv->state != RTP_SERVER_ACTIVE)
+		return -3;
 
 	ipv4string = inet_ntoa(ipv4addr);
 
@@ -649,12 +665,25 @@ rtp_init_network_path(struct rtp_server *rtpsrv)
 	return 0;
 }
 
-static void *
-_rtp_server_init(void *data)
+static void*
+rtp_server_main_loop(void *data)
 {
 	struct rtp_server *rtpsrv = (struct rtp_server *)data;
+	g_main_loop_run(rtpsrv->loop);
+	rtp_server_destroy(rtpsrv);
+	return data;
+}
+
+int
+rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
+		int mpx_samplerate, int baseport)
+{
+	static jack_native_thread_t tid = 0;
 	GstStructure *config = NULL;
 	int ret = 0;
+
+	rtpsrv->mpx_samplerate = mpx_samplerate;
+	rtpsrv->baseport = baseport;
 
 	/* Set state to inactive */
 	rtpsrv->state = RTP_SERVER_INACTIVE;
@@ -712,7 +741,7 @@ _rtp_server_init(void *data)
 	rtpsrv->pool = gst_buffer_pool_new();
 	config = gst_buffer_pool_get_config(rtpsrv->pool);
 	gst_buffer_pool_config_set_params(config, NULL,
-					  rtpsrv->buf_len, 3, 0);
+					  buf_len, 3, 0);
 	if (!gst_buffer_pool_set_config(rtpsrv->pool, config) ||
 	    !gst_buffer_pool_set_active(rtpsrv->pool, TRUE)) {
 		ret = -5;
@@ -730,45 +759,28 @@ _rtp_server_init(void *data)
 		goto cleanup;
 	}
 
-	utils_dbg("[RTP] Init complete\n");
-
 	rtpsrv->state = RTP_SERVER_ACTIVE;
 	rtpsrv->loop = g_main_loop_new(NULL, FALSE);
-	g_main_loop_run(rtpsrv->loop);
+
+	/* Run the main loop on another thread and return to caller */
+	ret = jack_client_create_thread(rtpsrv->fmmod_client, &tid,
+					jack_client_real_time_priority(rtpsrv->fmmod_client),
+					jack_is_realtime(rtpsrv->fmmod_client),
+					rtp_server_main_loop,
+					(void *)rtpsrv);
+	if (ret < 0) {
+		utils_err("[JACKD] Could not create processing thread for rtp server\n");
+		ret = -7;
+		goto cleanup;
+	}
+
+	utils_dbg("[RTP] Init complete\n");
+	return 0;
 
  cleanup:
 	rtpsrv->init_res = ret;
 	rtp_server_destroy(rtpsrv);
-	return (void *)rtpsrv;
-}
-
-int
-rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
-		int mpx_samplerate, int max_samples, int baseport)
-{
-	int ret = 0;
-	static jack_native_thread_t tid = 0;
-
-	rtpsrv->buf_len = buf_len;
-	rtpsrv->mpx_samplerate = mpx_samplerate;
-	rtpsrv->max_samples = max_samples;
-	rtpsrv->baseport = baseport;
-
-	if (tid == 0) {
-		/* If thread doesn't exist create it */
-		ret = jack_client_create_thread(rtpsrv->fmmod_client, &tid,
-						jack_client_real_time_priority(rtpsrv->fmmod_client),
-						jack_is_realtime(rtpsrv->fmmod_client),
-						_rtp_server_init,
-						(void *)rtpsrv);
-		if (ret < 0) {
-			utils_err("[JACKD] Could not create processing thread\n");
-			return -1;
-		} else if (rtpsrv->init_res != 0)
-			return rtpsrv->init_res;
-	}
-
-	return 0;
+	return ret;
 }
 
 #endif	/* DISABLE_RTP_SERVER */

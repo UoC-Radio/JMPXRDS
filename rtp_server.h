@@ -47,7 +47,6 @@ struct rtp_server {
 	int init_res;
 	uint32_t buf_len;
 	int mpx_samplerate;
-	int max_samples;
 	int baseport;
 	struct shm_mapping *ctl_map;
 	struct rtp_server_control *ctl;
@@ -80,4 +79,4 @@ void rtp_server_send_buffer(const struct rtp_server *rtpsrv, const float *buff,
 			    int num_samples);
 void rtp_server_destroy(struct rtp_server *rtpsrv);
 int rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
-		    int mpx_samplerate, int max_samples, int baseport);
+		    int mpx_samplerate, int baseport);

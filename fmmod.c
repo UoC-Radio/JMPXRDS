@@ -1024,8 +1024,7 @@ fmmod_initialize(struct fmmod_instance *fmmod)
 	fmmod->rtpsrv.fmmod_client = fmmod->client;
 	output_buf_len = fmmod->num_out_samples * sizeof(float);
 	ret = rtp_server_init(&fmmod->rtpsrv, output_buf_len,
-			      FMMOD_OUTPUT_SAMPLERATE,
-			      fmmod->num_out_samples, 5000);
+			      FMMOD_OUTPUT_SAMPLERATE, 5000);
 	if (ret < 0) {
 		ret = FMMOD_ERR_RTP_ERR;
 		goto cleanup;
