@@ -6,7 +6,7 @@ bin_PROGRAMS = jmpxrds rds_tool fmmod_tool
 
 jmpxrds_SOURCES = filters.c oscilator.c resampler.c rds_encoder.c \
 		  rtp_server.c fmmod.c utils.c main.c
-jmpxrds_LDADD = $(LIBM) $(LIBRT) $(LIBSAMPLERATE) $(LIBFFTW3F) $(LIBJACK)
+jmpxrds_LDADD = $(LIBM) $(LIBRT) $(LIBSAMPLERATE) $(LIBFFTW3F) $(LIBJACK) $(LIBSYSTEMD)
 jmpxrds_CFLAGS = $(CFLAGS) $(DEBUG_CFLAGS)
 
 rds_tool_SOURCES = utils.c rds_config.c rds_dynpsrt.c rds_tool.c
@@ -79,7 +79,7 @@ distclean-local:
 	-rm gui/*.gcno
 	-rm gui/*.gcov
 	-rm -rf ./.gcov_reports
-
+	-rm *~
 if DEBUG
 #Run tests and gather coverage data
 test:

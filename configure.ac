@@ -36,6 +36,16 @@ AC_SUBST([LIBFFTW3F])
 AC_CHECK_LIB([jack], [jack_client_open], [LIBJACK=-ljack],
 	     AC_MSG_ERROR([Could not find jack libraries]))
 AC_SUBST([LIBJACK])
+AC_CHECK_LIB([systemd], [sd_notify],
+	[
+		LIBSYSTEMD=-lsystemd
+		AC_DEFINE([SYSTEMD_NOTIFY],[1],[Systemd service notification available])
+	],
+	[
+		AC_MSG_WARN([Could not find libsystemd, service startup notification won't work])
+	]
+)
+AC_SUBST([LIBSYSTEMD])
 
 AS_IF([test "x$with_rtp_server" != xno],
 	[PKG_CHECK_MODULES(GStreamer,

@@ -19,12 +19,16 @@
  */
 #include "fmmod.h"
 #include "utils.h"
+#include "config.h"
 #include <stdlib.h>		/* For NULL */
 #include <unistd.h>		/* For sleep() */
 #include <stdio.h>		/* For printf */
 #include <sched.h>		/* For sched_setscheduler etc */
 #include <signal.h>		/* For signal handling / sig_atomic_t */
 #include <string.h>		/* For memset() */
+#ifdef SYSTEMD_NOTIFY
+#include <systemd/sd-daemon.h>	/* For sd_notify() */
+#endif
 
 #ifdef DEBUG
 #include <execinfo.h>		/* For backtrace() etc */
@@ -116,7 +120,7 @@ main()
 
 	active = 1;
 
-	/* Install a signal handler for graceful exit 
+	/* Install a signal handler for graceful exit
 	 * and for handling SIGPIPE */
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = SA_SIGINFO;
@@ -132,6 +136,11 @@ main()
 	sigaction(SIGABRT, &sa, NULL);
 
 	utils_ann("JMPXRDS Started\n");
+
+#ifdef SYSTEMD_NOTIFY
+	/* Let systemd know the service has started */
+	sd_notify(0, "READY=1");
+#endif
 
 	/* Keep running until the transport stops
 	 * or in case we are interrupted */
