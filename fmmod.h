@@ -127,8 +127,6 @@ struct fmmod_instance {
 	jack_nframes_t added_latency;
 	/* SSB modulators */
 	struct osc_state cos_osc;
-	float *ssb_lpf_delay_buf;
-	uint32_t ssb_lpf_overlap_len;
 	/* Control */
 	struct shm_mapping *ctl_map;
 	struct fmmod_control *ctl;

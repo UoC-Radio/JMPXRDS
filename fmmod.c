@@ -193,39 +193,34 @@ fmmod_ssb_lpf_generator(struct fmmod_instance *fmmod, const float* lpr,
 	double saved_phase = 0.0L;
 	int i = 0;
 
-	/* Start with the L-R part, save the oscilator's phase
-	 * so that we can re-set it when calculating the pilot
+	/* If we apply the filter only on L-R to suppress its USB, we'll
+	 * delay L-R by SSB_LPF_OVERLAP_FACTOR * num_samples and then we'll
+	 * have to also delay L+R by the same amount through a delay buffer
+	 * which is messy. Instead apply the filter on the combined (L+R) +
+	 * (L-R), the filter will only cut the USB of L-R, leaving L+R
+	 * unaffected. We'll re-use the output buffer for the filter. */
+
+	/* Add L+R to the output buffer */
+	for(i = 0; i < num_samples; i++) {
+		out[i] = lpr[i];
+	}
+
+	/* Add the modulated L-R, save the oscilator's phase
+	 * so that we can re-set it for calculating the pilot
 	 * and the RDS parts */
 	saved_phase = sin_osc->current_phase;
 	for(i = 0; i < num_samples; i++) {
-		/* AM modulated L - R */
-		out[i] = lmr[i] * osc_get_38Khz_sample(sin_osc);
+		out[i] += lmr[i] * osc_get_38Khz_sample(sin_osc);
 		osc_increase_phase(sin_osc);
 	}
-
-	/* Apply the lpf filter to suppres the USB, re-use the output
-	 * buffer. */
-	lpf_filter_apply(&flts->ssb_lpf, out, out,
-		    num_samples, ctl->stereo_carrier_gain * 3.0);
-
-	/* L-R is behind max_samples * SSB_LPF_OVERLAP_FACTOR due to the filter's
-	 * overlap so delay L+R by the same amount of samples to keep them in sync
-	 * and not mess up the stereo image */
-
-	/* Shift the buffer's content to make room for the new
-	 * period on its end and then put the new data there. */
-	memmove(fmmod->ssb_lpf_delay_buf,
-		fmmod->ssb_lpf_delay_buf + num_samples,
-		fmmod->ssb_lpf_overlap_len * sizeof(float));
-	memcpy(fmmod->ssb_lpf_delay_buf + fmmod->ssb_lpf_overlap_len, lpr,
-		num_samples * sizeof(float));
-
-
-	/* Now restore the oscilator's phase and add the rest */
 	sin_osc->current_phase = saved_phase;
+
+	/* Apply the lpf filter to suppres the USB of L-R */
+	lpf_filter_apply(&flts->ssb_lpf, out, out,
+		    num_samples, ctl->stereo_carrier_gain * 2.0);
+
+	/* Now add the rest */
 	for(i = 0; i < num_samples; i++) {
-		/* L + R */
-		out[i] += fmmod->ssb_lpf_delay_buf[i];
 
 		/* Stereo Pilot at 19KHz */
 		out[i] += ctl->pilot_gain * osc_get_19Khz_sample(sin_osc);
@@ -667,8 +662,6 @@ fmmod_free_buffers(const struct fmmod_instance *fmmod)
 		free(fmmod->umpxbuf);
 	if (fmmod->outbuf != NULL)
 		free(fmmod->outbuf);
-	if (fmmod->ssb_lpf_delay_buf != NULL)
-		free(fmmod->ssb_lpf_delay_buf);
 	utils_dbg("[FMMOD] Buffers freed\n");
 }
 
@@ -743,20 +736,6 @@ fmmod_init_buffers(struct fmmod_instance *fmmod, uint32_t jack_samplerate)
 		goto cleanup;
 	}
 	memset(fmmod->outbuf, 0, output_buf_len);
-
-
-	/* Allocate LPF SSB Delay buffer */
-	fmmod->ssb_lpf_overlap_len = fmmod->upsampled_num_samples *
-				     SSB_LPF_OVERLAP_FACTOR;
-	ssb_lpf_delay_buf_len = (fmmod->upsampled_num_samples *
-				 (SSB_LPF_OVERLAP_FACTOR + 1)) * sizeof(float);
-	fmmod->ssb_lpf_delay_buf = (float *) malloc(ssb_lpf_delay_buf_len);
-	if (!fmmod->ssb_lpf_delay_buf)  {
-		utils_err("[FMMOD] Could not allocate delay buffer for LPF SSB modulator\n");
-		ret = FMMOD_ERR_LPF;
-		goto cleanup;
-	}
-	memset(fmmod->ssb_lpf_delay_buf, 0, ssb_lpf_delay_buf_len);
 
 	utils_dbg("[FMMOD] Buffers initialized\n");
 	return  0;
