@@ -500,6 +500,7 @@ rtp_init_audiosrc(struct rtp_server *rtpsrv)
 	gst_app_src_set_caps(GST_APP_SRC(rtpsrv->appsrc), audio_caps);
 	gst_caps_unref(audio_caps);
 
+	gst_base_src_set_blocksize (GST_BASE_SRC(rtpsrv->appsrc),rtpsrv->buf_len);
 	gst_app_src_set_stream_type(GST_APP_SRC(rtpsrv->appsrc),
 				    GST_APP_STREAM_TYPE_STREAM);
 	gst_base_src_set_live(GST_BASE_SRC(rtpsrv->appsrc), TRUE);
@@ -606,7 +607,7 @@ rtp_init_network_path(struct rtp_server *rtpsrv)
 	/* Set up an RTP sinkpad for session 0 from rtpbin and link it to the
 	 * rtp_payloader */
 	srcpad = gst_element_get_static_pad(rtp_payloader, "src");
-	sinkpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtp_sink_0");
+	sinkpad = gst_element_request_pad_simple(rtpsrv->rtpbin, "send_rtp_sink_0");
 	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK)
 		return -4;
 	gst_object_unref(srcpad);
@@ -638,7 +639,7 @@ rtp_init_network_path(struct rtp_server *rtpsrv)
 	/* In order to receive RTCP messages link rtcpsrc to
 	 * rtpbin's recv_rtcp_sink for session 0 */
 	srcpad = gst_element_get_static_pad(rtcpsrc, "src");
-	sinkpad = gst_element_get_request_pad(rtpsrv->rtpbin, "recv_rtcp_sink_0");
+	sinkpad = gst_element_request_pad_simple(rtpsrv->rtpbin, "recv_rtcp_sink_0");
 	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK)
 		return -8;
 	gst_object_unref(srcpad);
@@ -655,7 +656,7 @@ rtp_init_network_path(struct rtp_server *rtpsrv)
 
 	/* Get the RTCP srcpad that was created for session 0 above and
 	 * link it to rtcpbin */
-	srcpad = gst_element_get_request_pad(rtpsrv->rtpbin, "send_rtcp_src_0");
+	srcpad = gst_element_request_pad_simple(rtpsrv->rtpbin, "send_rtcp_src_0");
 	sinkpad = gst_element_get_static_pad(rtpsrv->rtcpsink, "sink");
 	if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK)
 		return -10;
@@ -684,6 +685,7 @@ rtp_server_init(struct rtp_server *rtpsrv, uint32_t buf_len,
 
 	rtpsrv->mpx_samplerate = mpx_samplerate;
 	rtpsrv->baseport = baseport;
+	rtpsrv->buf_len = buf_len;
 
 	/* Set state to inactive */
 	rtpsrv->state = RTP_SERVER_INACTIVE;

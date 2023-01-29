@@ -419,6 +419,15 @@ fmmod_process(struct fmmod_instance *fmmod)
 			ctl->peak_mpx_out = fmmod->outbuf[i];
 	}
 
+	/* When we start generating frames the resampler needs a few
+	 * periods to start generating the expected number of output
+	 * samples, so skip those initial periods to avoid sending
+	 * fewer samples to the socket/rtp server. */
+	if (unlikely(frames_generated != fmmod->num_out_samples)) {
+		pthread_mutex_unlock(&fmmod->mpx_buf_mutex);
+		goto done;
+	}
+
 	/* Write raw MPX signal to socket */
 	write_to_sock(fmmod, fmmod->outbuf, frames_generated);
 

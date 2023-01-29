@@ -26,6 +26,9 @@
 #define RDS_ENC_SHM_NAME	"/RDS_ENC_SHM"
 #define RTP_SRV_SHM_NAME	"/RTP_SRV_SHM"
 
+#define likely(x)       __builtin_expect((x),1)
+#define unlikely(x)     __builtin_expect((x),0)
+
 struct shm_mapping {
 	const char* name;
 	int size;
