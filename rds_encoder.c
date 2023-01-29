@@ -499,7 +499,7 @@ rds_generate_group(const struct rds_encoder *enc, struct rds_group *group,
 	int i = 0;
 	int ret = 0;
 
-	if (enc == NULL || group == NULL || version > RDS_GROUP_VERSION_MAX)
+	if (unlikely(enc == NULL || group == NULL || version > RDS_GROUP_VERSION_MAX))
 		return -1;
 
 	memset(group, 0, sizeof(struct rds_group));
@@ -647,7 +647,7 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 
 	/* Update current group */
 	ret = rds_get_next_group(enc, &next_group);
-	if (ret < 0) {
+	if (unlikely(ret < 0)) {
 		outbuf->result = -1;
 		goto cleanup;
 	}
@@ -661,7 +661,7 @@ rds_get_next_upsampled_group(struct rds_encoder *enc)
 						outbuf->waveform,
 						RDS_GROUP_SAMPLES,
 						enc->upsampled_waveform_len);
-	if (outbuf->waveform_samples < 0) {
+	if (unlikely(outbuf->waveform_samples < 0)) {
 		outbuf->waveform_samples = 0;
 		outbuf->result = -2;
 		goto cleanup;

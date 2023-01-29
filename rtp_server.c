@@ -219,7 +219,7 @@ rtp_server_send_buffer(const struct rtp_server *rtpsrv, const float *buff,
 
 	/* Get an empty buffer from the pool */
 	ret = gst_buffer_pool_acquire_buffer(rtpsrv->pool, &gstbuff, NULL);
-	if (ret != GST_FLOW_OK)
+	if (G_UNLIKELY(ret != GST_FLOW_OK))
 		return;
 
 	gst_buffer_map(gstbuff, &info, GST_MAP_WRITE);

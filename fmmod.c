@@ -364,7 +364,7 @@ fmmod_process(struct fmmod_instance *fmmod)
 						    fmmod->num_in_samples,
 						    fmmod->upsampled_num_samples);
 	pthread_mutex_unlock(&fmmod->inbuf_mutex);
-	if (frames_generated <= 0) {
+	if (unlikely(frames_generated <= 0)) {
 		pthread_mutex_unlock(&fmmod->uaudio_buf_mutex);
 		if (frames_generated < 0)
 			ret = FMMOD_ERR_RESAMPLER_ERR;
@@ -405,7 +405,7 @@ fmmod_process(struct fmmod_instance *fmmod)
 	frames_generated = resampler_downsample_mpx(rsmpl, fmmod->umpxbuf, fmmod->outbuf,
 						    frames_generated,
 						    fmmod->num_out_samples);
-	if (frames_generated < 0) {
+	if (unlikely(frames_generated <= 0)) {
 		pthread_mutex_unlock(&fmmod->mpx_buf_mutex);
 		if (frames_generated < 0)
 			ret = FMMOD_ERR_RESAMPLER_ERR;
@@ -492,13 +492,13 @@ fmmod_process_cb(jack_nframes_t num_samples, void *arg)
 		return 0;
 
 	/* No frames received or underrun, ignore this period */
-	if (!num_samples || num_samples < fmmod->num_in_samples) {
+	if (unlikely(!num_samples || num_samples < fmmod->num_in_samples)) {
 		utils_dbg("[FMMOD] got underrun, skipping period\n");
 		return 0;
 	}
 
 	/* Got more frames than expected */
-	if (num_samples > fmmod->num_in_samples) {
+	if (unlikely(num_samples > fmmod->num_in_samples)) {
 		utils_err("[FMMOD] got excessive input samples\n");
 		return FMMOD_ERR_INVALID_INPUT;
 	}
